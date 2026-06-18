@@ -1,0 +1,49 @@
+[common]
+game_ended = "This game has already ended."
+not_your_turn = "It is not your turn."
+forbidden = "You are not allowed to do that."
+error = "Something went wrong. Please try again."
+match_not_found = "Match not found."
+replay_unavailable = "Replay is unavailable for this match."
+replay_owner_only = "Open your own replay with /strife replay."
+
+[lobby]
+title = "{game_name} Lobby"
+waiting = "Waiting for players ({count}/{max})..."
+ready = "Ready"
+not_ready = "Waiting"
+closed = "This lobby has been closed."
+creator_only = "Only the lobby creator can do that."
+cannot_start = "Cannot start: {reason}"
+joined = "You joined the lobby."
+left = "You left the lobby."
+bot_added = "Added {count} bot(s)."
+bot_removed = "Removed bot {name}."
+
+[errors]
+already_in_session = "You are already in an active lobby or match."
+game_disabled = "That game is not available."
+
+[match]
+result_title = "{game_name} - Result"
+winner = "Winner: {winner}"
+draw = "Draw"
+rematch_progress = "Rematch {count}/{total}"
+rematch_expired = "Rematch offer expired."
+
+[profile]
+title = "{name} - Profile"
+stats = "Wins {wins}  •  Losses {losses}  •  Draws {draws}  •  Played {played}  •  Win rate {rate}%"
+recent = "Recent Matches (page {page}/{pages})"
+no_matches = "No matches found."
+
+[catalog]
+title = "Game Catalog"
+page = "Page {page}/{pages}"
+
+[replay]
+title = "Replay: Match #{code} ({game_name})"
+turn_label = "Turn {current}/{total}"
+
+[timeout]
+warning = "{player} has {seconds}s left to move."

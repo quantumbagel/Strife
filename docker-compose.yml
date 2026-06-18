@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: strife
+      POSTGRES_PASSWORD: strife
+      POSTGRES_DB: strife
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U strife -d strife"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+
+  bot:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      STRIFE_DATABASE_URL: postgresql://strife:strife@db:5432/strife
+    restart: unless-stopped
+
+volumes:
+  pgdata:
