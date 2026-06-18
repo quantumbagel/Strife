@@ -20,6 +20,7 @@ from strife.matchmaking.settings_view import build_settings_view
 from strife.persistence.repositories import FinishedMatch, GuildRepository, MatchRepository, PlayerResult, UserRepository
 from strife.presentation.compiler import Compiler
 from strife.presentation.emoji import EmojiResolver
+from strife.presentation.components import Container, LayoutView, TextDisplay, TextSize
 from strife.presentation.message import ViewSurface
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route
@@ -86,10 +87,6 @@ class LobbyService:
     def _meta(self, game_key: str) -> GameMetadata:
         return self.registry.metadata(game_key)
 
-    def _accent(self, game_key: str) -> int:
-        game_cfg = self.config.games.for_game(game_key)
-        meta = self._meta(game_key)
-        return game_cfg.accent_color or meta.accent_color or 0x5865F2
 
     def _default_settings(self, meta: GameMetadata) -> dict:
         settings = {}
@@ -116,10 +113,9 @@ class LobbyService:
         channel = interaction.guild.get_channel(channel_id) if channel_id else interaction.channel
         if channel is None:
             channel = interaction.channel
-        thread_name = f"{meta.name} Lobby"
-        thread = await channel.create_thread(name=thread_name, auto_archive_duration=1440)
+        lobby_id = secrets.randbits(63)
         lobby = Lobby(
-            thread_id=thread.id,
+            thread_id=lobby_id,
             guild_id=interaction.guild_id,
             channel_id=channel.id,
             game_key=game_key,
@@ -128,15 +124,15 @@ class LobbyService:
             members=[LobbyMember(interaction.user.id, interaction.user.display_name)],
             settings=self._default_settings(meta),
         )
-        surface = ViewSurface(self.compiler, prefix=P.LOBBY_JOIN, resource_id=thread.id)
+        surface = ViewSurface(self.compiler, prefix=P.LOBBY_JOIN, resource_id=lobby_id)
         surface.set_prefix(P.LOBBY_JOIN)
         lobby.surface = surface
-        self.registries.user_location[interaction.user.id] = UserLocation("lobby", thread.id, interaction.guild_id)
+        self.registries.user_location[interaction.user.id] = UserLocation("lobby", lobby_id, interaction.guild_id)
         self.registries.add_lobby(lobby)
-        view = build_lobby_view(lobby, meta, self.emoji, self.text, accent=self._accent(game_key))
-        await surface.send_to_thread(thread, view)
+        view = build_lobby_view(lobby, meta, self.emoji, self.text)
+        await surface.send(channel, view)
         lobby.message_id = surface.message_id
-        await interaction.response.send_message(f"Lobby created: {thread.mention}", ephemeral=True)
+        await interaction.response.send_message(f"Lobby created in {channel.mention}", ephemeral=True)
 
     async def handle(self, route: Route, interaction: discord.Interaction) -> None:
         lobby = self.registries.get_lobby(route.resource_id)
@@ -165,7 +161,7 @@ class LobbyService:
 
     async def _refresh(self, lobby: Lobby, interaction: discord.Interaction) -> None:
         meta = self._meta(lobby.game_key)
-        view = build_lobby_view(lobby, meta, self.emoji, self.text, accent=self._accent(lobby.game_key))
+        view = build_lobby_view(lobby, meta, self.emoji, self.text)
         if not interaction.response.is_done():
             await interaction.response.defer()
         if lobby.surface:
@@ -215,7 +211,7 @@ class LobbyService:
             await interaction.response.send_message(self.text.get("lobby.creator_only"), ephemeral=True)
             return
         meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.text, accent=self._accent(lobby.game_key))
+        view = build_settings_view(lobby, meta, self.text)
         compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
         await interaction.response.send_message(view=compiled, ephemeral=True)
 
@@ -235,7 +231,7 @@ class LobbyService:
             lobby.private = values[0] == "private"
         await interaction.response.defer(ephemeral=True)
         meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.text, accent=self._accent(lobby.game_key))
+        view = build_settings_view(lobby, meta, self.text)
         compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
         await interaction.edit_original_response(view=compiled)
 
@@ -248,7 +244,7 @@ class LobbyService:
         lobby.blacklist.clear()
         await interaction.response.defer(ephemeral=True)
         meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.text, accent=self._accent(lobby.game_key))
+        view = build_settings_view(lobby, meta, self.text)
         compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
         await interaction.edit_original_response(view=compiled)
 
@@ -269,7 +265,7 @@ class LobbyService:
                 lobby.settings[key] = raw
         await interaction.response.defer(ephemeral=True)
         meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.text, accent=self._accent(lobby.game_key))
+        view = build_settings_view(lobby, meta, self.text)
         compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
         await interaction.edit_original_response(view=compiled)
         await self._refresh(lobby, interaction)
@@ -281,7 +277,7 @@ class LobbyService:
         lobby.settings = self._default_settings(self._meta(lobby.game_key))
         await interaction.response.defer(ephemeral=True)
         meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.text, accent=self._accent(lobby.game_key))
+        view = build_settings_view(lobby, meta, self.text)
         compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
         await interaction.edit_original_response(view=compiled)
         await self._refresh(lobby, interaction)
@@ -335,25 +331,59 @@ class LobbyService:
         if lobby.surface is None:
             await interaction.response.send_message(self.text.get("common.error"), ephemeral=True)
             return
-        lobby.surface.set_prefix(P.G_MOVE)
-        lobby.surface.set_resource_id(lobby.thread_id)
+
+        # Create thread for the game
+        channel = interaction.guild.get_channel(lobby.channel_id) if lobby.channel_id else interaction.channel
+        if channel is None:
+            channel = interaction.channel
+        thread_name = f"{meta.name} Game"
+        thread = await channel.create_thread(name=thread_name, auto_archive_duration=1440)
+
+        # Invite players to thread
+        for p in players:
+            if p.user_id and not p.is_bot:
+                member = interaction.guild.get_member(p.user_id)
+                if member:
+                    try:
+                        await thread.add_user(member)
+                    except discord.HTTPException:
+                        pass
+
+        # Update lobby message in channel to say game started
+        ended_view = LayoutView()
+        brand = self.emoji.general("brand_logo")
+        ended_view.children.append(
+            TextDisplay(markdown_content=f"## {brand} {self.text.get('lobby.title', game_name=meta.name)}", size_style=TextSize.HEADER)
+        )
+        container = Container()
+        container.add_text(TextDisplay(markdown_content=f"Game started in {thread.mention}!", size_style=TextSize.BODY))
+        ended_view.add_container(container)
+        await lobby.surface.update(ended_view)
+
+        # Create game surface and send first message to thread
+        game_surface = ViewSurface(self.compiler, prefix=P.G_MOVE, resource_id=thread.id)
+        starting_view = LayoutView()
+        starting_view.children.append(
+            TextDisplay(markdown_content=f"Starting {meta.name}...", size_style=TextSize.BODY)
+        )
+        await game_surface.send_to_thread(thread, starting_view)
 
         async def finalize_cb(finished: FinishedMatch, outcome):
             match_id, code = await self.finalizer.persist_and_release(finished, outcome)
             if self.lifecycle:
-                self.lifecycle.register_session_end(lobby.thread_id, match_id, outcome, players)
+                self.lifecycle.register_session_end(thread.id, match_id, outcome, players)
             return match_id, code
 
         finalize_cb.session_complete = self.finalizer.session_complete  # type: ignore[attr-defined]
 
         session = GameSession(
-            thread_id=lobby.thread_id,
+            thread_id=thread.id,
             guild_id=lobby.guild_id,
             game=game,
             players=players,
             settings=dict(lobby.settings),
             seed=seed,
-            surface=lobby.surface,
+            surface=game_surface,
             text=self.text,
             finalize_cb=finalize_cb,
             game_key=lobby.game_key,
@@ -370,10 +400,18 @@ class LobbyService:
         self.registries.remove_lobby(lobby.thread_id)
         if not interaction.response.is_done():
             await interaction.response.defer()
-        thread = interaction.guild.get_thread(lobby.thread_id)
-        if thread:
-            await thread.send(self.text.get("lobby.closed"))
-            await thread.edit(locked=True)
+        
+        meta = self._meta(lobby.game_key)
+        closed_view = LayoutView()
+        brand = self.emoji.general("brand_logo")
+        closed_view.children.append(
+            TextDisplay(markdown_content=f"## {brand} {self.text.get('lobby.title', game_name=meta.name)}", size_style=TextSize.HEADER)
+        )
+        container = Container()
+        container.add_text(TextDisplay(markdown_content=self.text.get("lobby.closed"), size_style=TextSize.BODY))
+        closed_view.add_container(container)
+        if lobby.surface:
+            await lobby.surface.update(closed_view)
 
     async def add_bots(self, interaction: discord.Interaction, difficulty: str, number: int) -> None:
         loc = self.registries.location_of(interaction.user.id)
@@ -387,7 +425,7 @@ class LobbyService:
         for i in range(number):
             lobby.bots.append(QueuedBot(name=f"Bot-{difficulty}-{len(lobby.bots)+1}", difficulty=difficulty))
         meta = self._meta(lobby.game_key)
-        view = build_lobby_view(lobby, meta, self.emoji, self.text, accent=self._accent(lobby.game_key))
+        view = build_lobby_view(lobby, meta, self.emoji, self.text)
         if lobby.surface:
             await lobby.surface.update(view)
         await interaction.response.send_message(self.text.get("lobby.bot_added", count=number), ephemeral=True)
@@ -403,7 +441,7 @@ class LobbyService:
             return
         lobby.bots = [b for b in lobby.bots if b.name != name]
         meta = self._meta(lobby.game_key)
-        view = build_lobby_view(lobby, meta, self.emoji, self.text, accent=self._accent(lobby.game_key))
+        view = build_lobby_view(lobby, meta, self.emoji, self.text)
         if lobby.surface:
             await lobby.surface.update(view)
         await interaction.response.send_message(self.text.get("lobby.bot_removed", name=name), ephemeral=True)

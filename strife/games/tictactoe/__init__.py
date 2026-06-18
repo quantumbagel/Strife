@@ -42,11 +42,7 @@ META = GameMetadata(
         ),
     ),
     slash_moves=(),
-    role_mode=RoleMode.NONE,
-    role_flow=RoleFlow.NONE,
-    roles=(),
     supports_player_removal=False,
-    accent_color=0x57F287,
 )
 
 TicTacToe.metadata = META

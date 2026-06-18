@@ -45,7 +45,7 @@ class ProfileService:
         view.children.append(
             TextDisplay(markdown_content=f"## {user.display_name} - Profile{suffix}")
         )
-        container = Container(accent_color=0x5865F2)
+        container = Container()
         container.add_text(
             TextDisplay(
                 markdown_content=self.text.get(

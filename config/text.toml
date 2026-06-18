@@ -8,7 +8,7 @@ replay_unavailable = "Replay is unavailable for this match."
 replay_owner_only = "Open your own replay with /strife replay."
 
 [lobby]
-title = "{game_name} Lobby"
+title = "Queueing for {game_name}..."
 waiting = "Waiting for players ({count}/{max})..."
 ready = "Ready"
 not_ready = "Waiting"

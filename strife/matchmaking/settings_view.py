@@ -21,11 +21,9 @@ def build_settings_view(
     lobby: Lobby,
     meta: GameMetadata,
     text: TextConfig,
-    *,
-    accent: int,
 ) -> LayoutView:
     view = LayoutView().header("configure", f"{meta.name} > Configuration")
-    container = Container(accent_color=accent)
+    container = Container()
     privacy = "Private" if lobby.private else "Public"
     container.add_text(TextDisplay(markdown_content=f"**Privacy:** {privacy}"))
     container.add_text(

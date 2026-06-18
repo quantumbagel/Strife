@@ -157,7 +157,7 @@ class Compiler:
         return compiled
 
     def _compile_container(self, container: Container, *, resource_id: int, prefix: str) -> ui.Container:
-        compiled = ui.Container(accent_color=container.accent_color)
+        compiled = ui.Container()
         for child in container.children:
             if isinstance(child, TextDisplay):
                 self._count()

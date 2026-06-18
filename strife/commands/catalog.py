@@ -25,7 +25,7 @@ class CatalogService:
         chunk = games[page * self._page_size : (page + 1) * self._page_size]
         view = LayoutView()
         view.children.append(TextDisplay(markdown_content="## Game Catalog"))
-        container = Container(accent_color=0x5865F2)
+        container = Container()
         for meta in chunk:
             container.children.append(
                 TextDisplay(
@@ -71,7 +71,7 @@ class CatalogService:
         chunk = games[page * self._page_size : (page + 1) * self._page_size]
         view = LayoutView()
         view.children.append(TextDisplay(markdown_content="## Game Catalog"))
-        container = Container(accent_color=0x5865F2)
+        container = Container()
         for meta in chunk:
             container.children.append(
                 TextDisplay(

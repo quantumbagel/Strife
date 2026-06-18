@@ -54,13 +54,13 @@ class SessionRegistries:
     def get_game(self, thread_id: int) -> GameSession | None:
         return self.active_games.get(thread_id)
 
-    def promote(self, thread_id: int, session: GameSession) -> None:
-        lobby = self.lobbies.pop(thread_id, None)
+    def promote(self, lobby_id: int, session: GameSession) -> None:
+        lobby = self.lobbies.pop(lobby_id, None)
         if lobby:
             guild_set = self.guild_lobbies.get(lobby.guild_id)
             if guild_set:
-                guild_set.discard(thread_id)
-        self.active_games[thread_id] = session
+                guild_set.discard(lobby_id)
+        self.active_games[session.thread_id] = session
         for member in session.players:
             if member.user_id and not member.is_bot:
-                self.user_location[member.user_id] = UserLocation("game", thread_id, session.guild_id)
+                self.user_location[member.user_id] = UserLocation("game", session.thread_id, session.guild_id)

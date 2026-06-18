@@ -101,7 +101,6 @@ class ActionRow:
 
 @dataclass
 class Container:
-    accent_color: int | None = None
     children: list[TextDisplay | Separator | MediaGallery | ActionRow] = field(default_factory=list)
 
     def add_text(self, text: TextDisplay) -> Container:

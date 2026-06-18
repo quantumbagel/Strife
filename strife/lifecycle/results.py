@@ -22,14 +22,13 @@ def build_results_view(
     thread_id: int,
     match_id: int,
     owner_id: int,
-    accent: int,
     text: TextConfig,
 ) -> LayoutView:
     view = LayoutView()
     view.children.append(
         TextDisplay(markdown_content=f"## ✅ {text.get('match.result_title', game_name=game_name)}")
     )
-    container = Container(accent_color=accent)
+    container = Container()
     summary = outcome.summary or {}
     if summary.get("winner") is None and "winning_faction" not in summary:
         body = text.get("match.draw")

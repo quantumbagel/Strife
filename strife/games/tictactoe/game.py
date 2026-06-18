@@ -60,7 +60,7 @@ class TicTacToe(Game):
         p0, p1 = self.players[0], self.players[1]
         header = LayoutView()
         header.children.append(TextDisplay(markdown_content="## Tic-Tac-Toe", size_style=TextSize.HEADER))
-        container = Container(accent_color=0x57F287)
+        container = Container()
         container.add_text(
             TextDisplay(
                 markdown_content=f"**{p0.display_name}** vs **{p1.display_name}**",

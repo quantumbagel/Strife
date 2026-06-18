@@ -273,7 +273,6 @@ class GameSession:
             thread_id=self.thread_id,
             match_id=match_id,
             owner_id=next((p.user_id for p in self.players if p.user_id), 0),
-            accent=self.game.metadata.accent_color or 0x5865F2,
             text=self.text,
         )
         await self.surface.update(results_view)

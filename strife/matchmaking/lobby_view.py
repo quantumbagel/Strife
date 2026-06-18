@@ -24,15 +24,13 @@ def build_lobby_view(
     meta: GameMetadata,
     emoji: EmojiResolver,
     text: TextConfig,
-    *,
-    accent: int,
 ) -> LayoutView:
     brand = emoji.general("brand_logo")
     view = LayoutView()
     view.children.append(
         TextDisplay(markdown_content=f"## {brand} {text.get('lobby.title', game_name=meta.name)}", size_style=TextSize.HEADER)
     )
-    container = Container(accent_color=accent)
+    container = Container()
     container.add_text(TextDisplay(markdown_content=meta.summary, size_style=TextSize.BODY))
     container.add_separator()
     roster_lines = []

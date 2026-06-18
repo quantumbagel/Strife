@@ -53,7 +53,7 @@ class Mafia(Game):
             instructions = next((r.instructions for r in self.metadata.roles if r.key == role), "")
             view = LayoutView()
             view.children.append(TextDisplay(markdown_content=f"## Your role: {role.title()}", size_style=TextSize.HEADER))
-            view.add_container(Container(accent_color=0xED4245, children=[TextDisplay(instructions)]))
+            view.add_container(Container(children=[TextDisplay(instructions)]))
             if role == "mafia":
                 teammates = [p.display_name for p in self.players if self.role[p.seat] == "mafia" and p.seat != player.seat]
                 if teammates:
@@ -132,7 +132,7 @@ class Mafia(Game):
     def _public_view(self, text: str) -> LayoutView:
         view = LayoutView()
         view.children.append(TextDisplay(markdown_content="## Mafia", size_style=TextSize.HEADER))
-        container = Container(accent_color=0xED4245)
+        container = Container()
         container.add_text(TextDisplay(text))
         alive = ", ".join(self.players[s].display_name for s in sorted(self.alive))
         container.add_text(TextDisplay(f"**Alive:** {alive}"))

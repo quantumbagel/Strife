@@ -1,42 +1,123 @@
 general:
   brand_logo:
-    fallback: "🎮"
+    fallback: 🎮
     id: null
   success_checkmark:
-    fallback: "✅"
+    fallback: ✅
     id: null
   error_cross:
-    fallback: "❌"
+    fallback: ❌
     id: null
   separator_bar:
-    fallback: "➖"
+    fallback: ➖
     id: null
+  ban:
+    fallback: null
+    id: 1517174858092384446
+  clueless:
+    fallback: null
+    id: 1517174858537107458
+  creator:
+    fallback: null
+    id: 1517174859346477210
+  error:
+    fallback: null
+    id: 1517174861355552862
+  explosion:
+    fallback: null
+    id: 1517174862546731111
+  facepalm:
+    fallback: null
+    id: 1517174863641579671
+  first:
+    fallback: null
+    id: 1517174864350548048
+  forward:
+    fallback: null
+    id: 1517174864694476854
+  game_mafia:
+    fallback: null
+    id: 1517174865852104945
+  github:
+    fallback: null
+    id: 1517174866552553553
+  hmm:
+    fallback: null
+    id: 1517174867210797056
+  hnn:
+    fallback: null
+    id: 1517174868012040364
+  join:
+    fallback: null
+    id: 1517174868918140978
+  kick:
+    fallback: null
+    id: 1517174869572321354
+  last:
+    fallback: null
+    id: 1517174870620897361
+  leave:
+    fallback: null
+    id: 1517174871430529246
+  loading:
+    fallback: null
+    id: 1517174872126656682
+  playcord:
+    fallback: null
+    id: 1517174874513215619
+  pointing:
+    fallback: null
+    id: 1517174875935080541
+  ready:
+    fallback: null
+    id: 1517174877914927175
+  rematch:
+    fallback: null
+    id: 1517174878757716038
+  settings:
+    fallback: null
+    id: 1517174880100024480
+  space:
+    fallback: null
+    id: 1517174880859066521
+  spectate:
+    fallback: null
+    id: 1517174881760841778
+  time:
+    fallback: null
+    id: 1517174882524336170
+  timer:
+    fallback: null
+    id: 1517174883321253969
+  user:
+    fallback: null
+    id: 1517174883979759767
 button:
   play:
-    fallback: "▶️"
+    fallback: ▶️
     id: null
   previous:
-    fallback: "◀️"
-    id: null
+    fallback: ◀️
+    id: 1517174876933197864
   next:
-    fallback: "▶️"
-    id: null
+    fallback: ▶️
+    id: 1517174872978227260
   external_link:
-    fallback: "🔗"
+    fallback: 🔗
     id: null
   configure:
-    fallback: "⚙️"
+    fallback: ⚙️
     id: null
 game:
   tictactoe_x:
-    fallback: "❌"
+    fallback: ❌
     id: null
   tictactoe_o:
-    fallback: "⭕"
+    fallback: ⭕
     id: null
   mafia_villager:
-    fallback: "🧑‍🌾"
+    fallback: 🧑‍🌾
     id: null
   mafia_werewolf:
-    fallback: "🐺"
+    fallback: 🐺
     id: null

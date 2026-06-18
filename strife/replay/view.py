@@ -31,7 +31,7 @@ def build_replay_view(
             markdown_content=f"## Replay: Match #{match.code} ({match.game_key})",
         )
     )
-    container = Container(accent_color=0x5865F2)
+    container = Container()
     container.add_text(TextDisplay(markdown_content=str(match.outcome)))
     container.add_separator()
     if frame_view:

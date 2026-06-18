@@ -1,11 +1,13 @@
-from __future__ import annotations
-
+import secrets
 import time
+import discord
 
 from strife.config.text import TextConfig
 from strife.matchmaking.lobby import Lobby, LobbyMember, QueuedBot
 from strife.matchmaking.lobby_view import build_lobby_view
 from strife.matchmaking.registries import SessionRegistries, UserLocation
+from strife.presentation.message import ViewSurface
+from strife.routing import prefixes as P
 
 
 class RematchManager:
@@ -51,36 +53,57 @@ class RematchManager:
             for p in session.players
             if p.is_bot
         ]
+
+        lobby_id = secrets.randbits(63)
+        thread = self.lobby.bot.get_channel(thread_id)
+        parent_channel = None
+        if isinstance(thread, discord.Thread):
+            parent_channel = thread.parent
+
+        target_channel = parent_channel or thread
+        if target_channel is None:
+            return
+
         lobby = Lobby(
-            thread_id=thread_id,
+            thread_id=lobby_id,
             guild_id=guild_id,
-            channel_id=0,
+            channel_id=target_channel.id,
             game_key=game_key,
             creator_id=members[0].user_id if members else 0,
             private=False,
             members=members,
             bots=bots,
             settings=dict(session.settings),
-            surface=session.surface,
         )
+        surface = ViewSurface(self.lobby.compiler, prefix=P.LOBBY_JOIN, resource_id=lobby_id)
+        lobby.surface = surface
+
         self.registries.active_games.pop(thread_id, None)
         self.registries.add_lobby(lobby)
+
         for member in members:
+            await self.registries.release_user(member.user_id)
             if not await self.registries.reserve_user(
-                member.user_id, UserLocation("lobby", thread_id, guild_id)
+                member.user_id, UserLocation("lobby", lobby_id, guild_id)
             ):
                 lobby.members = [m for m in lobby.members if m.user_id != member.user_id]
+
         meta = self.lobby.registry.metadata(game_key)
         view = build_lobby_view(
             lobby,
             meta,
             self.lobby.emoji,
             self.text,
-            accent=self.lobby._accent(game_key),
         )
-        if lobby.surface:
-            lobby.surface.set_prefix("lobby_join:")
-            await lobby.surface.replace(view)
+        await surface.send(target_channel, view)
+        lobby.message_id = surface.message_id
+
+        if isinstance(thread, discord.Thread):
+            try:
+                await thread.send(f"Rematch lobby created in {target_channel.mention}!")
+            except discord.HTTPException:
+                pass
+
         self._votes.pop(thread_id, None)
         self._eligible.pop(thread_id, None)
         self._expires.pop(thread_id, None)

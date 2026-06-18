@@ -9,7 +9,7 @@ import yaml
 
 @dataclass
 class EmojiEntry:
-    fallback: str
+    fallback: str | None = None
     id: int | None = None
 
 
@@ -32,7 +32,7 @@ def _parse_bucket(raw: dict[str, Any] | None) -> dict[str, EmojiEntry]:
         return {}
     return {
         name: EmojiEntry(
-            fallback=str(entry.get("fallback", "❓")),
+            fallback=str(entry["fallback"]) if entry.get("fallback") is not None else None,
             id=int(entry["id"]) if entry.get("id") is not None else None,
         )
         for name, entry in raw.items()

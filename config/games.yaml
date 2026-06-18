@@ -1,16 +1,13 @@
 defaults:
   turn_timeout_seconds: 90
   turn_warning_seconds: 30
-  accent_color: 0x5865F2
 
 games:
   tictactoe:
     enabled: true
-    accent_color: 0x57F287
     turn_timeout_seconds: 60
   mafia:
     enabled: true
-    accent_color: 0xED4245
     turn_timeout_seconds: 120
     settings_overrides:
       mafia_count_default: 2

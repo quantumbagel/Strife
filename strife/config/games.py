@@ -10,12 +10,10 @@ from pydantic import BaseModel, Field
 class GameDefaults(BaseModel):
     turn_timeout_seconds: int = 90
     turn_warning_seconds: int = 30
-    accent_color: int = 0x5865F2
 
 
 class GameConfig(BaseModel):
     enabled: bool = True
-    accent_color: int | None = None
     turn_timeout_seconds: int | None = None
     turn_warning_seconds: int | None = None
     settings_overrides: dict[str, Any] = Field(default_factory=dict)
@@ -29,7 +27,6 @@ class GamesConfig(BaseModel):
         game = self.games.get(key, GameConfig())
         return GameConfig(
             enabled=game.enabled,
-            accent_color=game.accent_color if game.accent_color is not None else self.defaults.accent_color,
             turn_timeout_seconds=(
                 game.turn_timeout_seconds
                 if game.turn_timeout_seconds is not None

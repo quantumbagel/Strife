@@ -4,7 +4,7 @@ from pathlib import Path
 
 import discord
 
-from strife.config.emoji import EmojiConfig, load_emoji_config, save_emoji_config
+from strife.config.emoji import EmojiConfig, EmojiEntry, load_emoji_config, save_emoji_config
 from strife.logging import get_logger
 
 log = get_logger("presentation.emoji")
@@ -26,10 +26,10 @@ class EmojiResolver:
         if entry is None:
             log.warning("Unknown emoji: %s", name)
             fallback = self._config.general.get("error_cross")
-            return fallback.fallback if fallback else "❓"
+            return fallback.fallback if (fallback and fallback.fallback) else "❓"
         if entry.id is not None:
             return f"<:{name}:{entry.id}>"
-        return entry.fallback
+        return entry.fallback if entry.fallback is not None else "❓"
 
     def resolve(self, name: str) -> str:
         for bucket in (self._config.general, self._config.button, self._config.game):
@@ -49,9 +49,20 @@ class EmojiResolver:
     async def sync(self, bot: discord.Client) -> EmojiConfig:
         emojis = await bot.fetch_application_emojis()
         by_name = {emoji.name: emoji.id for emoji in emojis}
+        
+        seen_names = set()
         for bucket in (self._config.general, self._config.button, self._config.game):
             for name, entry in bucket.items():
                 entry.id = by_name.get(name)
+                seen_names.add(name)
+                
+        for name, emoji_id in by_name.items():
+            if name not in seen_names:
+                self._config.general[name] = EmojiEntry(fallback=None, id=emoji_id)
+                
+        if self._config.path:
+            save_emoji_config(self._config)
+            
         return self._config
 
     async def reupload(self, bot: discord.Client, assets_dir: Path) -> int:
