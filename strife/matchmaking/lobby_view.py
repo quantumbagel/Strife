@@ -20,31 +20,40 @@ from strife.routing import prefixes as P
 
 
 def build_lobby_view(
-    lobby: Lobby,
-    meta: GameMetadata,
-    emoji: EmojiResolver,
-    text: TextConfig,
+        lobby: Lobby,
+        meta: GameMetadata,
+        emoji: EmojiResolver,
+        text: TextConfig,
 ) -> LayoutView:
     brand = emoji.general("brand_logo")
     view = LayoutView()
-    view.children.append(
-        TextDisplay(markdown_content=f"## {brand} {text.get('lobby.title', game_name=meta.name)}", size_style=TextSize.HEADER)
-    )
     container = Container()
+
+    # Title moved into the container
+    container.add_text(
+        TextDisplay(
+            markdown_content=f"## {brand} {text.get('lobby.title', game_name=meta.name)}",
+            size_style=TextSize.HEADER
+        )
+    )
+
     container.add_text(TextDisplay(markdown_content=meta.summary, size_style=TextSize.BODY))
     container.add_separator()
+
     roster_lines = []
     for member in lobby.members:
         status = text.get("lobby.ready") if member.user_id in lobby.ready else text.get("lobby.not_ready")
         roster_lines.append(f"<@{member.user_id}> ({status})")
     for bot in lobby.bots:
         roster_lines.append(f"**{bot.name}** ({bot.difficulty})")
+
     container.add_text(
         TextDisplay(
             markdown_content="**Players**\n" + ("\n".join(roster_lines) or "_Empty_"),
             size_style=TextSize.BODY,
         )
     )
+
     container.add_text(
         TextDisplay(
             markdown_content=text.get(
@@ -55,36 +64,40 @@ def build_lobby_view(
             size_style=TextSize.SUBHEADER,
         )
     )
-    view.add_container(container)
 
     tid = lobby.thread_id
     controls = ActionRow()
     controls.add_button(
-        Button(source="join", label="Join", style=ButtonStyle.SUCCESS, emoji="play", route_prefix=P.LOBBY_JOIN)
+        Button(source="join", label="Join", style=ButtonStyle.SUCCESS, emoji="join", route_prefix=P.LOBBY_JOIN)
     )
     controls.add_button(
-        Button(source="leave", label="Leave", style=ButtonStyle.SECONDARY, route_prefix=P.LOBBY_LEAVE)
+        Button(source="leave", label="Leave", style=ButtonStyle.SECONDARY, emoji="leave", route_prefix=P.LOBBY_LEAVE)
     )
-    controls.add_button(
-        Button(source="ready", label="Ready", style=ButtonStyle.PRIMARY, route_prefix=P.LOBBY_READY)
-    )
+    can_r, _ = lobby.can_ready(meta)
+    if can_r or lobby.ready:
+        controls.add_button(
+            Button(source="ready", label="Ready", style=ButtonStyle.PRIMARY, emoji="ready", route_prefix=P.LOBBY_READY)
+        )
+
+
     if meta.role_flow.value in {"selectable", "selectable_random"}:
         controls.add_button(
             Button(source="assign", label="Assign Roles", style=ButtonStyle.SECONDARY, route_prefix=P.LOBBY_ASSIGN)
         )
+
     controls.add_button(
         Button(
             source="settings",
             label="Settings",
             style=ButtonStyle.SECONDARY,
-            emoji="configure",
+            emoji="settings",
             route_prefix=P.LOBBY_SETTINGS,
         )
     )
-    controls.add_button(
-        Button(source="start", label="Start", style=ButtonStyle.SUCCESS, route_prefix=P.LOBBY_START)
-    )
-    view.add_action_row(controls)
+
+
+    # Controls added to the container instead of the view
+    container.add_action_row(controls)
 
     if meta.role_flow.value == "selectable":
         for member in lobby.members:
@@ -106,5 +119,10 @@ def build_lobby_view(
                     route_prefix=P.LOBBY_ROLE,
                 )
             )
-            view.add_action_row(row)
+            # Role rows added to the container instead of the view
+            container.add_action_row(row)
+
+    # Finally, add the fully populated container to the view
+    view.add_container(container)
+
     return view

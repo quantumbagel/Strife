@@ -14,7 +14,6 @@ LOBBY_LEAVE = "lobby_leave:"
 LOBBY_READY = "lobby_ready:"
 LOBBY_ASSIGN = "lobby_assign:"
 LOBBY_SETTINGS = "lobby_settings:"
-LOBBY_START = "lobby_start:"
 LOBBY_ROLE = "lobby_role:"
 LOBBY_PRIV = "lobby_priv:"
 LOBBY_RESET_PRIV = "lobby_reset_priv:"
@@ -29,7 +28,6 @@ LOBBY_PREFIXES = {
     LOBBY_READY,
     LOBBY_ASSIGN,
     LOBBY_SETTINGS,
-    LOBBY_START,
     LOBBY_ROLE,
     LOBBY_PRIV,
     LOBBY_RESET_PRIV,

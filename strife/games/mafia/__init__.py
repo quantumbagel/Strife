@@ -50,7 +50,8 @@ META = GameMetadata(
         RoleSpec("mafia", "Mafia", "Each night, agree on one victim to eliminate."),
         RoleSpec("doctor", "Doctor", "Each night, protect one player from elimination."),
         RoleSpec("detective", "Detective", "Each night, learn one player's alignment."),
-    supports_player_removal=True,
+    ),
+    supports_player_removal=True
 )
 
 Mafia.metadata = META

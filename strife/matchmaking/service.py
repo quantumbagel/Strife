@@ -146,7 +146,6 @@ class LobbyService:
                 P.LOBBY_READY: self._ready,
                 P.LOBBY_ASSIGN: self._assign,
                 P.LOBBY_SETTINGS: self._settings,
-                P.LOBBY_START: self._start,
                 P.LOBBY_ROLE: self._role,
                 P.LOBBY_PRIV: self._privacy,
                 P.LOBBY_RESET_PRIV: self._reset_privacy,
@@ -199,9 +198,21 @@ class LobbyService:
     async def _ready(self, lobby: Lobby, route: Route, interaction: discord.Interaction) -> None:
         if interaction.user.id in lobby.ready:
             lobby.ready.discard(interaction.user.id)
+            await self._refresh(lobby, interaction)
         else:
+            meta = self._meta(lobby.game_key)
+            ok, reason = lobby.can_ready(meta)
+            if not ok:
+                await interaction.response.send_message(
+                    self.text.get("lobby.cannot_start", reason=reason or "unknown"), ephemeral=True
+                )
+                return
             lobby.ready.add(interaction.user.id)
-        await self._refresh(lobby, interaction)
+            ok_start, _ = lobby.can_start(meta)
+            if ok_start:
+                await self._start(lobby, route, interaction)
+            else:
+                await self._refresh(lobby, interaction)
 
     async def _assign(self, lobby: Lobby, route: Route, interaction: discord.Interaction) -> None:
         await self._refresh(lobby, interaction)
@@ -289,9 +300,6 @@ class LobbyService:
         await self._teardown(lobby, interaction)
 
     async def _start(self, lobby: Lobby, route: Route, interaction: discord.Interaction) -> None:
-        if interaction.user.id != lobby.creator_id:
-            await interaction.response.send_message(self.text.get("lobby.creator_only"), ephemeral=True)
-            return
         meta = self._meta(lobby.game_key)
         ok, reason = lobby.can_start(meta)
         if not ok:

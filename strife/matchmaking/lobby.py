@@ -43,11 +43,9 @@ class Lobby:
     def total_players(self) -> int:
         return len(self.members) + len(self.bots)
 
-    def can_start(self, meta: GameMetadata, game: Game | None = None) -> tuple[bool, str | None]:
+    def can_ready(self, meta: GameMetadata, game: Game | None = None) -> tuple[bool, str | None]:
         if not meta.player_count.is_valid(self.total_players):
             return False, f"Need {meta.player_count.describe()} players"
-        if len(self.ready) < len(self.members):
-            return False, "Not all players are ready"
         if meta.role_flow.value in {"selectable", "selectable_random"}:
             for member in self.members:
                 if member.user_id not in self.role_selection:
@@ -58,3 +56,12 @@ class Lobby:
             if not ok:
                 return False, reason or "Invalid roles"
         return True, None
+
+    def can_start(self, meta: GameMetadata, game: Game | None = None) -> tuple[bool, str | None]:
+        ok, reason = self.can_ready(meta, game)
+        if not ok:
+            return False, reason
+        if len(self.ready) < len(self.members):
+            return False, "Not all players are ready"
+        return True, None
+
