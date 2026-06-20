@@ -17,6 +17,7 @@ from strife.presentation.components import (
 )
 from strife.presentation.emoji import EmojiResolver
 from strife.routing import prefixes as P
+from strife.settings import get_settings
 
 
 def build_lobby_view(
@@ -65,9 +66,15 @@ def build_lobby_view(
     container.add_separator()
 
     roster_lines = []
+    settings = get_settings()
     for member in lobby.members:
         status = text.get("lobby.ready") if member.user_id in lobby.ready else text.get("lobby.not_ready")
-        roster_lines.append(f"<@{member.user_id}> ({status})")
+        prefix = ""
+        if member.user_id in settings.owner_ids:
+            prefix += f"{emoji.get('admin')} "
+        if member.user_id == lobby.creator_id:
+            prefix += f"{emoji.get('creator')} "
+        roster_lines.append(f"{prefix}<@{member.user_id}> ({status})")
     for bot in lobby.bots:
         roster_lines.append(f"**{bot.name}** ({bot.difficulty})")
 

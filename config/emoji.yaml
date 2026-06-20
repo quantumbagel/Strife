@@ -2,6 +2,10 @@ success_checkmark:
   fallback: ✅
   id: null
   animated: false
+admin:
+  fallback: 👑
+  id: null
+  animated: false
 error_cross:
   fallback: ❌
   id: null
