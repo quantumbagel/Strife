@@ -109,15 +109,11 @@ class LobbyService:
         meta = self._meta(game_key)
         guild_repo = GuildRepository(self.finalizer.matches._pool)  # noqa: SLF001
         await guild_repo.upsert(interaction.guild_id)
-        channel_id = await guild_repo.get_default_channel(interaction.guild_id)
-        channel = interaction.guild.get_channel(channel_id) if channel_id else interaction.channel
-        if channel is None:
-            channel = interaction.channel
         lobby_id = secrets.randbits(63)
         lobby = Lobby(
             thread_id=lobby_id,
             guild_id=interaction.guild_id,
-            channel_id=channel.id,
+            channel_id=interaction.channel_id or interaction.channel.id,
             game_key=game_key,
             creator_id=interaction.user.id,
             private=private,
@@ -130,9 +126,8 @@ class LobbyService:
         self.registries.user_location[interaction.user.id] = UserLocation("lobby", lobby_id, interaction.guild_id)
         self.registries.add_lobby(lobby)
         view = build_lobby_view(lobby, meta, self.emoji, self.text)
-        await surface.send(channel, view)
+        await surface.send(interaction, view)
         lobby.message_id = surface.message_id
-        await interaction.response.send_message(f"Lobby created in {channel.mention}", ephemeral=True)
 
     async def handle(self, route: Route, interaction: discord.Interaction) -> None:
         lobby = self.registries.get_lobby(route.resource_id)
