@@ -37,7 +37,7 @@ def build_lobby_view(
             accessory=Button(
                 label="How to Play",
                 style=ButtonStyle.LINK,
-                emoji="external_link",
+                emoji="learn",
                 url=meta.how_to_play_link,
             )
         )
