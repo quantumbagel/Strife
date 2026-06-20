@@ -11,6 +11,7 @@ import yaml
 class EmojiEntry:
     fallback: str | None = None
     id: int | None = None
+    animated: bool = False
 
 
 @dataclass
@@ -29,6 +30,7 @@ def load_emoji_config(path: Path) -> EmojiConfig:
         name: EmojiEntry(
             fallback=str(entry["fallback"]) if entry.get("fallback") is not None else None,
             id=int(entry["id"]) if entry.get("id") is not None else None,
+            animated=bool(entry.get("animated", False)),
         )
         for name, entry in data.items()
     }
@@ -43,7 +45,7 @@ def save_emoji_config(config: EmojiConfig) -> None:
         raise ValueError("EmojiConfig has no path")
 
     data = {
-        name: {"fallback": entry.fallback, "id": entry.id}
+        name: {"fallback": entry.fallback, "id": entry.id, "animated": entry.animated}
         for name, entry in config.entries.items()
     }
     with config.path.open("w", encoding="utf-8") as fh:

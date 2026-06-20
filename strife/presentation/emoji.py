@@ -28,7 +28,8 @@ class EmojiResolver:
             fallback = self._config.entries.get("error_cross")
             return fallback.fallback if (fallback and fallback.fallback) else "❓"
         if entry.id is not None:
-            return f"<:{name}:{entry.id}>"
+            prefix = "a" if entry.animated else ""
+            return f"<{prefix}:{name}:{entry.id}>"
         return entry.fallback if entry.fallback is not None else "❓"
 
     def resolve(self, name: str) -> str:
@@ -47,16 +48,21 @@ class EmojiResolver:
 
     async def sync(self, bot: discord.Client) -> EmojiConfig:
         emojis = await bot.fetch_application_emojis()
-        by_name = {emoji.name: emoji.id for emoji in emojis}
+        by_name = {emoji.name: emoji for emoji in emojis}
         
         seen_names = set()
         for name, entry in self._config.entries.items():
-            entry.id = by_name.get(name)
+            emoji = by_name.get(name)
+            if emoji:
+                entry.id = emoji.id
+                entry.animated = emoji.animated
+            else:
+                entry.id = None
             seen_names.add(name)
                 
-        for name, emoji_id in by_name.items():
+        for name, emoji in by_name.items():
             if name not in seen_names:
-                self._config.entries[name] = EmojiEntry(fallback=None, id=emoji_id)
+                self._config.entries[name] = EmojiEntry(fallback=None, id=emoji.id, animated=emoji.animated)
                 
         if self._config.path:
             save_emoji_config(self._config)
@@ -80,6 +86,7 @@ class EmojiResolver:
                 created = await bot.create_application_emoji(name=name, image=fh.read())
             if name in self._config.entries:
                 self._config.entries[name].id = created.id
+                self._config.entries[name].animated = created.animated
             uploaded += 1
 
         if self._config.path:

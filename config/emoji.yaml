@@ -1,117 +1,156 @@
 brand_logo:
   fallback: 🎮
   id: null
+  animated: false
 success_checkmark:
   fallback: ✅
   id: null
+  animated: false
 error_cross:
   fallback: ❌
   id: null
+  animated: false
 ban:
   fallback: null
-  id: 1517174858092384446
+  id: 1517944457331474623
+  animated: false
 clueless:
   fallback: null
-  id: 1517174858537107458
+  id: 1517944457809498154
+  animated: false
 creator:
   fallback: null
-  id: 1517174859346477210
+  id: 1517944458983899297
+  animated: false
 error:
   fallback: null
-  id: 1517174861355552862
+  id: 1517944459999051907
+  animated: false
 explosion:
   fallback: null
-  id: 1517174862546731111
+  id: 1517944461689225216
+  animated: true
 facepalm:
   fallback: null
-  id: 1517174863641579671
+  id: 1517944462192545804
+  animated: true
 first:
   fallback: null
-  id: 1517174864350548048
+  id: 1517944463555690637
+  animated: false
 forward:
   fallback: null
-  id: 1517174864694476854
+  id: 1517944464998531252
+  animated: false
 game_mafia:
   fallback: null
-  id: 1517174865852104945
+  id: 1517944466655150201
+  animated: false
 github:
   fallback: null
-  id: 1517174866552553553
+  id: 1517944467267649646
+  animated: false
 hmm:
   fallback: null
-  id: 1517174867210797056
+  id: 1517944467980816414
+  animated: false
 hnn:
   fallback: null
-  id: 1517174868012040364
+  id: 1517944469004222604
+  animated: false
 join:
   fallback: null
-  id: 1517174868918140978
+  id: 1517944469893156934
+  animated: false
 kick:
   fallback: null
-  id: 1517174869572321354
+  id: 1517944471432466454
+  animated: false
 last:
   fallback: null
-  id: 1517174870620897361
+  id: 1517944472153886860
+  animated: false
 leave:
   fallback: null
-  id: 1517174871430529246
+  id: 1517944472845942874
+  animated: false
 loading:
   fallback: null
-  id: 1517174872126656682
+  id: 1517944473521361076
+  animated: true
 playcord:
   fallback: null
-  id: 1517174874513215619
+  id: 1517944475056607466
+  animated: false
 pointing:
   fallback: null
-  id: 1517174875935080541
+  id: 1517944475329102046
+  animated: false
 ready:
   fallback: null
-  id: 1517174877914927175
+  id: 1517944477371728104
+  animated: false
 rematch:
   fallback: null
-  id: 1517174878757716038
+  id: 1517944478055399604
+  animated: false
 settings:
   fallback: null
-  id: 1517174880100024480
+  id: 1517944478558720191
+  animated: false
 space:
   fallback: null
-  id: 1517174880859066521
+  id: 1517944479225483347
+  animated: false
 spectate:
   fallback: null
-  id: 1517174881760841778
+  id: 1517944480118866171
+  animated: false
 time:
   fallback: null
-  id: 1517174882524336170
+  id: 1517944480911720498
+  animated: false
 timer:
   fallback: null
-  id: 1517174883321253969
+  id: 1517944481708642424
+  animated: false
 user:
   fallback: null
-  id: 1517174883979759767
+  id: 1517944482530857062
+  animated: false
 play:
   fallback: ▶️
   id: null
+  animated: false
 previous:
   fallback: ◀️
-  id: 1517174876933197864
+  id: 1517944476343996436
+  animated: false
 next:
   fallback: ▶️
-  id: 1517174872978227260
+  id: 1517944474339115220
+  animated: false
 external_link:
   fallback: 🔗
   id: null
+  animated: false
 configure:
   fallback: ⚙️
   id: null
+  animated: false
 tictactoe_x:
   fallback: ❌
   id: null
+  animated: false
 tictactoe_o:
   fallback: ⭕
   id: null
+  animated: false
 mafia_villager:
   fallback: 🧑‍🌾
   id: null
+  animated: false
 mafia_werewolf:
   fallback: 🐺
   id: null
+  animated: false

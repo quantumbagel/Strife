@@ -37,23 +37,6 @@ def build_lobby_view(
         )
     )
 
-    container.add_text(TextDisplay(markdown_content=meta.summary, size_style=TextSize.BODY))
-    container.add_separator()
-
-    roster_lines = []
-    for member in lobby.members:
-        status = text.get("lobby.ready") if member.user_id in lobby.ready else text.get("lobby.not_ready")
-        roster_lines.append(f"<@{member.user_id}> ({status})")
-    for bot in lobby.bots:
-        roster_lines.append(f"**{bot.name}** ({bot.difficulty})")
-
-    container.add_text(
-        TextDisplay(
-            markdown_content="**Players**\n" + ("\n".join(roster_lines) or "_Empty_"),
-            size_style=TextSize.BODY,
-        )
-    )
-
     max_players = meta.player_count.max_players
     if max_players is not None and lobby.total_players > max_players:
         required_to_leave = lobby.total_players - max_players
@@ -73,22 +56,42 @@ def build_lobby_view(
 
     container.add_text(
         TextDisplay(
-            markdown_content=f"{emoji.get('loading')} {waiting_content}",
-            size_style=TextSize.SUBHEADER,
+            markdown_content=f"-# {emoji.get('loading')} {waiting_content}",
+            size_style=TextSize.BODY,
         )
     )
 
+    container.add_text(TextDisplay(markdown_content=meta.summary, size_style=TextSize.BODY))
+    container.add_separator()
+
+    roster_lines = []
+    for member in lobby.members:
+        status = text.get("lobby.ready") if member.user_id in lobby.ready else text.get("lobby.not_ready")
+        roster_lines.append(f"<@{member.user_id}> ({status})")
+    for bot in lobby.bots:
+        roster_lines.append(f"**{bot.name}** ({bot.difficulty})")
+
+    container.add_text(
+        TextDisplay(
+            markdown_content="**Players**\n" + ("\n".join(roster_lines) or "_Empty_"),
+            size_style=TextSize.BODY,
+        )
+    )
+
+    can_r, _ = lobby.can_ready(meta)
+    join_style = ButtonStyle.SECONDARY if can_r else ButtonStyle.SUCCESS
+    ready_style = ButtonStyle.SUCCESS if can_r else ButtonStyle.PRIMARY
+
     controls = ActionRow()
     controls.add_button(
-        Button(source="join", label="Join", style=ButtonStyle.SUCCESS, emoji="join", route_prefix=P.LOBBY_JOIN)
+        Button(source="join", label="Join", style=join_style, emoji="join", route_prefix=P.LOBBY_JOIN)
     )
     controls.add_button(
         Button(source="leave", label="Leave", style=ButtonStyle.SECONDARY, emoji="leave", route_prefix=P.LOBBY_LEAVE)
     )
-    can_r, _ = lobby.can_ready(meta)
     if can_r or lobby.ready:
         controls.add_button(
-            Button(source="ready", label="Ready", style=ButtonStyle.PRIMARY, emoji="ready", route_prefix=P.LOBBY_READY)
+            Button(source="ready", label="Ready", style=ready_style, emoji="ready", route_prefix=P.LOBBY_READY)
         )
 
 
