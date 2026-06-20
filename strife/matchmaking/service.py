@@ -6,7 +6,6 @@ import secrets
 import discord
 
 from strife.config import AppConfig
-from strife.config.text import TextConfig
 from strife.engine.metadata import GameMetadata, OptionType
 from strife.engine.players import Player
 from strife.engine.registry import GameRegistry
@@ -217,7 +216,7 @@ class LobbyService:
             await interaction.response.send_message(self.text.get("lobby.creator_only"), ephemeral=True)
             return
         meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.text)
+        view = build_settings_view(lobby, meta, self.emoji, self.text)
         compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
         await interaction.response.send_message(view=compiled, ephemeral=True)
 
@@ -237,7 +236,7 @@ class LobbyService:
             lobby.private = values[0] == "private"
         await interaction.response.defer(ephemeral=True)
         meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.text)
+        view = build_settings_view(lobby, meta, self.emoji, self.text)
         compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
         await interaction.edit_original_response(view=compiled)
 
@@ -250,7 +249,7 @@ class LobbyService:
         lobby.blacklist.clear()
         await interaction.response.defer(ephemeral=True)
         meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.text)
+        view = build_settings_view(lobby, meta, self.emoji, self.text)
         compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
         await interaction.edit_original_response(view=compiled)
 
@@ -271,7 +270,7 @@ class LobbyService:
                 lobby.settings[key] = raw
         await interaction.response.defer(ephemeral=True)
         meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.text)
+        view = build_settings_view(lobby, meta, self.emoji, self.text)
         compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
         await interaction.edit_original_response(view=compiled)
         await self._refresh(lobby, interaction)
@@ -283,7 +282,7 @@ class LobbyService:
         lobby.settings = self._default_settings(self._meta(lobby.game_key))
         await interaction.response.defer(ephemeral=True)
         meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.text)
+        view = build_settings_view(lobby, meta, self.emoji, self.text)
         compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
         await interaction.edit_original_response(view=compiled)
         await self._refresh(lobby, interaction)

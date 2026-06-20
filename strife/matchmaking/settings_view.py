@@ -11,18 +11,21 @@ from strife.presentation.components import (
     LayoutView,
     Select,
     SelectChoice,
-    Separator,
     TextDisplay,
 )
+from strife.presentation.emoji import EmojiResolver, get_game_emoji
 from strife.routing import prefixes as P
 
 
 def build_settings_view(
     lobby: Lobby,
     meta: GameMetadata,
+    emoji: EmojiResolver,
     text: TextConfig,
 ) -> LayoutView:
-    view = LayoutView().header("configure", f"{meta.name} > Configuration")
+    game_emoji = get_game_emoji(emoji, meta.key)
+    forward_emoji = emoji.get("forward")
+    view = LayoutView().header(game_emoji, f"{meta.name} {forward_emoji} Configuration")
     container = Container()
     privacy = "Private" if lobby.private else "Public"
     container.add_text(TextDisplay(markdown_content=f"**Privacy:** {privacy}"))
