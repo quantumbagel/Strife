@@ -407,19 +407,10 @@ class LobbyService:
             await self.registries.release_user(member.user_id)
         self.registries.remove_lobby(lobby.thread_id)
         if not interaction.response.is_done():
-            await interaction.response.defer()
+            await interaction.response.send_message(self.text.get("lobby.closed"), ephemeral=True)
         
-        meta = self._meta(lobby.game_key)
-        closed_view = LayoutView()
-        brand = self.emoji.get("brand_logo")
-        closed_view.children.append(
-            TextDisplay(markdown_content=f"## {brand} {self.text.get('lobby.title', game_name=meta.name)}", size_style=TextSize.HEADER)
-        )
-        container = Container()
-        container.add_text(TextDisplay(markdown_content=self.text.get("lobby.closed"), size_style=TextSize.BODY))
-        closed_view.add_container(container)
         if lobby.surface:
-            await lobby.surface.update(closed_view)
+            await lobby.surface.delete()
 
     async def add_bots(self, interaction: discord.Interaction, difficulty: str, number: int) -> None:
         loc = self.registries.location_of(interaction.user.id)

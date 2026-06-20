@@ -7,9 +7,6 @@ success_checkmark:
 error_cross:
   fallback: ❌
   id: null
-separator_bar:
-  fallback: ➖
-  id: null
 ban:
   fallback: null
   id: 1517174858092384446

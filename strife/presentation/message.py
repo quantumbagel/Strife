@@ -86,3 +86,11 @@ class ViewSurface:
             interaction = await interaction_factory()
             if interaction and not interaction.response.is_done():
                 await interaction.response.send_message(view=compiled, ephemeral=True)
+
+    async def delete(self) -> None:
+        if self._message is not None:
+            try:
+                await self._message.delete()
+            except discord.HTTPException:
+                pass
+            self._message = None
