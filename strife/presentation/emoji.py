@@ -46,6 +46,12 @@ class EmojiResolver:
             return self.get(name)
         return self.get(key)
 
+    def get_game_emoji(self, game_key: str) -> str:
+        name = f"game_{game_key}"
+        if name in self._config.entries:
+            return self.get(name)
+        return self.get("game")
+
     async def sync(self, bot: discord.Client) -> EmojiConfig:
         emojis = await bot.fetch_application_emojis()
         by_name = {emoji.name: emoji for emoji in emojis}
@@ -92,3 +98,7 @@ class EmojiResolver:
         if self._config.path:
             save_emoji_config(self._config)
         return uploaded
+
+
+def get_game_emoji(resolver: EmojiResolver, game_key: str) -> str:
+    return resolver.get_game_emoji(game_key)

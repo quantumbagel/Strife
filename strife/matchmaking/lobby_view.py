@@ -25,14 +25,14 @@ def build_lobby_view(
         emoji: EmojiResolver,
         text: TextConfig,
 ) -> LayoutView:
-    brand = emoji.get("brand_logo")
+    game_emoji = emoji.get_game_emoji(meta.key)
     view = LayoutView()
     container = Container()
 
     # Title moved into the container
     container.add_text(
         TextDisplay(
-            markdown_content=f"## {brand} {text.get('lobby.title', game_name=meta.name)}",
+            markdown_content=f"## {game_emoji} {text.get('lobby.title', game_name=meta.name)}",
             size_style=TextSize.HEADER
         )
     )

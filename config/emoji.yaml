@@ -1,7 +1,3 @@
-brand_logo:
-  fallback: 🎮
-  id: null
-  animated: false
 success_checkmark:
   fallback: ✅
   id: null

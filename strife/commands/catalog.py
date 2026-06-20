@@ -8,14 +8,16 @@ from strife.config import AppConfig
 from strife.engine.registry import GameRegistry
 from strife.presentation.compiler import Compiler
 from strife.presentation.components import ActionRow, Button, ButtonStyle, Container, LayoutView, TextDisplay
+from strife.presentation.emoji import EmojiResolver
 from strife.routing import prefixes as P
 
 
 class CatalogService:
-    def __init__(self, registry: GameRegistry, config: AppConfig, compiler: Compiler) -> None:
+    def __init__(self, registry: GameRegistry, config: AppConfig, compiler: Compiler, emoji: EmojiResolver) -> None:
         self.registry = registry
         self.config = config
         self.compiler = compiler
+        self.emoji = emoji
         self._page_size = 3
 
     async def show(self, interaction: discord.Interaction, page: int = 0) -> None:
@@ -27,10 +29,11 @@ class CatalogService:
         view.children.append(TextDisplay(markdown_content="## Game Catalog"))
         container = Container()
         for meta in chunk:
+            game_emoji = self.emoji.get_game_emoji(meta.key)
             container.children.append(
                 TextDisplay(
                     markdown_content=(
-                        f"**{meta.name}** — {meta.summary}\n"
+                        f"{game_emoji} **{meta.name}** — {meta.summary}\n"
                         f"Players: {meta.player_count.describe()} • {meta.time_estimate} • {meta.difficulty}"
                     )
                 )
@@ -73,10 +76,11 @@ class CatalogService:
         view.children.append(TextDisplay(markdown_content="## Game Catalog"))
         container = Container()
         for meta in chunk:
+            game_emoji = self.emoji.get_game_emoji(meta.key)
             container.children.append(
                 TextDisplay(
                     markdown_content=(
-                        f"**{meta.name}** — {meta.summary}\n"
+                        f"{game_emoji} **{meta.name}** — {meta.summary}\n"
                         f"Players: {meta.player_count.describe()} • {meta.time_estimate} • {meta.difficulty}"
                     )
                 )
