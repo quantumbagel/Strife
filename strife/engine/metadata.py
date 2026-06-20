@@ -153,6 +153,7 @@ class GameMetadata:
     role_flow: RoleFlow = RoleFlow.NONE
     roles: tuple[RoleSpec, ...] = ()
     supports_player_removal: bool = False
+    how_to_play_link: str | None = None
 
     @property
     def supports_bots(self) -> bool:

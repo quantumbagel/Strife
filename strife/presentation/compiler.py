@@ -13,6 +13,7 @@ from strife.presentation.components import (
     LayoutView,
     MediaGallery,
     MediaGalleryItem,
+    Section,
     Select,
     SelectChoice,
     Separator,
@@ -156,6 +157,17 @@ class Compiler:
                 compiled.add_item(self._compile_select(item, resource_id=resource_id, prefix=prefix))
         return compiled
 
+    def _compile_section(self, section: Section, *, resource_id: int, prefix: str) -> ui.Section:
+        self._count()
+        compiled_children = []
+        for child in section.children:
+            self._count()
+            compiled_children.append(ui.TextDisplay(content=self._prefix_text(child)))
+        if not section.accessory:
+            raise LayoutError("Section requires an accessory")
+        compiled_accessory = self._compile_button(section.accessory, resource_id=resource_id, prefix=prefix)
+        return ui.Section(*compiled_children, accessory=compiled_accessory)
+
     def _compile_container(self, container: Container, *, resource_id: int, prefix: str) -> ui.Container:
         compiled = ui.Container()
         for child in container.children:
@@ -176,6 +188,8 @@ class Compiler:
                 compiled.add_item(gallery)
             elif isinstance(child, ActionRow):
                 compiled.add_item(self._compile_action_row(child, resource_id=resource_id, prefix=prefix))
+            elif isinstance(child, Section):
+                compiled.add_item(self._compile_section(child, resource_id=resource_id, prefix=prefix))
         return compiled
 
     def _compile_top(self, node: object, *, resource_id: int, prefix: str) -> ui.Item:
@@ -197,6 +211,8 @@ class Compiler:
                     for item in node.items
                 ]
             )
+        if isinstance(node, Section):
+            return self._compile_section(node, resource_id=resource_id, prefix=prefix)
         raise LayoutError(f"Unsupported node type: {type(node)}")
 
 

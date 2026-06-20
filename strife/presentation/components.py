@@ -52,6 +52,16 @@ class MediaGallery:
 
 
 @dataclass
+class Section:
+    children: list[TextDisplay] = field(default_factory=list)
+    accessory: Button | None = None
+
+    def add_text(self, text: TextDisplay) -> Section:
+        self.children.append(text)
+        return self
+
+
+@dataclass
 class Button:
     source: str = ""
     label: str = ""
@@ -101,7 +111,7 @@ class ActionRow:
 
 @dataclass
 class Container:
-    children: list[TextDisplay | Separator | MediaGallery | ActionRow] = field(default_factory=list)
+    children: list[TextDisplay | Separator | MediaGallery | ActionRow | Section] = field(default_factory=list)
 
     def add_text(self, text: TextDisplay) -> Container:
         self.children.append(text)
@@ -119,10 +129,14 @@ class Container:
         self.children.append(row)
         return self
 
+    def add_section(self, section: Section) -> Container:
+        self.children.append(section)
+        return self
+
 
 @dataclass
 class LayoutView:
-    children: list[Container | ActionRow | TextDisplay | Separator | MediaGallery] = field(
+    children: list[Container | ActionRow | TextDisplay | Separator | MediaGallery | Section] = field(
         default_factory=list
     )
 
@@ -132,6 +146,10 @@ class LayoutView:
 
     def add_action_row(self, row: ActionRow) -> LayoutView:
         self.children.append(row)
+        return self
+
+    def add_section(self, section: Section) -> LayoutView:
+        self.children.append(section)
         return self
 
     def header(self, emoji_name: str, title: str, *, emoji_resolver: object | None = None) -> LayoutView:
@@ -157,6 +175,11 @@ def walk_interactive(view: LayoutView) -> list[Button | Select]:
             for child in node.items:
                 visit(child)
         elif isinstance(node, Container):
+            for child in node.children:
+                visit(child)
+        elif isinstance(node, Section):
+            if node.accessory:
+                visit(node.accessory)
             for child in node.children:
                 visit(child)
         elif isinstance(node, LayoutView):

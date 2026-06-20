@@ -9,6 +9,7 @@ from strife.presentation.components import (
     ButtonStyle,
     Container,
     LayoutView,
+    Section,
     Select,
     SelectChoice,
     Separator,
@@ -31,12 +32,29 @@ def build_lobby_view(
     container = Container()
 
     # Title moved into the container
-    container.add_text(
-        TextDisplay(
-            markdown_content=f"## {game_emoji} {text.get('lobby.title', game_name=meta.name)}",
-            size_style=TextSize.HEADER
+    if meta.how_to_play_link:
+        title_section = Section(
+            accessory=Button(
+                label="How to Play",
+                style=ButtonStyle.LINK,
+                emoji="external_link",
+                url=meta.how_to_play_link,
+            )
         )
-    )
+        title_section.add_text(
+            TextDisplay(
+                markdown_content=f"## {game_emoji} {text.get('lobby.title', game_name=meta.name)}",
+                size_style=TextSize.HEADER
+            )
+        )
+        container.add_section(title_section)
+    else:
+        container.add_text(
+            TextDisplay(
+                markdown_content=f"## {game_emoji} {text.get('lobby.title', game_name=meta.name)}",
+                size_style=TextSize.HEADER
+            )
+        )
 
     max_players = meta.player_count.max_players
     if max_players is not None and lobby.total_players > max_players:

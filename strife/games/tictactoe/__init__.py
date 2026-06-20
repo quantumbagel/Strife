@@ -22,6 +22,7 @@ META = GameMetadata(
     version="1.0.0",
     author_link=None,
     source_link=None,
+    how_to_play_link="https://en.wikipedia.org/wiki/Tic-tac-toe",
     time_estimate="2m",
     difficulty="easy",
     player_count=PlayerCount(fixed=2),

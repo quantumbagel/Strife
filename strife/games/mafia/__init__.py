@@ -18,7 +18,7 @@ from strife.games.mafia.game import Mafia
 META = GameMetadata(
     key="mafia",
     name="Mafia",
-    summary="Social deduction: town vs. hidden mafia.",
+    summary="One of the most popular social deduction games. Can you find the mafia before they eliminate you?",
     description=(
         "Mafia secretly eliminate town members each night; town debates and lynches by day. "
         "Town wins by eliminating all mafia; mafia win at parity."
@@ -28,6 +28,7 @@ META = GameMetadata(
     version="1.0.0",
     author_link=None,
     source_link=None,
+    how_to_play_link="https://en.wikipedia.org/wiki/Mafia_(party_game)",
     time_estimate="20m",
     difficulty="medium",
     player_count=PlayerCount(minimum=4, maximum=12),
