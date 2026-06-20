@@ -9,7 +9,9 @@ replay_owner_only = "Open your own replay with /strife replay."
 
 [lobby]
 title = "Queueing for {game_name}..."
-waiting = "Waiting for players ({count}/{max})..."
+waiting_for_players = "*Waiting for players ({count}/{min} required to start)...*"
+waiting_to_ready = "*Waiting for all players to ready up ({ready}/{total})...*"
+waiting_to_leave = "*Waiting for players to leave ({count} required to leave)...*"
 ready = "Ready"
 not_ready = "Waiting"
 closed = "This lobby has been closed."

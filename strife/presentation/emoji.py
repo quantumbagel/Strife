@@ -21,44 +21,42 @@ class EmojiResolver:
     def reload(self, config: EmojiConfig) -> None:
         self._config = config
 
-    def _lookup(self, bucket: dict, name: str) -> str:
-        entry = bucket.get(name)
+    def get(self, name: str) -> str:
+        entry = self._config.entries.get(name)
         if entry is None:
             log.warning("Unknown emoji: %s", name)
-            fallback = self._config.general.get("error_cross")
+            fallback = self._config.entries.get("error_cross")
             return fallback.fallback if (fallback and fallback.fallback) else "❓"
         if entry.id is not None:
             return f"<:{name}:{entry.id}>"
         return entry.fallback if entry.fallback is not None else "❓"
 
     def resolve(self, name: str) -> str:
-        for bucket in (self._config.general, self._config.button, self._config.game):
-            if name in bucket:
-                return self._lookup(bucket, name)
-        return self._lookup(self._config.general, "error_cross")
+        return self.get(name)
 
     def general(self, name: str) -> str:
-        return self._lookup(self._config.general, name)
+        return self.get(name)
 
     def button(self, name: str) -> str:
-        return self._lookup(self._config.button, name)
+        return self.get(name)
 
     def game(self, key: str, name: str) -> str:
-        return self._lookup(self._config.game, name if name in self._config.game else key)
+        if name in self._config.entries:
+            return self.get(name)
+        return self.get(key)
 
     async def sync(self, bot: discord.Client) -> EmojiConfig:
         emojis = await bot.fetch_application_emojis()
         by_name = {emoji.name: emoji.id for emoji in emojis}
         
         seen_names = set()
-        for bucket in (self._config.general, self._config.button, self._config.game):
-            for name, entry in bucket.items():
-                entry.id = by_name.get(name)
-                seen_names.add(name)
+        for name, entry in self._config.entries.items():
+            entry.id = by_name.get(name)
+            seen_names.add(name)
                 
         for name, emoji_id in by_name.items():
             if name not in seen_names:
-                self._config.general[name] = EmojiEntry(fallback=None, id=emoji_id)
+                self._config.entries[name] = EmojiEntry(fallback=None, id=emoji_id)
                 
         if self._config.path:
             save_emoji_config(self._config)
@@ -80,9 +78,8 @@ class EmojiResolver:
             name = path.stem
             with path.open("rb") as fh:
                 created = await bot.create_application_emoji(name=name, image=fh.read())
-            for bucket in (self._config.general, self._config.button, self._config.game):
-                if name in bucket:
-                    bucket[name].id = created.id
+            if name in self._config.entries:
+                self._config.entries[name].id = created.id
             uploaded += 1
 
         if self._config.path:

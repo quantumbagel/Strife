@@ -25,7 +25,7 @@ def build_lobby_view(
         emoji: EmojiResolver,
         text: TextConfig,
 ) -> LayoutView:
-    brand = emoji.general("brand_logo")
+    brand = emoji.get("brand_logo")
     view = LayoutView()
     container = Container()
 
@@ -54,18 +54,30 @@ def build_lobby_view(
         )
     )
 
+    max_players = meta.player_count.max_players
+    if max_players is not None and lobby.total_players > max_players:
+        required_to_leave = lobby.total_players - max_players
+        waiting_content = text.get("lobby.waiting_to_leave", count=required_to_leave)
+    elif lobby.total_players < meta.player_count.min_players:
+        waiting_content = text.get(
+            "lobby.waiting_for_players",
+            count=lobby.total_players,
+            min=meta.player_count.min_players,
+        )
+    else:
+        waiting_content = text.get(
+            "lobby.waiting_to_ready",
+            ready=len(lobby.ready),
+            total=len(lobby.members),
+        )
+
     container.add_text(
         TextDisplay(
-            markdown_content=text.get(
-                "lobby.waiting",
-                count=lobby.total_players,
-                max=meta.player_count.describe(),
-            ),
+            markdown_content=f"{emoji.get('loading')} {waiting_content}",
             size_style=TextSize.SUBHEADER,
         )
     )
 
-    tid = lobby.thread_id
     controls = ActionRow()
     controls.add_button(
         Button(source="join", label="Join", style=ButtonStyle.SUCCESS, emoji="join", route_prefix=P.LOBBY_JOIN)

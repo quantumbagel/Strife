@@ -68,6 +68,26 @@ class PlayerCount:
             return f"{self.minimum}+"
         return "?"
 
+    @property
+    def min_players(self) -> int:
+        if self.fixed is not None:
+            return self.fixed
+        if self.minimum is not None:
+            return self.minimum
+        if self.allowed:
+            return min(self.allowed)
+        return 1
+
+    @property
+    def max_players(self) -> int | None:
+        if self.fixed is not None:
+            return self.fixed
+        if self.maximum is not None:
+            return self.maximum
+        if self.allowed:
+            return max(self.allowed)
+        return None
+
 
 @dataclass(frozen=True)
 class SettingOption:

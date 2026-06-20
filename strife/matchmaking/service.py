@@ -359,7 +359,7 @@ class LobbyService:
 
         # Update lobby message in channel to say game started
         ended_view = LayoutView()
-        brand = self.emoji.general("brand_logo")
+        brand = self.emoji.get("brand_logo")
         ended_view.children.append(
             TextDisplay(markdown_content=f"## {brand} {self.text.get('lobby.title', game_name=meta.name)}", size_style=TextSize.HEADER)
         )
@@ -411,7 +411,7 @@ class LobbyService:
         
         meta = self._meta(lobby.game_key)
         closed_view = LayoutView()
-        brand = self.emoji.general("brand_logo")
+        brand = self.emoji.get("brand_logo")
         closed_view.children.append(
             TextDisplay(markdown_content=f"## {brand} {self.text.get('lobby.title', game_name=meta.name)}", size_style=TextSize.HEADER)
         )

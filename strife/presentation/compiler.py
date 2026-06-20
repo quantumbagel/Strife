@@ -68,7 +68,7 @@ class Compiler:
     def _resolve_emoji(self, name: str | None) -> str | discord.PartialEmoji | None:
         if not name:
             return None
-        resolved = self._emoji.resolve(name)
+        resolved = self._emoji.get(name)
         if resolved.startswith("<:") and resolved.endswith(">"):
             inner = resolved[2:-1]
             ename, _, eid = inner.partition(":")
