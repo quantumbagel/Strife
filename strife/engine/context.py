@@ -138,6 +138,8 @@ class ReplayContext:
         self._capture(view, actor_seat=seat)
 
     def _capture(self, view: LayoutView, *, actor_seat: int | None = None) -> None:
+        if self._turn == 0:
+            return
         cloned = clone_and_disable(view)
         self.frames.append(
             ReplayFrame(
