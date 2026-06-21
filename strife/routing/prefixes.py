@@ -20,6 +20,10 @@ LOBBY_RESET_PRIV = "lobby_reset_priv:"
 LOBBY_OPT = "lobby_opt:"
 LOBBY_RESET_RULES = "lobby_reset_rules:"
 LOBBY_END = "lobby_end:"
+LOBBY_ADD_WHITELIST = "lobby_add_whitelist:"
+LOBBY_REMOVE_WHITELIST = "lobby_remove_whitelist:"
+LOBBY_ADD_BLACKLIST = "lobby_add_blacklist:"
+LOBBY_REMOVE_BLACKLIST = "lobby_remove_blacklist:"
 
 ABOUT_NAV = "about_nav:"
 
@@ -36,6 +40,10 @@ LOBBY_PREFIXES = {
     LOBBY_OPT,
     LOBBY_RESET_RULES,
     LOBBY_END,
+    LOBBY_ADD_WHITELIST,
+    LOBBY_REMOVE_WHITELIST,
+    LOBBY_ADD_BLACKLIST,
+    LOBBY_REMOVE_BLACKLIST,
 }
 
 ALL_PREFIXES = GAME_PREFIXES | LOBBY_PREFIXES | {

@@ -146,6 +146,10 @@ class LobbyService:
                 P.LOBBY_OPT: self._option,
                 P.LOBBY_RESET_RULES: self._reset_rules,
                 P.LOBBY_END: self._end,
+                P.LOBBY_ADD_WHITELIST: self._add_whitelist,
+                P.LOBBY_REMOVE_WHITELIST: self._remove_whitelist,
+                P.LOBBY_ADD_BLACKLIST: self._add_blacklist,
+                P.LOBBY_REMOVE_BLACKLIST: self._remove_blacklist,
             }.get(route.prefix)
             if handler is None:
                 await interaction.response.send_message(self.text.get("common.error"), ephemeral=True)
@@ -216,7 +220,7 @@ class LobbyService:
             await interaction.response.send_message(self.text.get("lobby.creator_only"), ephemeral=True)
             return
         meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.emoji, self.text)
+        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
         compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
         await interaction.response.send_message(view=compiled, ephemeral=True)
 
@@ -236,7 +240,7 @@ class LobbyService:
             lobby.private = values[0] == "private"
         await interaction.response.defer(ephemeral=True)
         meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.emoji, self.text)
+        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
         compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
         await interaction.edit_original_response(view=compiled)
 
@@ -249,7 +253,7 @@ class LobbyService:
         lobby.blacklist.clear()
         await interaction.response.defer(ephemeral=True)
         meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.emoji, self.text)
+        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
         compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
         await interaction.edit_original_response(view=compiled)
 
@@ -270,7 +274,7 @@ class LobbyService:
                 lobby.settings[key] = raw
         await interaction.response.defer(ephemeral=True)
         meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.emoji, self.text)
+        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
         compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
         await interaction.edit_original_response(view=compiled)
         await self._refresh(lobby, interaction)
@@ -282,7 +286,7 @@ class LobbyService:
         lobby.settings = self._default_settings(self._meta(lobby.game_key))
         await interaction.response.defer(ephemeral=True)
         meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.emoji, self.text)
+        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
         compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
         await interaction.edit_original_response(view=compiled)
         await self._refresh(lobby, interaction)
@@ -292,6 +296,72 @@ class LobbyService:
             await interaction.response.send_message(self.text.get("lobby.creator_only"), ephemeral=True)
             return
         await self._teardown(lobby, interaction)
+
+    async def _add_whitelist(self, lobby: Lobby, route: Route, interaction: discord.Interaction) -> None:
+        if interaction.user.id != lobby.creator_id:
+            await interaction.response.send_message(self.text.get("lobby.creator_only"), ephemeral=True)
+            return
+        values = interaction.data.get("values") if interaction.data else []
+        if values:
+            target_id = int(values[0])
+            lobby.whitelist.add(target_id)
+            lobby.blacklist.discard(target_id)
+        await interaction.response.defer(ephemeral=True)
+        meta = self._meta(lobby.game_key)
+        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
+        compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
+        await interaction.edit_original_response(view=compiled)
+
+    async def _remove_whitelist(self, lobby: Lobby, route: Route, interaction: discord.Interaction) -> None:
+        if interaction.user.id != lobby.creator_id:
+            await interaction.response.send_message(self.text.get("lobby.creator_only"), ephemeral=True)
+            return
+        values = interaction.data.get("values") if interaction.data else []
+        if values:
+            target_id = int(values[0])
+            lobby.whitelist.discard(target_id)
+        await interaction.response.defer(ephemeral=True)
+        meta = self._meta(lobby.game_key)
+        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
+        compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
+        await interaction.edit_original_response(view=compiled)
+
+    async def _add_blacklist(self, lobby: Lobby, route: Route, interaction: discord.Interaction) -> None:
+        if interaction.user.id != lobby.creator_id:
+            await interaction.response.send_message(self.text.get("lobby.creator_only"), ephemeral=True)
+            return
+        values = interaction.data.get("values") if interaction.data else []
+        kicked = False
+        if values:
+            target_id = int(values[0])
+            lobby.blacklist.add(target_id)
+            lobby.whitelist.discard(target_id)
+            if any(m.user_id == target_id for m in lobby.members):
+                lobby.members = [m for m in lobby.members if m.user_id != target_id]
+                lobby.ready.discard(target_id)
+                await self.registries.release_user(target_id)
+                kicked = True
+        await interaction.response.defer(ephemeral=True)
+        meta = self._meta(lobby.game_key)
+        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
+        compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
+        await interaction.edit_original_response(view=compiled)
+        if kicked:
+            await self._refresh(lobby, interaction)
+
+    async def _remove_blacklist(self, lobby: Lobby, route: Route, interaction: discord.Interaction) -> None:
+        if interaction.user.id != lobby.creator_id:
+            await interaction.response.send_message(self.text.get("lobby.creator_only"), ephemeral=True)
+            return
+        values = interaction.data.get("values") if interaction.data else []
+        if values:
+            target_id = int(values[0])
+            lobby.blacklist.discard(target_id)
+        await interaction.response.defer(ephemeral=True)
+        meta = self._meta(lobby.game_key)
+        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
+        compiled = self.compiler.compile(view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS)
+        await interaction.edit_original_response(view=compiled)
 
     async def _start(self, lobby: Lobby, route: Route, interaction: discord.Interaction) -> None:
         meta = self._meta(lobby.game_key)

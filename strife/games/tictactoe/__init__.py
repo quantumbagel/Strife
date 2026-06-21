@@ -40,6 +40,7 @@ META = GameMetadata(
             type=OptionType.CHOICE,
             default="random",
             choices=("random", "creator"),
+            emoji="first",
         ),
     ),
     slash_moves=(),

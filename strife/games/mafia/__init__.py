@@ -39,9 +39,9 @@ META = GameMetadata(
         BotSpec("hard", "Uses night results + voting history"),
     ),
     settings=(
-        SettingOption("mafia_count", "Mafia Count", "Number of mafia", OptionType.INT, default=2, minimum=1, maximum=4),
-        SettingOption("enable_doctor", "Doctor", "Include a Doctor", OptionType.BOOL, default=True),
-        SettingOption("enable_detective", "Detective", "Include a Detective", OptionType.BOOL, default=True),
+        SettingOption("mafia_count", "Mafia Count", "Number of mafia", OptionType.INT, default=2, minimum=1, maximum=4, emoji="user"),
+        SettingOption("enable_doctor", "Doctor", "Include a Doctor", OptionType.BOOL, default=True, emoji="ready"),
+        SettingOption("enable_detective", "Detective", "Include a Detective", OptionType.BOOL, default=True, emoji="hmm"),
     ),
     slash_moves=(),
     role_mode=RoleMode.SECRET,

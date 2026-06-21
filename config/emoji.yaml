@@ -162,3 +162,28 @@ logo:
   fallback: null
   id: 1518089750861320292
   animated: false
+public:
+  fallback: 🔓
+  id: null
+  animated: false
+private:
+  fallback: 🔒
+  id: null
+  animated: false
+mafia_count:
+  fallback: 🐺
+  id: null
+  animated: false
+enable_doctor:
+  fallback: 🧑‍🌾
+  id: null
+  animated: false
+enable_detective:
+  fallback: 🔎
+  id: null
+  animated: false
+first_move:
+  fallback: ⏱️
+  id: null
+  animated: false
+

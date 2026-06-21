@@ -99,6 +99,7 @@ class SettingOption:
     minimum: int | None = None
     maximum: int | None = None
     choices: tuple[str, ...] | None = None
+    emoji: str | None = None
 
 
 @dataclass(frozen=True)
