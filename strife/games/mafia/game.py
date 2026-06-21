@@ -5,18 +5,15 @@ from collections import Counter
 
 from strife.engine.context import GameContext
 from strife.engine.game import Game
-from strife.engine.players import GameOutcome, Move, Move
+from strife.engine.players import GameOutcome, Move
 from strife.games.mafia.bot import choose_mafia_move
 from strife.games.mafia.roles import compose_roles
 from strife.presentation.components import (
     ActionRow,
-    Button,
-    ButtonStyle,
     Container,
     LayoutView,
     Select,
     SelectChoice,
-    Separator,
     TextDisplay,
     TextSize,
 )

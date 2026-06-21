@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from strife.engine.metadata import GameMetadata
-from strife.engine.players import Player
 
 
 def compose_roles(meta: GameMetadata, player_count: int, settings: dict, rng) -> list[str]:

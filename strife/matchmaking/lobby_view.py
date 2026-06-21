@@ -12,7 +12,6 @@ from strife.presentation.components import (
     Section,
     Select,
     SelectChoice,
-    Separator,
     TextDisplay,
     TextSize,
 )
@@ -35,7 +34,7 @@ def build_lobby_view(
     if meta.how_to_play_link:
         title_section = Section(
             accessory=Button(
-                label="How to Play",
+                label=text.get("lobby.how_to_play"),
                 style=ButtonStyle.LINK,
                 emoji="learn",
                 url=meta.how_to_play_link,
@@ -98,45 +97,43 @@ def build_lobby_view(
 
     container.add_text(
         TextDisplay(
-            markdown_content="**Players**\n" + ("\n".join(roster_lines) or "_Empty_"),
+            markdown_content=f"{text.get('lobby.players_title')}\n" + ("\n".join(roster_lines) or text.get("lobby.empty_roster")),
             size_style=TextSize.BODY,
         )
     )
 
     container.add_separator()
 
-    can_r, _ = lobby.can_ready(meta)
+    can_r, _ = lobby.can_ready(meta, text)
     join_style = ButtonStyle.SECONDARY if can_r else ButtonStyle.SUCCESS
     ready_style = ButtonStyle.SUCCESS if can_r else ButtonStyle.PRIMARY
 
     controls = ActionRow()
     controls.add_button(
-        Button(source="join", label="Join", style=join_style, emoji="join", route_prefix=P.LOBBY_JOIN)
+        Button(source="join", label=text.get("lobby.join_button"), style=join_style, emoji="join", route_prefix=P.LOBBY_JOIN)
     )
     controls.add_button(
-        Button(source="leave", label="Leave", style=ButtonStyle.SECONDARY, emoji="leave", route_prefix=P.LOBBY_LEAVE)
+        Button(source="leave", label=text.get("lobby.leave_button"), style=ButtonStyle.SECONDARY, emoji="leave", route_prefix=P.LOBBY_LEAVE)
     )
     if can_r or lobby.ready:
         controls.add_button(
-            Button(source="ready", label="Ready", style=ready_style, emoji="ready", route_prefix=P.LOBBY_READY)
+            Button(source="ready", label=text.get("lobby.ready_button"), style=ready_style, emoji="ready", route_prefix=P.LOBBY_READY)
         )
-
 
     if meta.role_flow.value in {"selectable", "selectable_random"}:
         controls.add_button(
-            Button(source="assign", label="Assign Roles", style=ButtonStyle.SECONDARY, route_prefix=P.LOBBY_ASSIGN)
+            Button(source="assign", label=text.get("lobby.assign_roles_button"), style=ButtonStyle.SECONDARY, route_prefix=P.LOBBY_ASSIGN)
         )
 
     controls.add_button(
         Button(
             source="settings",
-            label="Settings",
+            label=text.get("lobby.settings_button"),
             style=ButtonStyle.SECONDARY,
             emoji="settings",
             route_prefix=P.LOBBY_SETTINGS,
         )
     )
-
 
     # Controls added to the container instead of the view
     container.add_action_row(controls)
@@ -155,7 +152,7 @@ def build_lobby_view(
             row.add_select(
                 Select(
                     source="role",
-                    placeholder=f"{member.display_name}: Role",
+                    placeholder=text.get("lobby.role_placeholder", name=member.display_name),
                     choices=choices,
                     payload={"player_id": member.user_id},
                     route_prefix=P.LOBBY_ROLE,

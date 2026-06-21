@@ -49,8 +49,9 @@ class ReplayService:
             return
         frames = await self._frames(detail.id)
         if not frames:
-            await interaction.response.send_message(self.text.get("replay_unavailable"), ephemeral=True)
+            await interaction.response.send_message(self.text.get("common.replay_unavailable"), ephemeral=True)
             return
+        game_name = self.simulator._registry.metadata(detail.game_key).name
         view = build_replay_view(
             detail,
             0,
@@ -58,6 +59,7 @@ class ReplayService:
             owner_id=interaction.user.id,
             frame_view=frames[0].view,
             text=self.text,
+            game_name=game_name,
         )
         compiled = self.compiler.compile(view, resource_id=detail.id, prefix="r_nav:")
         await interaction.response.send_message(view=compiled)
@@ -77,9 +79,10 @@ class ReplayService:
             return
         frames = await self._frames(match_id)
         if not frames:
-            await interaction.response.send_message(self.text.get("replay_unavailable"), ephemeral=True)
+            await interaction.response.send_message(self.text.get("common.replay_unavailable"), ephemeral=True)
             return
         frame = max(0, min(frame, len(frames) - 1))
+        game_name = self.simulator._registry.metadata(detail.game_key).name
         view = build_replay_view(
             detail,
             frame,
@@ -87,6 +90,7 @@ class ReplayService:
             owner_id=owner_id,
             frame_view=frames[frame].view,
             text=self.text,
+            game_name=game_name,
         )
         compiled = self.compiler.compile(view, resource_id=match_id, prefix="r_nav:")
         if interaction.response.is_done():

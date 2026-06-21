@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import random
 import time
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -20,7 +18,6 @@ from strife.persistence.repositories import (
     FinishedMatch,
     MatchPlayer,
     MoveRecord,
-    PlayerResult,
 )
 from strife.presentation.components import LayoutView
 from strife.presentation.message import ViewSurface
@@ -103,12 +100,12 @@ class GameSession:
         async with self.lock:
             seat = self._seat_for_user(inp.actor.id)
             if seat is None:
-                raise RuntimeError("not_your_turn")
+                raise RuntimeError("not_a_player")
             pending = self.pending.get(seat)
             if pending is None or seat not in pending.allowed_actors:
                 raise RuntimeError("not_your_turn")
             if pending.allowed_sources is not None and inp.source not in pending.allowed_sources:
-                raise RuntimeError("not_your_turn")
+                raise RuntimeError("invalid_action")
             move = Move(actor_seat=seat, source=inp.source, args=inp.args)
             if not pending.future.done():
                 pending.future.set_result(move)

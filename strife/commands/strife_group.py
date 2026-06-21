@@ -49,10 +49,18 @@ def register_strife_group(
     async def forfeit_cmd(interaction: discord.Interaction) -> None:
         loc = lobby.registries.location_of(interaction.user.id)
         if loc is None or loc.kind != "game":
-            await interaction.response.send_message(lobby.text.get("common.forbidden"), ephemeral=True)
+            await interaction.response.send_message(lobby.text.get("errors.not_in_game"), ephemeral=True)
             return
-        await lifecycle.forfeit(loc.thread_id, interaction.user.id)
-        await interaction.response.send_message("You have forfeited.", ephemeral=True)
+        try:
+            await lifecycle.forfeit(loc.thread_id, interaction.user.id)
+            await interaction.response.send_message(lobby.text.get("match.forfeited"), ephemeral=True)
+        except RuntimeError as e:
+            if str(e) == "no_session":
+                await interaction.response.send_message(lobby.text.get("errors.no_session"), ephemeral=True)
+            else:
+                await interaction.response.send_message(lobby.text.get("common.error"), ephemeral=True)
+        except PermissionError:
+            await interaction.response.send_message(lobby.text.get("errors.not_in_game"), ephemeral=True)
 
     @group.command(name="replay", description="Open a match replay")
     @app_commands.describe(match_ref="Match code or ID")
@@ -64,7 +72,7 @@ def register_strife_group(
         from strife.presentation.about_view import build_about_view
         from strife.routing import prefixes as P
 
-        view = build_about_view(lobby.emoji)
+        view = build_about_view(lobby.emoji, lobby.text)
         compiled = lobby.compiler.compile(view, resource_id=interaction.user.id, prefix=P.ABOUT_NAV)
         await interaction.response.send_message(view=compiled, ephemeral=True)
 
@@ -74,7 +82,7 @@ def register_strife_group(
     async def set_channel_cmd(interaction: discord.Interaction, channel: discord.TextChannel) -> None:
         await guilds.upsert(interaction.guild_id)
         await guilds.set_default_channel(interaction.guild_id, channel.id)
-        await interaction.response.send_message(f"Default channel set to {channel.mention}", ephemeral=True)
+        await interaction.response.send_message(lobby.text.get("guild.channel_set", mention=channel.mention), ephemeral=True)
 
     bot_group = app_commands.Group(name="bot", description="Manage lobby bots", parent=group)
 

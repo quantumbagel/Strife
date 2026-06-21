@@ -7,7 +7,7 @@ import discord
 from strife.config.text import TextConfig
 from strife.persistence.repositories import MatchRepository, UserRepository
 from strife.presentation.compiler import Compiler
-from strife.presentation.components import ActionRow, Button, ButtonStyle, Container, LayoutView, TextDisplay, Separator, TextSize
+from strife.presentation.components import ActionRow, Button, ButtonStyle, Container, LayoutView, TextDisplay, TextSize
 from strife.replay.service import ReplayService
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route
@@ -44,7 +44,7 @@ class ProfileService:
         suffix = f" ({game})" if game else ""
         container = Container()
         container.add_text(
-            TextDisplay(markdown_content=f"### {user.display_name} - Profile{suffix}", size_style=TextSize.HEADER)
+            TextDisplay(markdown_content=f"### {self.text.get('profile.title', name=user.display_name)}{suffix}", size_style=TextSize.HEADER)
         )
         container.add_text(
             TextDisplay(
@@ -79,7 +79,7 @@ class ProfileService:
         nav.add_button(
             Button(
                 source="prev",
-                label="Prev",
+                label=self.text.get("common.prev"),
                 style=ButtonStyle.SECONDARY,
                 route_prefix=P.PROF_NAV,
                 payload={"game": game, "page": max(0, page - 1)},
@@ -89,7 +89,7 @@ class ProfileService:
         nav.add_button(
             Button(
                 source="next",
-                label="Next",
+                label=self.text.get("common.next"),
                 style=ButtonStyle.SECONDARY,
                 route_prefix=P.PROF_NAV,
                 payload={"game": game, "page": page + 1},

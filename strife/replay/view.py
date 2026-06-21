@@ -10,7 +10,6 @@ from strife.presentation.components import (
     LayoutView,
     Select,
     SelectChoice,
-    Separator,
     TextDisplay,
     TextSize,
 )
@@ -25,12 +24,13 @@ def build_replay_view(
     owner_id: int,
     frame_view: LayoutView | None = None,
     text: TextConfig,
+    game_name: str,
 ) -> LayoutView:
     view = LayoutView()
     container = Container()
     container.add_text(
         TextDisplay(
-            markdown_content=f"### Replay: Match #{match.code} ({match.game_key})",
+            markdown_content=text.get("replay.title", code=match.code, game_name=game_name),
             size_style=TextSize.HEADER
         )
     )
@@ -47,7 +47,7 @@ def build_replay_view(
             else:
                 container.children.append(child)
     else:
-        container.add_text(TextDisplay(markdown_content=f"Frame {frame_index + 1}/{total}"))
+        container.add_text(TextDisplay(markdown_content=text.get("replay.turn_label", current=frame_index + 1, total=total)))
     
     view.add_container(container)
     for row in frame_action_rows:
@@ -57,7 +57,7 @@ def build_replay_view(
     nav.add_button(
         Button(
             source="first",
-            label="First",
+            label=text.get("common.first"),
             style=ButtonStyle.SECONDARY,
             route_prefix=P.R_NAV,
             payload={"owner": owner_id, "frame": 0},
@@ -67,18 +67,18 @@ def build_replay_view(
     nav.add_button(
         Button(
             source="prev",
-            label="Prev",
+            label=text.get("common.prev"),
             style=ButtonStyle.SECONDARY,
             route_prefix=P.R_NAV,
             payload={"owner": owner_id, "frame": max(0, frame_index - 1)},
             disabled=frame_index <= 0,
         )
     )
-    nav.add_button(Button(source="", label=f"Turn {frame_index + 1}/{total}", style=ButtonStyle.SECONDARY, disabled=True))
+    nav.add_button(Button(source="", label=text.get("replay.turn_label", current=frame_index + 1, total=total), style=ButtonStyle.SECONDARY, disabled=True))
     nav.add_button(
         Button(
             source="next",
-            label="Next",
+            label=text.get("common.next"),
             style=ButtonStyle.SECONDARY,
             route_prefix=P.R_NAV,
             payload={"owner": owner_id, "frame": min(total - 1, frame_index + 1)},
@@ -88,7 +88,7 @@ def build_replay_view(
     nav.add_button(
         Button(
             source="last",
-            label="Last",
+            label=text.get("common.last"),
             style=ButtonStyle.SECONDARY,
             route_prefix=P.R_NAV,
             payload={"owner": owner_id, "frame": max(0, total - 1)},
@@ -103,9 +103,9 @@ def build_replay_view(
         seek.add_select(
             Select(
                 source="seek",
-                placeholder="Jump to turn...",
+                placeholder=text.get("replay.jump_placeholder"),
                 choices=[
-                    SelectChoice(label=f"Turn {idx + 1}", value=str(idx), default=idx == frame_index)
+                    SelectChoice(label=text.get("replay.turn_choice_label", current=idx + 1), value=str(idx), default=idx == frame_index)
                     for idx in bookmarks
                 ],
                 route_prefix=P.R_NAV,

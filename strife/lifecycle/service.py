@@ -10,9 +10,7 @@ from strife.engine.players import Move
 from strife.engine.registry import GameRegistry
 from strife.lifecycle.rematch import RematchManager
 from strife.logging import get_logger
-from strife.matchmaking.lobby import Lobby, LobbyMember, QueuedBot
-from strife.matchmaking.lobby_view import build_lobby_view
-from strife.matchmaking.registries import SessionRegistries, UserLocation
+from strife.matchmaking.registries import SessionRegistries
 from strife.matchmaking.service import LobbyService
 
 log = get_logger("lifecycle.service")

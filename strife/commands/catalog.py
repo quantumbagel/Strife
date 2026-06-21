@@ -5,6 +5,7 @@ import math
 import discord
 
 from strife.config import AppConfig
+from strife.config.text import TextConfig
 from strife.engine.registry import GameRegistry
 from strife.presentation.compiler import Compiler
 from strife.presentation.components import ActionRow, Button, ButtonStyle, Container, LayoutView, TextDisplay, TextSize
@@ -13,11 +14,12 @@ from strife.routing import prefixes as P
 
 
 class CatalogService:
-    def __init__(self, registry: GameRegistry, config: AppConfig, compiler: Compiler, emoji: EmojiResolver) -> None:
+    def __init__(self, registry: GameRegistry, config: AppConfig, compiler: Compiler, emoji: EmojiResolver, text: TextConfig) -> None:
         self.registry = registry
         self.config = config
         self.compiler = compiler
         self.emoji = emoji
+        self.text = text
         self._page_size = 3
 
     async def show(self, interaction: discord.Interaction, page: int = 0) -> None:
@@ -27,7 +29,7 @@ class CatalogService:
         chunk = games[page * self._page_size : (page + 1) * self._page_size]
         view = LayoutView()
         container = Container()
-        container.add_text(TextDisplay(markdown_content="### Game Catalog", size_style=TextSize.HEADER))
+        container.add_text(TextDisplay(markdown_content=f"### {self.text.get('catalog.title')}", size_style=TextSize.HEADER))
         for meta in chunk:
             game_emoji = self.emoji.get_game_emoji(meta.key)
             container.children.append(
@@ -43,7 +45,7 @@ class CatalogService:
         nav.add_button(
             Button(
                 source="prev",
-                label="Prev",
+                label=self.text.get("common.prev"),
                 style=ButtonStyle.SECONDARY,
                 route_prefix=P.CAT_NAV,
                 payload={"page": max(0, page - 1)},
@@ -53,7 +55,7 @@ class CatalogService:
         nav.add_button(
             Button(
                 source="next",
-                label="Next",
+                label=self.text.get("common.next"),
                 style=ButtonStyle.SECONDARY,
                 route_prefix=P.CAT_NAV,
                 payload={"page": min(pages - 1, page + 1)},
@@ -74,7 +76,7 @@ class CatalogService:
         chunk = games[page * self._page_size : (page + 1) * self._page_size]
         view = LayoutView()
         container = Container()
-        container.add_text(TextDisplay(markdown_content="### Game Catalog", size_style=TextSize.HEADER))
+        container.add_text(TextDisplay(markdown_content=f"### {self.text.get('catalog.title')}", size_style=TextSize.HEADER))
         for meta in chunk:
             game_emoji = self.emoji.get_game_emoji(meta.key)
             container.children.append(
@@ -90,7 +92,7 @@ class CatalogService:
         nav.add_button(
             Button(
                 source="prev",
-                label="Prev",
+                label=self.text.get("common.prev"),
                 style=ButtonStyle.SECONDARY,
                 route_prefix=P.CAT_NAV,
                 payload={"page": max(0, page - 1)},
@@ -100,7 +102,7 @@ class CatalogService:
         nav.add_button(
             Button(
                 source="next",
-                label="Next",
+                label=self.text.get("common.next"),
                 style=ButtonStyle.SECONDARY,
                 route_prefix=P.CAT_NAV,
                 payload={"page": min(pages - 1, page + 1)},
@@ -110,3 +112,4 @@ class CatalogService:
         view.add_action_row(nav)
         compiled = self.compiler.compile(view, resource_id=interaction.user.id, prefix=P.CAT_NAV)
         await interaction.response.edit_message(view=compiled)
+

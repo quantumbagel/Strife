@@ -50,7 +50,7 @@ class InteractionRouter:
         try:
             route = self.encoder.decode(custom_id)
         except PayloadExpired:
-            await self._ephemeral(interaction, self.text.get("common.game_ended"))
+            await self._disable_and_report_ended(interaction, "common.game_ended")
             return
         except (CustomIdError, KeyError, ValueError, TypeError) as exc:
             log.warning("Bad custom_id %s: %s", custom_id, exc)
@@ -82,8 +82,19 @@ class InteractionRouter:
         except PermissionError:
             await self._ephemeral(interaction, self.text.get("common.forbidden"))
         except RuntimeError as exc:
-            if str(exc) == "not_your_turn":
+            err_str = str(exc)
+            if err_str == "not_your_turn":
                 await self._ephemeral(interaction, self.text.get("common.not_your_turn"))
+            elif err_str == "not_a_player":
+                await self._ephemeral(interaction, self.text.get("errors.not_a_player"))
+            elif err_str == "invalid_action":
+                await self._ephemeral(interaction, self.text.get("errors.invalid_action"))
+            elif err_str == "rematch_expired":
+                await self._ephemeral(interaction, self.text.get("errors.rematch_expired"))
+            elif err_str == "rematch_not_eligible":
+                await self._ephemeral(interaction, self.text.get("errors.rematch_not_eligible"))
+            elif err_str == "rematch_unavailable":
+                await self._ephemeral(interaction, self.text.get("errors.rematch_unavailable"))
             else:
                 log.exception("Router error")
                 await self._ephemeral(interaction, self.text.get("common.error"))
@@ -91,7 +102,7 @@ class InteractionRouter:
     async def _handle_game(self, route, interaction: discord.Interaction) -> None:
         session = self.sessions.get_game(route.resource_id)
         if session is None:
-            await self._ephemeral(interaction, self.text.get("common.game_ended"))
+            await self._disable_and_report_ended(interaction, "common.game_ended")
             return
         values = interaction.data.get("values") if interaction.data else None
         args = dict(route.payload)
@@ -116,7 +127,7 @@ class InteractionRouter:
             return
         owner_id = int(route.payload.get("owner", interaction.user.id))
         if owner_id != interaction.user.id:
-            await self._ephemeral(interaction, self.text.get("replay_owner_only"))
+            await self._ephemeral(interaction, self.text.get("common.replay_owner_only"))
             return
         frame = int(route.payload.get("frame", 0))
         seek = route.payload.get("mode") == "seek"
@@ -157,7 +168,7 @@ class InteractionRouter:
         from strife.presentation.about_view import build_about_view
 
         show_background = bool(route.payload.get("show_background", False))
-        view = build_about_view(self.lobby.emoji, show_background=show_background)
+        view = build_about_view(self.lobby.emoji, self.text, show_background=show_background)
         compiled = self.lobby.compiler.compile(view, resource_id=interaction.user.id, prefix=P.ABOUT_NAV)
         await interaction.response.edit_message(view=compiled)
 
@@ -170,3 +181,27 @@ class InteractionRouter:
             await interaction.followup.send(content, ephemeral=True)
         else:
             await interaction.response.send_message(content, ephemeral=True)
+
+    async def _disable_and_report_ended(self, interaction: discord.Interaction, message_key: str) -> None:
+        content = self.text.get(message_key)
+        if interaction.message:
+            try:
+                view = discord.ui.LayoutView.from_message(interaction.message)
+                for item in view.walk_children():
+                    if hasattr(item, "disabled"):
+                        item.disabled = True
+                
+                if not interaction.response.is_done():
+                    await interaction.response.edit_message(view=view)
+                    await interaction.followup.send(content, ephemeral=True)
+                else:
+                    await interaction.message.edit(view=view)
+                    await interaction.followup.send(content, ephemeral=True)
+                return
+            except Exception as exc:
+                log.warning("Failed to disable components on old message: %s", exc)
+
+        if not interaction.response.is_done():
+            await interaction.response.send_message(content, ephemeral=True)
+        else:
+            await interaction.followup.send(content, ephemeral=True)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import OrderedDict
 
 from strife.engine.context import ReplayContext
 from strife.engine.players import Player

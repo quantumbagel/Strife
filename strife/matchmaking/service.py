@@ -131,7 +131,7 @@ class LobbyService:
     async def handle(self, route: Route, interaction: discord.Interaction) -> None:
         lobby = self.registries.get_lobby(route.resource_id)
         if lobby is None:
-            await interaction.response.send_message(self.text.get("lobby.closed"), ephemeral=True)
+            await self._disable_and_report_closed(interaction, "lobby.already_dead")
             return
         async with lobby.lock:
             handler = {
@@ -170,10 +170,10 @@ class LobbyService:
             await interaction.response.send_message(self.text.get("lobby.joined"), ephemeral=True)
             return
         if lobby.private and lobby.whitelist and user.id not in lobby.whitelist:
-            await interaction.response.send_message(self.text.get("common.forbidden"), ephemeral=True)
+            await interaction.response.send_message(self.text.get("errors.not_on_whitelist"), ephemeral=True)
             return
         if user.id in lobby.blacklist:
-            await interaction.response.send_message(self.text.get("common.forbidden"), ephemeral=True)
+            await interaction.response.send_message(self.text.get("errors.blacklisted"), ephemeral=True)
             return
         if not await self.registries.reserve_user(user.id, UserLocation("lobby", lobby.thread_id, lobby.guild_id)):
             await interaction.response.send_message(self.text.get("errors.already_in_session"), ephemeral=True)
@@ -199,14 +199,14 @@ class LobbyService:
             await self._refresh(lobby, interaction)
         else:
             meta = self._meta(lobby.game_key)
-            ok, reason = lobby.can_ready(meta)
+            ok, reason = lobby.can_ready(meta, self.text)
             if not ok:
                 await interaction.response.send_message(
                     self.text.get("lobby.cannot_start", reason=reason or "unknown"), ephemeral=True
                 )
                 return
             lobby.ready.add(interaction.user.id)
-            ok_start, _ = lobby.can_start(meta)
+            ok_start, _ = lobby.can_start(meta, self.text)
             if ok_start:
                 await self._start(lobby, route, interaction)
             else:
@@ -365,7 +365,7 @@ class LobbyService:
 
     async def _start(self, lobby: Lobby, route: Route, interaction: discord.Interaction) -> None:
         meta = self._meta(lobby.game_key)
-        ok, reason = lobby.can_start(meta)
+        ok, reason = lobby.can_start(meta, self.text)
         if not ok:
             await interaction.response.send_message(
                 self.text.get("lobby.cannot_start", reason=reason or "unknown"), ephemeral=True
@@ -428,7 +428,7 @@ class LobbyService:
         container.add_text(
             TextDisplay(markdown_content=f"### {brand} {self.text.get('lobby.title', game_name=meta.name)}", size_style=TextSize.HEADER)
         )
-        container.add_text(TextDisplay(markdown_content=f"Game started in {thread.mention}!", size_style=TextSize.BODY))
+        container.add_text(TextDisplay(markdown_content=self.text.get("lobby.game_started", mention=thread.mention), size_style=TextSize.BODY))
         ended_view.add_container(container)
         await lobby.surface.update(ended_view)
 
@@ -437,7 +437,7 @@ class LobbyService:
         starting_view = LayoutView()
         start_container = Container()
         start_container.add_text(
-            TextDisplay(markdown_content=f"Starting {meta.name}...", size_style=TextSize.BODY)
+            TextDisplay(markdown_content=self.text.get("lobby.starting_game", game_name=meta.name), size_style=TextSize.BODY)
         )
         starting_view.add_container(start_container)
         await game_surface.send_to_thread(thread, starting_view)
@@ -481,7 +481,7 @@ class LobbyService:
     async def add_bots(self, interaction: discord.Interaction, difficulty: str, number: int) -> None:
         loc = self.registries.location_of(interaction.user.id)
         if loc is None or loc.kind != "lobby":
-            await interaction.response.send_message(self.text.get("common.forbidden"), ephemeral=True)
+            await interaction.response.send_message(self.text.get("errors.not_in_lobby"), ephemeral=True)
             return
         lobby = self.registries.get_lobby(loc.thread_id)
         if lobby is None or lobby.creator_id != interaction.user.id:
@@ -498,7 +498,7 @@ class LobbyService:
     async def remove_bot(self, interaction: discord.Interaction, name: str) -> None:
         loc = self.registries.location_of(interaction.user.id)
         if loc is None or loc.kind != "lobby":
-            await interaction.response.send_message(self.text.get("common.forbidden"), ephemeral=True)
+            await interaction.response.send_message(self.text.get("errors.not_in_lobby"), ephemeral=True)
             return
         lobby = self.registries.get_lobby(loc.thread_id)
         if lobby is None or lobby.creator_id != interaction.user.id:
@@ -514,12 +514,36 @@ class LobbyService:
     async def open_settings(self, interaction: discord.Interaction, private: bool | None) -> None:
         loc = self.registries.location_of(interaction.user.id)
         if loc is None or loc.kind != "lobby":
-            await interaction.response.send_message(self.text.get("common.forbidden"), ephemeral=True)
+            await interaction.response.send_message(self.text.get("errors.not_in_lobby"), ephemeral=True)
             return
         lobby = self.registries.get_lobby(loc.thread_id)
         if lobby is None:
-            await interaction.response.send_message(self.text.get("lobby.closed"), ephemeral=True)
+            await self._disable_and_report_closed(interaction, "lobby.already_dead")
             return
         if private is not None:
             lobby.private = private
         await self._settings(lobby, Route(P.LOBBY_SETTINGS, lobby.thread_id, "settings", {}), interaction)
+
+    async def _disable_and_report_closed(self, interaction: discord.Interaction, message_key: str) -> None:
+        content = self.text.get(message_key)
+        if interaction.message:
+            try:
+                view = discord.ui.LayoutView.from_message(interaction.message)
+                for item in view.walk_children():
+                    if hasattr(item, "disabled"):
+                        item.disabled = True
+                
+                if not interaction.response.is_done():
+                    await interaction.response.edit_message(view=view)
+                    await interaction.followup.send(content, ephemeral=True)
+                else:
+                    await interaction.message.edit(view=view)
+                    await interaction.followup.send(content, ephemeral=True)
+                return
+            except Exception as exc:
+                log.warning("Failed to disable components on closed lobby message: %s", exc)
+
+        if not interaction.response.is_done():
+            await interaction.response.send_message(content, ephemeral=True)
+        else:
+            await interaction.followup.send(content, ephemeral=True)

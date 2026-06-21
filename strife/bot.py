@@ -106,7 +106,7 @@ class StrifeBot(commands.Bot):
         simulator = ReplaySimulator(self.game_registry)
         self.replay = ReplayService(matches, moves, simulator, compiler, self.config.text)
         self.profile = ProfileService(users, matches, compiler, self.config.text, self.replay)
-        self.catalog = CatalogService(self.game_registry, self.config, compiler, self.emoji)
+        self.catalog = CatalogService(self.game_registry, self.config, compiler, self.emoji, self.config.text)
 
         self.router = InteractionRouter(
             sessions=self.sessions,

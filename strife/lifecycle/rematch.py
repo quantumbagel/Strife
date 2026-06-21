@@ -28,10 +28,12 @@ class RematchManager:
 
     async def vote(self, thread_id: int, user_id: int) -> None:
         eligible = self._eligible.get(thread_id, set())
+        if not eligible:
+            raise RuntimeError("rematch_unavailable")
         if user_id not in eligible:
-            raise PermissionError
+            raise RuntimeError("rematch_not_eligible")
         if time.monotonic() > self._expires.get(thread_id, 0):
-            return
+            raise RuntimeError("rematch_expired")
         votes = self._votes.setdefault(thread_id, set())
         votes.add(user_id)
         if votes >= eligible:
@@ -100,7 +102,7 @@ class RematchManager:
 
         if isinstance(thread, discord.Thread):
             try:
-                await thread.send(f"Rematch lobby created in {target_channel.mention}!")
+                await thread.send(self.text.get("rematch.lobby_created", mention=target_channel.mention))
             except discord.HTTPException:
                 pass
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 
+from strife.config.text import TextConfig
 from strife.engine.game import Game
 from strife.engine.metadata import GameMetadata
 from strife.presentation.message import ViewSurface
@@ -43,25 +44,26 @@ class Lobby:
     def total_players(self) -> int:
         return len(self.members) + len(self.bots)
 
-    def can_ready(self, meta: GameMetadata, game: Game | None = None) -> tuple[bool, str | None]:
+    def can_ready(self, meta: GameMetadata, text: TextConfig, game: Game | None = None) -> tuple[bool, str | None]:
         if not meta.player_count.is_valid(self.total_players):
-            return False, f"Need {meta.player_count.describe()} players"
+            return False, text.get("errors.need_players", describe=meta.player_count.describe())
         if meta.role_flow.value in {"selectable", "selectable_random"}:
             for member in self.members:
                 if member.user_id not in self.role_selection:
-                    return False, "Role selection incomplete"
+                    return False, text.get("errors.role_selection_incomplete")
         if game is not None:
             assignment = {m.user_id: self.role_selection[m.user_id] for m in self.members if m.user_id in self.role_selection}
             ok, reason = game.validate_roles(assignment)
             if not ok:
-                return False, reason or "Invalid roles"
+                return False, reason or text.get("errors.invalid_roles")
         return True, None
 
-    def can_start(self, meta: GameMetadata, game: Game | None = None) -> tuple[bool, str | None]:
-        ok, reason = self.can_ready(meta, game)
+    def can_start(self, meta: GameMetadata, text: TextConfig, game: Game | None = None) -> tuple[bool, str | None]:
+        ok, reason = self.can_ready(meta, text, game)
         if not ok:
             return False, reason
         if len(self.ready) < len(self.members):
-            return False, "Not all players are ready"
+            return False, text.get("errors.not_all_ready")
         return True, None
+
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import discord
 
 from strife.config.text import TextConfig
-from strife.engine.metadata import GameMetadata, OptionType, SettingOption
+from strife.engine.metadata import GameMetadata, OptionType
 from strife.matchmaking.lobby import Lobby
 from strife.presentation.components import (
     ActionRow,
@@ -42,20 +42,26 @@ def build_settings_view(
     # Title Section in the Container
     container.add_text(
         TextDisplay(
-            markdown_content=f"### {game_emoji} {meta.name} {forward_emoji} {settings_emoji} Settings Configuration",
+            markdown_content=text.get(
+                "lobby.settings_title",
+                game_emoji=game_emoji,
+                game_name=meta.name,
+                forward_emoji=forward_emoji,
+                settings_emoji=settings_emoji,
+            ),
             size_style=TextSize.HEADER,
         )
     )
 
     # Privacy Status display
     privacy_status = (
-        f"{emoji.get('private')} **Private** — Only whitelisted players can join this lobby."
+        text.get("lobby.private_status_body", private_emoji=emoji.get("private"))
         if lobby.private
-        else f"{emoji.get('public')} **Public** — Anyone in the server can view and join."
+        else text.get("lobby.public_status_body", public_emoji=emoji.get("public"))
     )
     container.add_text(
         TextDisplay(
-            markdown_content=f"**Lobby Privacy:**\n{privacy_status}",
+            markdown_content=text.get("lobby.privacy_status", status=privacy_status),
             size_style=TextSize.BODY,
         )
     )
@@ -65,20 +71,20 @@ def build_settings_view(
     priv_row.add_select(
         Select(
             source="priv",
-            placeholder="Adjust Privacy Mode...",
+            placeholder=text.get("lobby.privacy_placeholder"),
             choices=[
                 SelectChoice(
-                    label="Public",
+                    label=text.get("lobby.public_label"),
                     value="public",
                     default=not lobby.private,
-                    description="Open lobby. Anyone in the server can join.",
+                    description=text.get("lobby.public_desc"),
                     emoji="public",
                 ),
                 SelectChoice(
-                    label="Private",
+                    label=text.get("lobby.private_label"),
                     value="private",
                     default=lobby.private,
-                    description="Closed lobby. Restricted to whitelisted users.",
+                    description=text.get("lobby.private_desc"),
                     emoji="private",
                 ),
             ],
@@ -93,7 +99,7 @@ def build_settings_view(
     reset_priv.add_button(
         Button(
             source="reset_priv",
-            label="Reset Privacy & Access Lists",
+            label=text.get("lobby.reset_privacy_label"),
             style=ButtonStyle.SECONDARY,
             emoji="previous",
             route_prefix=P.LOBBY_RESET_PRIV,
@@ -126,8 +132,10 @@ def build_settings_view(
             wl_str = ", ".join(wl_names) if wl_names else "_None_"
             container.add_text(
                 TextDisplay(
-                    markdown_content=f"### {emoji.get('user')} Access Control Lists\n"
-                                     f"**Whitelisted:** {wl_str}",
+                    markdown_content=(
+                        f"{text.get('lobby.access_control_title', user_emoji=emoji.get('user'))}\n"
+                        f"{text.get('lobby.whitelisted_label', whitelist=wl_str)}"
+                    ),
                     size_style=TextSize.SUBHEADER,
                 )
             )
@@ -139,12 +147,12 @@ def build_settings_view(
                     ActionRow().add_select(
                         Select(
                             source="add_whitelist",
-                            placeholder="➕ Add player to whitelist...",
+                            placeholder=text.get("lobby.add_whitelist_placeholder"),
                             choices=[
                                 SelectChoice(
                                     label=m.display_name,
                                     value=str(m.id),
-                                    description=f"Allow {m.display_name} to join",
+                                    description=text.get("lobby.allow_join_desc", name=m.display_name),
                                     emoji="success",
                                 )
                                 for m in wl_add_candidates[:25]
@@ -161,12 +169,12 @@ def build_settings_view(
                     ActionRow().add_select(
                         Select(
                             source="remove_whitelist",
-                            placeholder="➖ Remove player from whitelist...",
+                            placeholder=text.get("lobby.remove_whitelist_placeholder"),
                             choices=[
                                 SelectChoice(
                                     label=get_member_name(uid),
                                     value=str(uid),
-                                    description=f"Revoke join access for this player",
+                                    description=text.get("lobby.revoke_join_desc"),
                                     emoji="error",
                                 )
                                 for uid in lobby.whitelist
@@ -181,8 +189,10 @@ def build_settings_view(
             bl_str = ", ".join(bl_names) if bl_names else "_None_"
             container.add_text(
                 TextDisplay(
-                    markdown_content=f"### {emoji.get('user')} Access Control Lists\n"
-                                     f"**Blacklisted:** {bl_str}",
+                    markdown_content=(
+                        f"{text.get('lobby.access_control_title', user_emoji=emoji.get('user'))}\n"
+                        f"{text.get('lobby.blacklisted_label', blacklist=bl_str)}"
+                    ),
                     size_style=TextSize.SUBHEADER,
                 )
             )
@@ -194,12 +204,12 @@ def build_settings_view(
                     ActionRow().add_select(
                         Select(
                             source="add_blacklist",
-                            placeholder="🚫 Blacklist player (restrict access)...",
+                            placeholder=text.get("lobby.add_blacklist_placeholder"),
                             choices=[
                                 SelectChoice(
                                     label=m.display_name,
                                     value=str(m.id),
-                                    description=f"Prevent {m.display_name} from joining",
+                                    description=text.get("lobby.prevent_join_desc", name=m.display_name),
                                     emoji="error",
                                 )
                                 for m in bl_add_candidates[:25]
@@ -216,12 +226,12 @@ def build_settings_view(
                     ActionRow().add_select(
                         Select(
                             source="remove_blacklist",
-                            placeholder="🔓 Remove player from blacklist...",
+                            placeholder=text.get("lobby.remove_blacklist_placeholder"),
                             choices=[
                                 SelectChoice(
                                     label=get_member_name(uid),
                                     value=str(uid),
-                                    description=f"Allow this player to join again",
+                                    description=text.get("lobby.allow_join_again_desc"),
                                     emoji="success",
                                 )
                                 for uid in lobby.blacklist
@@ -236,13 +246,13 @@ def build_settings_view(
         if lobby.private:
             container.add_text(
                 TextDisplay(
-                    markdown_content=f"**Access Lists:** whitelist {len(lobby.whitelist)}"
+                    markdown_content=text.get("lobby.whitelist_count", count=len(lobby.whitelist))
                 )
             )
         else:
             container.add_text(
                 TextDisplay(
-                    markdown_content=f"**Access Lists:** blacklist {len(lobby.blacklist)}"
+                    markdown_content=text.get("lobby.blacklist_count", count=len(lobby.blacklist))
                 )
             )
 
@@ -251,13 +261,13 @@ def build_settings_view(
         container.add_separator()
         container.add_text(
             TextDisplay(
-                markdown_content=f"### {settings_emoji} Game-Specific Options",
+                markdown_content=text.get("lobby.game_options_title", settings_emoji=settings_emoji),
                 size_style=TextSize.SUBHEADER,
             )
         )
 
         for option in meta.settings:
-            opt_emoji = get_option_emoji(emoji, option)
+            opt_emoji = get_option_emoji(emoji, option.key)
             container.add_text(
                 TextDisplay(
                     markdown_content=f"**{opt_emoji} {option.title}**",
@@ -269,17 +279,17 @@ def build_settings_view(
                 current = bool(lobby.settings.get(option.key, option.default))
                 choices = [
                     SelectChoice(
-                        label="On",
+                        label=text.get("lobby.on_label"),
                         value="true",
                         default=current,
-                        description=f"Enable {option.title.lower()}",
+                        description=text.get("lobby.enable_option_desc", title=option.title.lower()),
                         emoji="success",
                     ),
                     SelectChoice(
-                        label="Off",
+                        label=text.get("lobby.off_label"),
                         value="false",
                         default=not current,
-                        description=f"Disable {option.title.lower()}",
+                        description=text.get("lobby.disable_option_desc", title=option.title.lower()),
                         emoji="error",
                     ),
                 ]
@@ -290,7 +300,7 @@ def build_settings_view(
                         label=value.capitalize(),
                         value=value,
                         default=value == current,
-                        description=f"Set {option.title.lower()} to {value}",
+                        description=text.get("lobby.set_choice_option_desc", title=option.title.lower(), value=value),
                         emoji="pointing",
                     )
                     for value in (option.choices or ())
@@ -304,7 +314,7 @@ def build_settings_view(
                         label=str(v),
                         value=str(v),
                         default=v == current,
-                        description=f"Set {option.title.lower()} value to {v}",
+                        description=text.get("lobby.set_int_option_desc", title=option.title.lower(), value=v),
                         emoji="user",
                     )
                     for v in range(minimum, min(maximum, minimum + 10) + 1)
@@ -314,7 +324,7 @@ def build_settings_view(
             opt_row.add_select(
                 Select(
                     source="opt",
-                    placeholder=f"Configure {option.title}...",
+                    placeholder=text.get("lobby.configure_option_placeholder", title=option.title),
                     choices=choices,
                     payload={"option_key": option.key, "option_type": option.type.value},
                     route_prefix=P.LOBBY_OPT,
@@ -336,7 +346,7 @@ def build_settings_view(
     rules.add_button(
         Button(
             source="reset_rules",
-            label="Reset Game Rules",
+            label=text.get("lobby.reset_rules_label"),
             style=ButtonStyle.SECONDARY,
             emoji="rematch",
             route_prefix=P.LOBBY_RESET_RULES,
@@ -346,7 +356,7 @@ def build_settings_view(
     rules.add_button(
         Button(
             source="end",
-            label="End Lobby",
+            label=text.get("lobby.end_lobby_label"),
             style=ButtonStyle.DANGER,
             emoji="error",
             route_prefix=P.LOBBY_END,

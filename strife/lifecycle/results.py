@@ -8,7 +8,6 @@ from strife.presentation.components import (
     ButtonStyle,
     Container,
     LayoutView,
-    Separator,
     TextDisplay,
     TextSize,
 )
@@ -52,7 +51,7 @@ def build_results_view(
     row.add_button(
         Button(
             source="vote",
-            label="Rematch",
+            label=text.get("match.rematch_label"),
             style=ButtonStyle.PRIMARY,
             route_prefix=P.REMATCH,
             resource_id=thread_id,
@@ -61,7 +60,7 @@ def build_results_view(
     row.add_button(
         Button(
             source="open",
-            label="View Replay",
+            label=text.get("match.view_replay_label"),
             style=ButtonStyle.SECONDARY,
             route_prefix=P.R_NAV,
             resource_id=match_id,
