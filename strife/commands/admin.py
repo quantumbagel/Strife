@@ -29,6 +29,28 @@ class AdminCommands(commands.Cog):
         cmd, *args = shlex.split(message.content.removeprefix("strife/"))
         await self._dispatch(cmd, args, message)
 
+    async def _add_reaction_with_fallback(
+        self, message: discord.Message, emoji_key: str, default_fallback: str
+    ) -> str | None:
+        emoji_resolver = getattr(self.bot, "emoji", None)
+        emoji = emoji_resolver.get(emoji_key) if emoji_resolver else default_fallback
+        if emoji == "❓":
+            emoji = default_fallback
+
+        try:
+            await message.add_reaction(emoji)
+            return emoji
+        except discord.HTTPException:
+            if emoji != default_fallback:
+                try:
+                    await message.add_reaction(default_fallback)
+                    return default_fallback
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return None
+
     async def _dispatch(self, cmd: str, args: list[str], message: discord.Message) -> None:
         handlers = {
             "sync": self._sync,
@@ -42,42 +64,23 @@ class AdminCommands(commands.Cog):
             await message.reply(f"Unknown admin command: {cmd}")
             return
 
-        emoji_resolver = getattr(self.bot, "emoji", None)
-        loading_emoji = emoji_resolver.get("loading") if emoji_resolver else "⏳"
-        success_emoji = emoji_resolver.get("success") if emoji_resolver else "✅"
-        error_emoji = emoji_resolver.get("error") if emoji_resolver else "❌"
-
-        if loading_emoji == "❓":
-            loading_emoji = "⏳"
-        if success_emoji == "❓":
-            success_emoji = "✅"
-        if error_emoji == "❓":
-            error_emoji = "❌"
-
-        try:
-            await message.add_reaction(loading_emoji)
-        except Exception:
-            log.warning("Failed to add loading reaction to message %s", message.id, exc_info=True)
+        added_loading = await self._add_reaction_with_fallback(message, "loading", "⏳")
 
         try:
             await handler(args, message)
-            try:
-                await message.remove_reaction(loading_emoji, self.bot.user)
-            except Exception:
-                pass
-            try:
-                await message.add_reaction(success_emoji)
-            except Exception:
-                log.warning("Failed to add success reaction to message %s", message.id, exc_info=True)
+            if added_loading:
+                try:
+                    await message.remove_reaction(added_loading, self.bot.user)
+                except Exception:
+                    pass
+            await self._add_reaction_with_fallback(message, "success", "✅")
         except Exception as e:
-            try:
-                await message.remove_reaction(loading_emoji, self.bot.user)
-            except Exception:
-                pass
-            try:
-                await message.add_reaction(error_emoji)
-            except Exception:
-                log.warning("Failed to add error reaction to message %s", message.id, exc_info=True)
+            if added_loading:
+                try:
+                    await message.remove_reaction(added_loading, self.bot.user)
+                except Exception:
+                    pass
+            await self._add_reaction_with_fallback(message, "error", "❌")
             raise e
 
     async def _sync(self, args: list[str], message: discord.Message) -> None:
