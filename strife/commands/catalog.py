@@ -36,7 +36,7 @@ class CatalogService:
                 TextDisplay(
                     markdown_content=(
                         f"{game_emoji} **{meta.name}** — {meta.summary}\n"
-                        f"Players: {meta.player_count.describe()} • {meta.time_estimate} • {meta.difficulty}"
+                        f"Players: {meta.player_count.describe()} • {meta.time_estimate} • {meta.difficulty}/10"
                     )
                 )
             )
@@ -83,7 +83,7 @@ class CatalogService:
                 TextDisplay(
                     markdown_content=(
                         f"{game_emoji} **{meta.name}** — {meta.summary}\n"
-                        f"Players: {meta.player_count.describe()} • {meta.time_estimate} • {meta.difficulty}"
+                        f"Players: {meta.player_count.describe()} • {meta.time_estimate} • {meta.difficulty}/10"
                     )
                 )
             )

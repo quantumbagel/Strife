@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 
 from strife.engine.metadata import (
     BotSpec,
@@ -30,7 +29,7 @@ META = GameMetadata(
     source_link=None,
     how_to_play_link="https://en.wikipedia.org/wiki/Mafia_(party_game)",
     time_estimate="20m",
-    difficulty="medium",
+    difficulty=5,
     player_count=PlayerCount(minimum=4, maximum=12),
     player_order=PlayerOrder.RANDOM,
     bots=(

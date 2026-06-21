@@ -103,11 +103,11 @@ spectate:
   id: 1518089758268461199
   animated: false
 time:
-  fallback: null
+  fallback: ⏰
   id: 1518089760067813406
   animated: false
 timer:
-  fallback: null
+  fallback: ⏱️
   id: 1518089760764334140
   animated: false
 user:
@@ -184,5 +184,13 @@ enable_detective:
   animated: false
 first_move:
   fallback: ⏱️
+  id: null
+  animated: false
+bullet:
+  fallback: 🔸
+  id: null
+  animated: false
+difficulty:
+  fallback: 📊
   id: null
   animated: false

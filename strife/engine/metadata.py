@@ -144,7 +144,7 @@ class GameMetadata:
     author_link: str | None
     source_link: str | None
     time_estimate: str
-    difficulty: str
+    difficulty: int
     player_count: PlayerCount
     player_order: PlayerOrder
     bots: tuple[BotSpec, ...] = ()

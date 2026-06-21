@@ -6,8 +6,6 @@ from strife.engine.metadata import (
     OptionType,
     PlayerCount,
     PlayerOrder,
-    RoleFlow,
-    RoleMode,
     SettingOption,
 )
 from strife.games.tictactoe.game import TicTacToe
@@ -24,7 +22,7 @@ META = GameMetadata(
     source_link=None,
     how_to_play_link="https://en.wikipedia.org/wiki/Tic-tac-toe",
     time_estimate="2m",
-    difficulty="easy",
+    difficulty=2,
     player_count=PlayerCount(fixed=2),
     player_order=PlayerOrder.RANDOM,
     bots=(

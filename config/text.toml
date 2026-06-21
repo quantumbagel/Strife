@@ -73,6 +73,7 @@ end_lobby_label = "End Lobby"
 
 [errors]
 already_in_session = "You are already in an active lobby or match."
+already_in_lobby = "You are already in this lobby."
 game_disabled = "That game is not available."
 not_in_game = "You cannot forfeit because you are not in an active game."
 not_on_whitelist = "You cannot join because you are not whitelisted for this lobby."

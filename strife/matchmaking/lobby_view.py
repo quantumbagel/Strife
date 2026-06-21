@@ -79,7 +79,15 @@ def build_lobby_view(
         )
     )
 
-    container.add_text(TextDisplay(markdown_content=meta.summary, size_style=TextSize.BODY))
+    container.add_text(
+        TextDisplay(
+            markdown_content=(
+                f"{meta.description}\n\n"
+                f"-# {emoji.get('user')} {meta.player_count.describe()} • {emoji.get('time')} {meta.time_estimate} • {emoji.get('difficulty')}: {meta.difficulty}/10"
+            ),
+            size_style=TextSize.BODY,
+        )
+    )
     container.add_separator()
 
     roster_lines = []
