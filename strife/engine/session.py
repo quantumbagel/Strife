@@ -283,4 +283,18 @@ class GameSession:
             emoji=self.surface._compiler._emoji,
         )
         await self.surface.update(results_view)
+
+        if self._bot:
+            thread = self._bot.get_channel(self.thread_id)
+            if not thread:
+                try:
+                    thread = await self._bot.fetch_channel(self.thread_id)
+                except Exception:
+                    pass
+            if isinstance(thread, discord.Thread):
+                try:
+                    await thread.edit(locked=True)
+                except Exception:
+                    log.exception("Failed to lock game thread %s", self.thread_id)
+
         await self._finalize_cb.session_complete(self)  # type: ignore[attr-defined]
