@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 import discord
@@ -68,9 +69,16 @@ class ViewSurface:
         compiled = self._compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
         await self._message.edit(content=None, embeds=[], view=compiled)
 
-    async def disable_all(self, view: LayoutView) -> None:
-        disable_all(view)
-        await self.update(view)
+    async def disable_all(self) -> None:
+        if self._message is not None:
+            try:
+                view = discord.ui.LayoutView.from_message(self._message)
+                for item in view.walk_children():
+                    if hasattr(item, "disabled"):
+                        item.disabled = True
+                await self._message.edit(view=view)
+            except discord.HTTPException:
+                pass
 
     async def send_private(
         self,
@@ -94,3 +102,31 @@ class ViewSurface:
             except discord.HTTPException:
                 pass
             self._message = None
+
+
+async def send_ephemeral_error(
+    interaction: discord.Interaction,
+    content: str,
+    *,
+    timeout: float = 5.0,
+) -> None:
+    """Sends an ephemeral plain-text message and schedules its deletion after a timeout."""
+    if interaction.response.is_done():
+        msg = await interaction.followup.send(content, ephemeral=True)
+        if msg:
+            async def delete_after_delay() -> None:
+                await asyncio.sleep(timeout)
+                try:
+                    await msg.delete()
+                except Exception:
+                    pass
+            asyncio.create_task(delete_after_delay())
+    else:
+        await interaction.response.send_message(content, ephemeral=True)
+        async def delete_after_delay() -> None:
+            await asyncio.sleep(timeout)
+            try:
+                await interaction.delete_original_response()
+            except Exception:
+                pass
+        asyncio.create_task(delete_after_delay())

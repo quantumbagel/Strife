@@ -7,7 +7,7 @@ import discord
 from strife.config.text import TextConfig
 from strife.persistence.repositories import MatchRepository, UserRepository
 from strife.presentation.compiler import Compiler
-from strife.presentation.components import ActionRow, Button, ButtonStyle, Container, LayoutView, TextDisplay, TextSize
+from strife.presentation.components import ActionRow, Button, ButtonStyle, Container, LayoutView, TextDisplay, TextSize, Separator
 from strife.replay.service import ReplayService
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route
@@ -35,6 +35,8 @@ class ProfileService:
         user: discord.User,
         game: str | None,
         page: int,
+        *,
+        edit: bool = False,
     ) -> None:
         stats = await self.users.get_stats(user.id, game)
         matches = await self.matches.list_for_user(user.id, game, limit=self._page_size, offset=page * self._page_size)
@@ -43,36 +45,60 @@ class ProfileService:
         view = LayoutView()
         suffix = f" ({game})" if game else ""
         container = Container()
+
+        emoji = self.compiler._emoji
+        user_emoji = emoji.get("user")
         container.add_text(
-            TextDisplay(markdown_content=f"### {self.text.get('profile.title', name=user.display_name)}{suffix}", size_style=TextSize.HEADER)
+            TextDisplay(
+                markdown_content=f"### {user_emoji} {self.text.get('profile.title', name=user.display_name)}{suffix}",
+                size_style=TextSize.HEADER
+            )
+        )
+
+        diff_emoji = emoji.get("difficulty")
+        stats_str = self.text.get(
+            "profile.stats",
+            wins=stats.wins,
+            losses=stats.losses,
+            draws=stats.draws,
+            played=stats.played,
+            rate=rate,
         )
         container.add_text(
             TextDisplay(
-                markdown_content=self.text.get(
-                    "profile.stats",
-                    wins=stats.wins,
-                    losses=stats.losses,
-                    draws=stats.draws,
-                    played=stats.played,
-                    rate=rate,
-                )
+                markdown_content=f"{diff_emoji} **Stats Summary**\n{stats_str}",
+                size_style=TextSize.BODY
             )
         )
         container.add_separator()
+
         if matches:
-            lines = [
-                f"#{m.code} {m.game_key} {m.status} {m.created_at:%Y-%m-%d}"
-                for m in matches
-            ]
+            lines = []
+            for m in matches:
+                game_emoji = emoji.get_game_emoji(m.game_key)
+                status_emoji = "⏳"
+                if m.status == "completed":
+                    status_emoji = "✅"
+                elif m.status == "abandoned":
+                    status_emoji = "❌"
+                
+                status_str = m.status.capitalize()
+                lines.append(f"{game_emoji} `#{m.code}` {status_emoji} {status_str} — {m.created_at:%Y-%m-%d}")
+                
+            recent_title = self.text.get("profile.recent", page=page + 1, pages=pages)
             container.add_text(
                 TextDisplay(
-                    markdown_content=self.text.get("profile.recent", page=page + 1, pages=pages)
-                    + "\n"
-                    + "\n".join(lines)
+                    markdown_content=f"🎮 **{recent_title}**\n" + "\n".join(lines),
+                    size_style=TextSize.BODY
                 )
             )
         else:
-            container.add_text(TextDisplay(markdown_content=self.text.get("profile.no_matches")))
+            container.add_text(
+                TextDisplay(
+                    markdown_content=f"🎮 **Recent Matches**\n{self.text.get('profile.no_matches')}",
+                    size_style=TextSize.BODY
+                )
+            )
         view.add_container(container)
 
         nav = ActionRow()
@@ -88,6 +114,14 @@ class ProfileService:
         )
         nav.add_button(
             Button(
+                source="",
+                label=self.text.get("catalog.page", page=page + 1, pages=pages),
+                style=ButtonStyle.SECONDARY,
+                disabled=True,
+            )
+        )
+        nav.add_button(
+            Button(
                 source="next",
                 label=self.text.get("common.next"),
                 style=ButtonStyle.SECONDARY,
@@ -98,10 +132,17 @@ class ProfileService:
         )
         view.add_action_row(nav)
         compiled = self.compiler.compile(view, resource_id=user.id, prefix=P.PROF_NAV)
-        await interaction.response.send_message(view=compiled, ephemeral=True)
+        
+        if edit:
+            if interaction.response.is_done():
+                await interaction.edit_original_response(view=compiled)
+            else:
+                await interaction.response.edit_message(view=compiled)
+        else:
+            await interaction.response.send_message(view=compiled, ephemeral=True)
 
     async def navigate(self, interaction: discord.Interaction, route: Route) -> None:
         page = int(route.payload.get("page", 0))
         game = route.payload.get("game")
         user = interaction.user
-        await self.show(interaction, user, game, page)
+        await self.show(interaction, user, game, page, edit=True)

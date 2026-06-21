@@ -118,10 +118,21 @@ class GameSession:
                 pending.future.set_result(move)
                 self.pending.pop(seat, None)
 
-    async def cancel(self, reason: str) -> None:
+    async def cancel(self, reason: str, forfeiter_seat: int | None = None) -> None:
         if self.task and not self.task.done():
             self.task.cancel()
-        await self._finalize(GameOutcome(results={}, summary={"reason": reason}), status="abandoned")
+        results = {}
+        summary = {"reason": reason}
+        if forfeiter_seat is not None:
+            for player in self.players:
+                if player.seat == forfeiter_seat:
+                    results[player.seat] = "loss"
+                else:
+                    results[player.seat] = "win"
+            opponents = [p.seat for p in self.players if p.seat != forfeiter_seat]
+            if len(opponents) == 1:
+                summary["winner"] = opponents[0]
+        await self._finalize(GameOutcome(results=results, summary=summary), status="abandoned")
 
     def _seat_for_user(self, user_id: int) -> int | None:
         for player in self.players:
@@ -222,10 +233,7 @@ class GameSession:
         self.last_move_at = time.monotonic()
 
     async def _finalize(self, outcome: GameOutcome, *, status: str) -> None:
-        from strife.presentation.components import LayoutView as LV
-
-        board = LV()
-        await self.surface.disable_all(board)
+        await self.surface.disable_all()
         finished = FinishedMatch(
             code=None,
             game_key=self.game_key,
@@ -265,12 +273,14 @@ class GameSession:
         self._match_code = code
         results_view = build_results_view(
             game_name=self.game.metadata.name,
+            game_key=self.game_key,
             outcome=outcome,
             players=self.players,
             thread_id=self.thread_id,
             match_id=match_id,
             owner_id=next((p.user_id for p in self.players if p.user_id), 0),
             text=self.text,
+            emoji=self.surface._compiler._emoji,
         )
         await self.surface.update(results_view)
         await self._finalize_cb.session_complete(self)  # type: ignore[attr-defined]

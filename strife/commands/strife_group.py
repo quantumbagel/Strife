@@ -7,6 +7,7 @@ from strife.commands.catalog import CatalogService
 from strife.lifecycle.service import LifecycleService
 from strife.matchmaking.service import LobbyService
 from strife.persistence.repositories import GuildRepository
+from strife.presentation.message import send_ephemeral_error
 from strife.replay.profile import ProfileService
 from strife.replay.service import ReplayService
 
@@ -48,19 +49,31 @@ def register_strife_group(
     @group.command(name="forfeit", description="Forfeit your current game")
     async def forfeit_cmd(interaction: discord.Interaction) -> None:
         loc = lobby.registries.location_of(interaction.user.id)
-        if loc is None or loc.kind != "game":
-            await interaction.response.send_message(lobby.text.get("errors.not_in_game"), ephemeral=True)
+        if loc is None:
+            await send_ephemeral_error(interaction, lobby.text.get("errors.not_in_game"))
             return
-        try:
-            await lifecycle.forfeit(loc.thread_id, interaction.user.id)
-            await interaction.response.send_message(lobby.text.get("match.forfeited"), ephemeral=True)
-        except RuntimeError as e:
-            if str(e) == "no_session":
-                await interaction.response.send_message(lobby.text.get("errors.no_session"), ephemeral=True)
-            else:
-                await interaction.response.send_message(lobby.text.get("common.error"), ephemeral=True)
-        except PermissionError:
-            await interaction.response.send_message(lobby.text.get("errors.not_in_game"), ephemeral=True)
+        if loc.kind == "lobby":
+            try:
+                await lobby.leave_lobby(loc.thread_id, interaction.user.id, interaction)
+                await send_ephemeral_error(interaction, lobby.text.get("lobby.left"))
+            except RuntimeError as e:
+                if str(e) == "no_session":
+                    await send_ephemeral_error(interaction, lobby.text.get("errors.no_session"))
+                else:
+                    await send_ephemeral_error(interaction, lobby.text.get("common.error"))
+            except PermissionError:
+                await send_ephemeral_error(interaction, lobby.text.get("errors.not_in_lobby"))
+        elif loc.kind == "game":
+            try:
+                await lifecycle.forfeit(loc.thread_id, interaction.user.id)
+                await send_ephemeral_error(interaction, lobby.text.get("match.forfeited"))
+            except RuntimeError as e:
+                if str(e) == "no_session":
+                    await send_ephemeral_error(interaction, lobby.text.get("errors.no_session"))
+                else:
+                    await send_ephemeral_error(interaction, lobby.text.get("common.error"))
+            except PermissionError:
+                await send_ephemeral_error(interaction, lobby.text.get("errors.not_in_game"))
 
     @group.command(name="replay", description="Open a match replay")
     @app_commands.describe(match_ref="Match code or ID")
@@ -82,7 +95,7 @@ def register_strife_group(
     async def set_channel_cmd(interaction: discord.Interaction, channel: discord.TextChannel) -> None:
         await guilds.upsert(interaction.guild_id)
         await guilds.set_default_channel(interaction.guild_id, channel.id)
-        await interaction.response.send_message(lobby.text.get("guild.channel_set", mention=channel.mention), ephemeral=True)
+        await send_ephemeral_error(interaction, lobby.text.get("guild.channel_set", mention=channel.mention))
 
     bot_group = app_commands.Group(name="bot", description="Manage lobby bots", parent=group)
 

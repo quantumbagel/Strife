@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from strife.engine.context import ReplayContext
+from strife.engine.context import ReplayContext, ReplayMoveUnderflow
 from strife.engine.players import Player
 from strife.engine.registry import GameRegistry
 from strife.persistence.repositories import MatchDetail, MoveRecord
@@ -28,6 +28,8 @@ class ReplaySimulator:
         ctx = ReplayContext(rng=game.rng, players=players, settings=match.settings, moves=moves)
         try:
             await game.play(ctx)
+        except ReplayMoveUnderflow:
+            pass
         except RuntimeError:
             raise
         return ctx.frames

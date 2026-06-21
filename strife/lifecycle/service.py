@@ -103,7 +103,7 @@ class LifecycleService:
             if session.players[seat].user_id:
                 await self.registries.release_user(session.players[seat].user_id)
             return
-        await session.cancel("timeout")
+        await session.cancel("timeout", forfeiter_seat=seat)
 
     async def forfeit(self, thread_id: int, user_id: int) -> None:
         session = self.registries.get_game(thread_id)
@@ -115,7 +115,7 @@ class LifecycleService:
         humans = [p for p in session.players if not p.is_bot]
         if len(humans) == 2:
             opponent = next(p.seat for p in humans if p.seat != seat)
-            await session.cancel("forfeit")
+            await session.cancel("forfeit", forfeiter_seat=seat)
             await self.registries.release_user(user_id)
             return
         if session.game.metadata.supports_player_removal:
@@ -123,7 +123,7 @@ class LifecycleService:
             await session.force_move(seat, Move(actor_seat=seat, source="forfeit", args={}))
             await self.registries.release_user(user_id)
             return
-        await session.cancel("forfeit")
+        await session.cancel("forfeit", forfeiter_seat=seat)
         await self.registries.release_user(user_id)
 
     async def register_rematch_vote(self, thread_id: int, user: discord.User) -> None:

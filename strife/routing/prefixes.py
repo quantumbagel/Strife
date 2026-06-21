@@ -8,6 +8,7 @@ REPLAY_NOOP = "replay_noop:"
 CAT_NAV = "cat_nav:"
 PROF_NAV = "prof_nav:"
 PROF_OPEN = "prof_open:"
+FORFEIT = "forfeit:"
 
 LOBBY_JOIN = "lobby_join:"
 LOBBY_LEAVE = "lobby_leave:"
@@ -54,6 +55,7 @@ ALL_PREFIXES = GAME_PREFIXES | LOBBY_PREFIXES | {
     PROF_NAV,
     PROF_OPEN,
     ABOUT_NAV,
+    FORFEIT,
 }
 
 

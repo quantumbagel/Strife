@@ -13,6 +13,7 @@ from strife.presentation.components import (
     TextDisplay,
     TextSize,
 )
+from strife.presentation.emoji import EmojiResolver
 from strife.routing import prefixes as P
 
 
@@ -25,16 +26,40 @@ def build_replay_view(
     frame_view: LayoutView | None = None,
     text: TextConfig,
     game_name: str,
+    emoji: EmojiResolver,
 ) -> LayoutView:
     view = LayoutView()
     container = Container()
+
+    game_emoji = emoji.get_game_emoji(match.game_key)
     container.add_text(
         TextDisplay(
-            markdown_content=text.get("replay.title", code=match.code, game_name=game_name),
+            markdown_content=f"### {game_emoji} {text.get('replay.title', code=match.code, game_name=game_name)}",
             size_style=TextSize.HEADER
         )
     )
-    container.add_text(TextDisplay(markdown_content=str(match.outcome)))
+
+    # Parse outcome dictionary to display clean win/draw text
+    outcome_dict = match.outcome or {}
+    summary = outcome_dict.get("summary") or {}
+    winner_seat = summary.get("winner")
+
+    if winner_seat is not None and isinstance(winner_seat, int) and 0 <= winner_seat < len(match.players):
+        winner_player = next((p for p in match.players if p.seat_index == winner_seat), None)
+        winner_name = winner_player.display_name if winner_player else f"Seat {winner_seat}"
+        outcome_text = text.get("match.winner", winner=winner_name)
+    elif "winning_faction" in summary:
+        outcome_text = text.get("match.winner", winner=summary["winning_faction"])
+    else:
+        outcome_text = text.get("match.draw")
+
+    container.add_text(
+        TextDisplay(
+            markdown_content=f"🏆 **Outcome:** {outcome_text}\n"
+                             f"-# {emoji.get('time')} {text.get('replay.turn_label', current=frame_index + 1, total=total)}",
+            size_style=TextSize.BODY
+        )
+    )
     container.add_separator()
     
     frame_action_rows = []

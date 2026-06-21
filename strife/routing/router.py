@@ -8,6 +8,7 @@ from strife.config.text import TextConfig
 from strife.logging import get_logger
 from strife.routing import prefixes as P
 from strife.routing.custom_id import CustomIdEncoder, CustomIdError, PayloadExpired
+from strife.presentation.message import send_ephemeral_error
 
 log = get_logger("routing.router")
 
@@ -76,6 +77,8 @@ class InteractionRouter:
                 await self._handle_profile(route, interaction)
             elif route.prefix == P.ABOUT_NAV:
                 await self._handle_about(route, interaction)
+            elif route.prefix == P.FORFEIT:
+                await self._handle_forfeit(route, interaction)
             else:
                 log.warning("Unknown prefix %s", route.prefix)
                 await self._ephemeral(interaction, self.text.get("common.error"))
@@ -177,10 +180,7 @@ class InteractionRouter:
             await interaction.response.defer()
 
     async def _ephemeral(self, interaction: discord.Interaction, content: str) -> None:
-        if interaction.response.is_done():
-            await interaction.followup.send(content, ephemeral=True)
-        else:
-            await interaction.response.send_message(content, ephemeral=True)
+        await send_ephemeral_error(interaction, content)
 
     async def _disable_and_report_ended(self, interaction: discord.Interaction, message_key: str) -> None:
         content = self.text.get(message_key)
@@ -193,15 +193,47 @@ class InteractionRouter:
                 
                 if not interaction.response.is_done():
                     await interaction.response.edit_message(view=view)
-                    await interaction.followup.send(content, ephemeral=True)
                 else:
                     await interaction.message.edit(view=view)
-                    await interaction.followup.send(content, ephemeral=True)
+                
+                await send_ephemeral_error(interaction, content)
                 return
             except Exception as exc:
                 log.warning("Failed to disable components on old message: %s", exc)
 
-        if not interaction.response.is_done():
-            await interaction.response.send_message(content, ephemeral=True)
+        await send_ephemeral_error(interaction, content)
+
+    async def _handle_forfeit(self, route, interaction: discord.Interaction) -> None:
+        if self.lifecycle is None:
+            await self._ephemeral(interaction, self.text.get("common.error"))
+            return
+
+        if interaction.message:
+            try:
+                view = discord.ui.LayoutView.from_message(interaction.message)
+                for item in view.walk_children():
+                    if hasattr(item, "disabled"):
+                        item.disabled = True
+
+                if not interaction.response.is_done():
+                    await interaction.response.edit_message(view=view)
+                else:
+                    await interaction.message.edit(view=view)
+            except Exception as exc:
+                log.warning("Failed to disable forfeit button: %s", exc)
+                if not interaction.response.is_done():
+                    await self._defer(interaction)
         else:
-            await interaction.followup.send(content, ephemeral=True)
+            if not interaction.response.is_done():
+                await self._defer(interaction)
+
+        try:
+            await self.lifecycle.forfeit(route.resource_id, interaction.user.id)
+            await send_ephemeral_error(interaction, self.text.get("match.forfeited"))
+        except RuntimeError as e:
+            if str(e) == "no_session":
+                await send_ephemeral_error(interaction, self.text.get("errors.no_session"))
+            else:
+                await send_ephemeral_error(interaction, self.text.get("common.error"))
+        except PermissionError:
+            await send_ephemeral_error(interaction, self.text.get("errors.not_in_game"))

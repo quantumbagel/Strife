@@ -11,6 +11,10 @@ from strife.presentation.components import LayoutView
 from strife.presentation.compiler import clone_and_disable
 
 
+class ReplayMoveUnderflow(RuntimeError):
+    pass
+
+
 class GameContext(Protocol):
     rng: random.Random
     players: Sequence[Player]
@@ -146,7 +150,7 @@ class ReplayContext:
 
     def _next_move(self, actor: int) -> Move:
         if self._cursor >= len(self._moves):
-            raise RuntimeError("Replay move underflow")
+            raise ReplayMoveUnderflow("Replay move underflow")
         record = self._moves[self._cursor]
         self._cursor += 1
         self._turn += 1

@@ -7,6 +7,7 @@ import discord
 from strife.config.text import TextConfig
 from strife.persistence.repositories import MatchRepository, MoveRepository
 from strife.presentation.compiler import Compiler
+from strife.presentation.message import send_ephemeral_error
 from strife.replay.simulator import ReplaySimulator
 from strife.replay.view import build_replay_view
 
@@ -45,11 +46,11 @@ class ReplayService:
     async def open(self, interaction: discord.Interaction, match_ref: str | int) -> None:
         detail = await self.matches.get(match_ref)
         if detail is None:
-            await interaction.response.send_message(self.text.get("common.match_not_found"), ephemeral=True)
+            await send_ephemeral_error(interaction, self.text.get("common.match_not_found"))
             return
         frames = await self._frames(detail.id)
         if not frames:
-            await interaction.response.send_message(self.text.get("common.replay_unavailable"), ephemeral=True)
+            await send_ephemeral_error(interaction, self.text.get("common.replay_unavailable"))
             return
         game_name = self.simulator._registry.metadata(detail.game_key).name
         view = build_replay_view(
@@ -60,6 +61,7 @@ class ReplayService:
             frame_view=frames[0].view,
             text=self.text,
             game_name=game_name,
+            emoji=self.compiler._emoji,
         )
         compiled = self.compiler.compile(view, resource_id=detail.id, prefix="r_nav:")
         await interaction.response.send_message(view=compiled)
@@ -75,11 +77,11 @@ class ReplayService:
     ) -> None:
         detail = await self.matches.get(match_id)
         if detail is None:
-            await interaction.response.send_message(self.text.get("common.match_not_found"), ephemeral=True)
+            await send_ephemeral_error(interaction, self.text.get("common.match_not_found"))
             return
         frames = await self._frames(match_id)
         if not frames:
-            await interaction.response.send_message(self.text.get("common.replay_unavailable"), ephemeral=True)
+            await send_ephemeral_error(interaction, self.text.get("common.replay_unavailable"))
             return
         frame = max(0, min(frame, len(frames) - 1))
         game_name = self.simulator._registry.metadata(detail.game_key).name
@@ -91,6 +93,7 @@ class ReplayService:
             frame_view=frames[frame].view,
             text=self.text,
             game_name=game_name,
+            emoji=self.compiler._emoji,
         )
         compiled = self.compiler.compile(view, resource_id=match_id, prefix="r_nav:")
         if interaction.response.is_done():
