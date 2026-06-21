@@ -130,7 +130,6 @@ class Mafia(Game):
     def _public_view(self, text: str) -> LayoutView:
         view = LayoutView()
         container = Container()
-        container.add_text(TextDisplay(markdown_content="### Mafia", size_style=TextSize.HEADER))
         container.add_text(TextDisplay(text))
         alive = ", ".join(self.players[s].display_name for s in sorted(self.alive))
         container.add_text(TextDisplay(f"**Alive:** {alive}"))

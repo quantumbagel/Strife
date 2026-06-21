@@ -557,6 +557,9 @@ class LobbyService:
         await lobby.surface.update(ended_view)
 
         # Create game surface and send first message to thread
+        header_surface = ViewSurface(
+            self.compiler, prefix=P.REPLAY_NOOP, resource_id=thread.id
+        )
         game_surface = ViewSurface(
             self.compiler, prefix=P.G_MOVE, resource_id=thread.id
         )
@@ -593,7 +596,7 @@ class LobbyService:
             )
         )
         starting_view.add_container(start_container)
-        await game_surface.send_to_thread(thread, starting_view)
+        await header_surface.send_to_thread(thread, starting_view)
 
         async def finalize_cb(finished: FinishedMatch, outcome):
             match_id, code = await self.finalizer.persist_and_release(finished, outcome)
@@ -616,8 +619,10 @@ class LobbyService:
             text=self.text,
             finalize_cb=finalize_cb,
             game_key=lobby.game_key,
+            header_surface=header_surface,
         )
         session._match_code = match_code
+        session.lobby_surface = lobby.surface
         session.set_bot(self.bot)
         self.registries.promote(lobby.thread_id, session)
         if not interaction.response.is_done():

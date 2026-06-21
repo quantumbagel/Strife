@@ -19,7 +19,13 @@ from strife.persistence.repositories import (
     MatchPlayer,
     MoveRecord,
 )
-from strife.presentation.components import LayoutView
+from strife.presentation.components import (
+    Container,
+    LayoutView,
+    Separator,
+    TextDisplay,
+    TextSize,
+)
 from strife.presentation.message import ViewSurface
 from strife.routing.router import InteractionInput
 
@@ -55,6 +61,7 @@ class GameSession:
         text: TextConfig,
         finalize_cb,
         game_key: str,
+        header_surface: ViewSurface | None = None,
     ) -> None:
         self.id = thread_id
         self.thread_id = thread_id
@@ -64,6 +71,7 @@ class GameSession:
         self.settings = settings
         self.seed = seed
         self.surface = surface
+        self.header_surface = header_surface
         self.text = text
         self._finalize_cb = finalize_cb
         self.game_key = game_key
@@ -140,13 +148,27 @@ class GameSession:
                 return player.seat
         return None
 
+    async def _update_surface(self, view: LayoutView) -> None:
+        if self.surface.message is None:
+            if self._bot is not None:
+                thread = self._bot.get_channel(self.thread_id)
+                if not thread:
+                    try:
+                        thread = await self._bot.fetch_channel(self.thread_id)
+                    except Exception:
+                        pass
+                if thread is not None:
+                    await self.surface.send(thread, view)
+        else:
+            await self.surface.update(view)
+
     async def _request_input(
         self, view: LayoutView, *, actor: int, sources: set[str] | None
     ) -> Move:
         if self.players[actor].is_bot:
             difficulty = self.players[actor].bot_difficulty or "medium"
             move = await self.game.bot_move(difficulty, actor)
-            await self.surface.update(view)
+            await self._update_surface(view)
             self._record_move(move)
             return move
 
@@ -155,7 +177,7 @@ class GameSession:
         self.pending[actor] = PendingInput({actor}, sources, future)
         self.last_move_at = time.monotonic()
         self._warned = False
-        await self.surface.update(view)
+        await self._update_surface(view)
         move = await future
         self._record_move(move)
         return move
@@ -185,7 +207,7 @@ class GameSession:
             self.pending[seat] = PendingInput({seat}, sources, future)
         self.last_move_at = time.monotonic()
         self._warned = False
-        await self.surface.update(view)
+        await self._update_surface(view)
 
         if until == "any":
             done, _ = await asyncio.wait(futures.values(), return_when=asyncio.FIRST_COMPLETED)
@@ -234,6 +256,44 @@ class GameSession:
 
     async def _finalize(self, outcome: GameOutcome, *, status: str) -> None:
         await self.surface.disable_all()
+        if self.header_surface is not None:
+            try:
+                game_emoji = self.header_surface._compiler._emoji.get_game_emoji(self.game_key)
+                finished_view = LayoutView()
+                container = Container()
+                container.add_text(
+                    TextDisplay(
+                        markdown_content=f"### {game_emoji} {self.game.metadata.name} — Match Finished",
+                        size_style=TextSize.HEADER,
+                    )
+                )
+                container.add_separator()
+
+                roster_lines = []
+                for p in self.players:
+                    if p.user_id:
+                        roster_lines.append(f"<@{p.user_id}>")
+                    else:
+                        roster_lines.append(f"🤖 **{p.display_name}** ({p.bot_difficulty})")
+
+                player_list = "\n".join(f"• {line}" for line in roster_lines)
+                container.add_text(
+                    TextDisplay(
+                        markdown_content=f"👥 **Players:**\n{player_list}",
+                        size_style=TextSize.BODY,
+                    )
+                )
+                container.add_separator(Separator(visible=False))
+                container.add_text(
+                    TextDisplay(
+                        markdown_content=f"-# {self.header_surface._compiler._emoji.get('success')} {self.text.get('lobby.game_finished')}",
+                        size_style=TextSize.BODY,
+                    )
+                )
+                finished_view.add_container(container)
+                await self.header_surface.update(finished_view)
+            except Exception:
+                log.exception("Failed to update game thread header message to finished")
         finished = FinishedMatch(
             code=self._match_code,
             game_key=self.game_key,
@@ -282,7 +342,8 @@ class GameSession:
             text=self.text,
             emoji=self.surface._compiler._emoji,
         )
-        await self.surface.update(results_view)
+        if hasattr(self, "lobby_surface") and self.lobby_surface is not None:
+            await self.lobby_surface.update(results_view)
 
         if self._bot:
             thread = self._bot.get_channel(self.thread_id)

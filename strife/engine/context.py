@@ -60,7 +60,7 @@ class LiveContext:
         return self._session.players[seat].is_bot  # type: ignore[attr-defined]
 
     async def update(self, view: LayoutView) -> None:
-        await self._session.surface.update(view)  # type: ignore[attr-defined]
+        await self._session._update_surface(view)  # type: ignore[attr-defined]
 
     async def request_input(
         self, view: LayoutView, *, actor: int, sources: set[str] | None = None

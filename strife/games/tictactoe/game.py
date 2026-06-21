@@ -56,16 +56,8 @@ class TicTacToe(Game):
             self.current = 1 - seat
 
     def _board_view(self, ctx: GameContext, *, prompt: str, highlight: list[int] | None = None) -> LayoutView:
-        p0, p1 = self.players[0], self.players[1]
         header = LayoutView()
         container = Container()
-        container.add_text(TextDisplay(markdown_content="### Tic-Tac-Toe", size_style=TextSize.HEADER))
-        container.add_text(
-            TextDisplay(
-                markdown_content=f"**{p0.display_name}** vs **{p1.display_name}**",
-                size_style=TextSize.SUBHEADER,
-            )
-        )
         container.add_text(TextDisplay(markdown_content=prompt, size_style=TextSize.BODY))
         header.add_container(container)
         for row in range(3):

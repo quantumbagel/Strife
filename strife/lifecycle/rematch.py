@@ -19,12 +19,16 @@ class RematchManager:
         self._eligible: dict[int, set[int]] = {}
         self._expires: dict[int, float] = {}
         self._match_ids: dict[int, int] = {}
+        self._sessions: dict[int, object] = {}
 
     def start_offer(self, thread_id: int, eligible: set[int], match_id: int) -> None:
         self._eligible[thread_id] = set(eligible)
         self._votes[thread_id] = set()
         self._expires[thread_id] = time.monotonic() + 120
         self._match_ids[thread_id] = match_id
+        session = self.registries.get_game(thread_id)
+        if session:
+            self._sessions[thread_id] = session
 
     async def vote(self, thread_id: int, user_id: int) -> None:
         eligible = self._eligible.get(thread_id, set())
@@ -40,7 +44,7 @@ class RematchManager:
             await self._reset_to_lobby(thread_id)
 
     async def _reset_to_lobby(self, thread_id: int) -> None:
-        session = self.registries.get_game(thread_id)
+        session = self._sessions.pop(thread_id, None)
         if session is None:
             return
         game_key = session.game_key
