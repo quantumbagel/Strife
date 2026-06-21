@@ -7,12 +7,12 @@ from strife.presentation.emoji import EmojiResolver
 from strife.routing import prefixes as P
 
 
-def build_about_view(emoji: EmojiResolver, text: TextConfig, show_background: bool = False) -> LayoutView:
+def build_about_view(emoji: EmojiResolver, text: TextConfig, active_tab: str = "main") -> LayoutView:
     view = LayoutView()
     brand = emoji.get("logo")
     container = Container()
     
-    if not show_background:
+    if active_tab == "main":
         container.add_text(
             TextDisplay(
                 markdown_content=text.get("about.title", logo=brand),
@@ -50,7 +50,16 @@ def build_about_view(emoji: EmojiResolver, text: TextConfig, show_background: bo
                 label=text.get("about.background_btn"),
                 style=ButtonStyle.SECONDARY,
                 route_prefix=P.ABOUT_NAV,
-                payload={"show_background": True},
+                payload={"tab": "background"},
+            )
+        )
+        nav.add_button(
+            Button(
+                source="attributions",
+                label=text.get("about.attributions_btn"),
+                style=ButtonStyle.SECONDARY,
+                route_prefix=P.ABOUT_NAV,
+                payload={"tab": "attributions"},
             )
         )
         nav.add_button(
@@ -62,7 +71,7 @@ def build_about_view(emoji: EmojiResolver, text: TextConfig, show_background: bo
             )
         )
         container.add_action_row(nav)
-    else:
+    elif active_tab == "background":
         forward = emoji.get("forward")
         container.add_text(
             TextDisplay(
@@ -93,7 +102,41 @@ def build_about_view(emoji: EmojiResolver, text: TextConfig, show_background: bo
                 style=ButtonStyle.SECONDARY,
                 emoji="previous",  # TODO: change this to a different back arrow?
                 route_prefix=P.ABOUT_NAV,
-                payload={"show_background": False},
+                payload={"tab": "main"},
+            )
+        )
+        container.add_action_row(nav)
+    elif active_tab == "attributions":
+        forward = emoji.get("forward")
+        container.add_text(
+            TextDisplay(
+                markdown_content=text.get("about.attributions_title", logo=brand, forward=forward),
+                size_style=TextSize.HEADER
+            )
+        )
+        container.add_separator(Separator(visible=False))
+        container.add_text(
+            TextDisplay(
+                markdown_content=text.get("about.attributions")
+            )
+        )
+        container.add_separator(Separator(visible=False))
+        container.add_text(
+            TextDisplay(
+                markdown_content=text.get("about.other_attributions")
+            )
+        )
+
+
+        nav = ActionRow()
+        nav.add_button(
+            Button(
+                source="back",
+                label=text.get("about.back_btn"),
+                style=ButtonStyle.SECONDARY,
+                emoji="previous",
+                route_prefix=P.ABOUT_NAV,
+                payload={"tab": "main"},
             )
         )
         container.add_action_row(nav)

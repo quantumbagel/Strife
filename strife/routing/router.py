@@ -167,8 +167,8 @@ class InteractionRouter:
             return
         from strife.presentation.about_view import build_about_view
 
-        show_background = bool(route.payload.get("show_background", False))
-        view = build_about_view(self.lobby.emoji, self.text, show_background=show_background)
+        active_tab = route.payload.get("tab", "main")
+        view = build_about_view(self.lobby.emoji, self.text, active_tab=active_tab)
         compiled = self.lobby.compiler.compile(view, resource_id=interaction.user.id, prefix=P.ABOUT_NAV)
         await interaction.response.edit_message(view=compiled)
 
