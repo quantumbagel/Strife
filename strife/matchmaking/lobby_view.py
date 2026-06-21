@@ -43,7 +43,7 @@ def build_lobby_view(
         )
         title_section.add_text(
             TextDisplay(
-                markdown_content=f"## {game_emoji} {text.get('lobby.title', game_name=meta.name)}",
+                markdown_content=f"### {game_emoji} {text.get('lobby.title', game_name=meta.name)}",
                 size_style=TextSize.HEADER
             )
         )
@@ -51,7 +51,7 @@ def build_lobby_view(
     else:
         container.add_text(
             TextDisplay(
-                markdown_content=f"## {game_emoji} {text.get('lobby.title', game_name=meta.name)}",
+                markdown_content=f"### {game_emoji} {text.get('lobby.title', game_name=meta.name)}",
                 size_style=TextSize.HEADER
             )
         )
@@ -102,6 +102,8 @@ def build_lobby_view(
             size_style=TextSize.BODY,
         )
     )
+
+    container.add_separator()
 
     can_r, _ = lobby.can_ready(meta)
     join_style = ButtonStyle.SECONDARY if can_r else ButtonStyle.SUCCESS

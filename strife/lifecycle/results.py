@@ -10,6 +10,7 @@ from strife.presentation.components import (
     LayoutView,
     Separator,
     TextDisplay,
+    TextSize,
 )
 from strife.routing import prefixes as P
 
@@ -25,10 +26,13 @@ def build_results_view(
     text: TextConfig,
 ) -> LayoutView:
     view = LayoutView()
-    view.children.append(
-        TextDisplay(markdown_content=f"## ✅ {text.get('match.result_title', game_name=game_name)}")
-    )
     container = Container()
+    container.add_text(
+        TextDisplay(
+            markdown_content=f"### ✅ {text.get('match.result_title', game_name=game_name)}",
+            size_style=TextSize.HEADER
+        )
+    )
     summary = outcome.summary or {}
     if summary.get("winner") is None and "winning_faction" not in summary:
         body = text.get("match.draw")

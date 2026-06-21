@@ -59,6 +59,15 @@ def register_strife_group(
     async def replay_cmd(interaction: discord.Interaction, match_ref: str) -> None:
         await replay.open(interaction, match_ref)
 
+    @group.command(name="about", description="Information about the Strife platform")
+    async def about_cmd(interaction: discord.Interaction) -> None:
+        from strife.presentation.about_view import build_about_view
+        from strife.routing import prefixes as P
+
+        view = build_about_view(lobby.emoji)
+        compiled = lobby.compiler.compile(view, resource_id=interaction.user.id, prefix=P.ABOUT_NAV)
+        await interaction.response.send_message(view=compiled, ephemeral=True)
+
     @group.command(name="set_channel", description="Set the default lobby channel")
     @app_commands.describe(channel="Default channel for new lobbies")
     @app_commands.default_permissions(administrator=True)

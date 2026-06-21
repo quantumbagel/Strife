@@ -7,7 +7,7 @@ import discord
 from strife.config import AppConfig
 from strife.engine.registry import GameRegistry
 from strife.presentation.compiler import Compiler
-from strife.presentation.components import ActionRow, Button, ButtonStyle, Container, LayoutView, TextDisplay
+from strife.presentation.components import ActionRow, Button, ButtonStyle, Container, LayoutView, TextDisplay, TextSize
 from strife.presentation.emoji import EmojiResolver
 from strife.routing import prefixes as P
 
@@ -26,8 +26,8 @@ class CatalogService:
         page = max(0, min(page, pages - 1))
         chunk = games[page * self._page_size : (page + 1) * self._page_size]
         view = LayoutView()
-        view.children.append(TextDisplay(markdown_content="## Game Catalog"))
         container = Container()
+        container.add_text(TextDisplay(markdown_content="### Game Catalog", size_style=TextSize.HEADER))
         for meta in chunk:
             game_emoji = self.emoji.get_game_emoji(meta.key)
             container.children.append(
@@ -73,8 +73,8 @@ class CatalogService:
         page = max(0, min(page, pages - 1))
         chunk = games[page * self._page_size : (page + 1) * self._page_size]
         view = LayoutView()
-        view.children.append(TextDisplay(markdown_content="## Game Catalog"))
         container = Container()
+        container.add_text(TextDisplay(markdown_content="### Game Catalog", size_style=TextSize.HEADER))
         for meta in chunk:
             game_emoji = self.emoji.get_game_emoji(meta.key)
             container.children.append(

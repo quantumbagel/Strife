@@ -7,7 +7,7 @@ import discord
 from strife.config.text import TextConfig
 from strife.persistence.repositories import MatchRepository, UserRepository
 from strife.presentation.compiler import Compiler
-from strife.presentation.components import ActionRow, Button, ButtonStyle, Container, LayoutView, TextDisplay, Separator
+from strife.presentation.components import ActionRow, Button, ButtonStyle, Container, LayoutView, TextDisplay, Separator, TextSize
 from strife.replay.service import ReplayService
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route
@@ -42,10 +42,10 @@ class ProfileService:
         rate = round((stats.wins / stats.played) * 100) if stats.played else 0
         view = LayoutView()
         suffix = f" ({game})" if game else ""
-        view.children.append(
-            TextDisplay(markdown_content=f"## {user.display_name} - Profile{suffix}")
-        )
         container = Container()
+        container.add_text(
+            TextDisplay(markdown_content=f"### {user.display_name} - Profile{suffix}", size_style=TextSize.HEADER)
+        )
         container.add_text(
             TextDisplay(
                 markdown_content=self.text.get(

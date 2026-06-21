@@ -74,6 +74,8 @@ class InteractionRouter:
                 await self._handle_catalog(route, interaction)
             elif route.prefix in {P.PROF_NAV, P.PROF_OPEN}:
                 await self._handle_profile(route, interaction)
+            elif route.prefix == P.ABOUT_NAV:
+                await self._handle_about(route, interaction)
             else:
                 log.warning("Unknown prefix %s", route.prefix)
                 await self._ephemeral(interaction, self.text.get("common.error"))
@@ -147,6 +149,17 @@ class InteractionRouter:
             await self._ephemeral(interaction, self.text.get("common.error"))
             return
         await self.profile.navigate(interaction, route)
+
+    async def _handle_about(self, route, interaction: discord.Interaction) -> None:
+        if self.lobby is None:
+            await self._ephemeral(interaction, self.text.get("common.error"))
+            return
+        from strife.presentation.about_view import build_about_view
+
+        show_background = bool(route.payload.get("show_background", False))
+        view = build_about_view(self.lobby.emoji, show_background=show_background)
+        compiled = self.lobby.compiler.compile(view, resource_id=interaction.user.id, prefix=P.ABOUT_NAV)
+        await interaction.response.edit_message(view=compiled)
 
     async def _defer(self, interaction: discord.Interaction) -> None:
         if not interaction.response.is_done():

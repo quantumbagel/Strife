@@ -353,11 +353,11 @@ class LobbyService:
 
         # Update lobby message in channel to say game started
         ended_view = LayoutView()
-        brand = self.emoji.get("brand_logo")
-        ended_view.children.append(
-            TextDisplay(markdown_content=f"## {brand} {self.text.get('lobby.title', game_name=meta.name)}", size_style=TextSize.HEADER)
-        )
+        brand = self.emoji.get("logo")
         container = Container()
+        container.add_text(
+            TextDisplay(markdown_content=f"### {brand} {self.text.get('lobby.title', game_name=meta.name)}", size_style=TextSize.HEADER)
+        )
         container.add_text(TextDisplay(markdown_content=f"Game started in {thread.mention}!", size_style=TextSize.BODY))
         ended_view.add_container(container)
         await lobby.surface.update(ended_view)
@@ -365,9 +365,11 @@ class LobbyService:
         # Create game surface and send first message to thread
         game_surface = ViewSurface(self.compiler, prefix=P.G_MOVE, resource_id=thread.id)
         starting_view = LayoutView()
-        starting_view.children.append(
+        start_container = Container()
+        start_container.add_text(
             TextDisplay(markdown_content=f"Starting {meta.name}...", size_style=TextSize.BODY)
         )
+        starting_view.add_container(start_container)
         await game_surface.send_to_thread(thread, starting_view)
 
         async def finalize_cb(finished: FinishedMatch, outcome):

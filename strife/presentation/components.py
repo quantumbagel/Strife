@@ -158,7 +158,7 @@ class LayoutView:
             emoji = emoji_resolver.general(emoji_name)  # type: ignore[union-attr]
         self.children.append(
             TextDisplay(
-                markdown_content=f"## {emoji} {title}",
+                markdown_content=f"### {emoji} {title}",
                 size_style=TextSize.HEADER,
             )
         )

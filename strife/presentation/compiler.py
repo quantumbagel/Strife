@@ -58,8 +58,8 @@ class Compiler:
 
     def _prefix_text(self, text: TextDisplay) -> str:
         content = text.markdown_content
-        if text.size_style == TextSize.HEADER and not content.startswith("## "):
-            content = f"## {content}"
+        if text.size_style == TextSize.HEADER and not content.startswith("### "):
+            content = f"### {content}"
         elif text.size_style == TextSize.SUBHEADER and not content.startswith("### "):
             content = f"### {content}"
         if len(content) > 4000:

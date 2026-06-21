@@ -21,6 +21,8 @@ LOBBY_OPT = "lobby_opt:"
 LOBBY_RESET_RULES = "lobby_reset_rules:"
 LOBBY_END = "lobby_end:"
 
+ABOUT_NAV = "about_nav:"
+
 GAME_PREFIXES = {G_MOVE, G_SELECT}
 LOBBY_PREFIXES = {
     LOBBY_JOIN,
@@ -43,6 +45,7 @@ ALL_PREFIXES = GAME_PREFIXES | LOBBY_PREFIXES | {
     CAT_NAV,
     PROF_NAV,
     PROF_OPEN,
+    ABOUT_NAV,
 }
 
 

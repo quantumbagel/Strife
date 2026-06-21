@@ -12,7 +12,7 @@ from strife.presentation.components import (
 
 
 def header_text(emoji: str, title: str) -> TextDisplay:
-    return TextDisplay(markdown_content=f"## {emoji} {title}", size_style=TextSize.HEADER)
+    return TextDisplay(markdown_content=f"### {emoji} {title}", size_style=TextSize.HEADER)
 
 
 def divider() -> Separator:

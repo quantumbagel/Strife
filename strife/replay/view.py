@@ -12,6 +12,7 @@ from strife.presentation.components import (
     SelectChoice,
     Separator,
     TextDisplay,
+    TextSize,
 )
 from strife.routing import prefixes as P
 
@@ -26,20 +27,31 @@ def build_replay_view(
     text: TextConfig,
 ) -> LayoutView:
     view = LayoutView()
-    view.children.append(
+    container = Container()
+    container.add_text(
         TextDisplay(
-            markdown_content=f"## Replay: Match #{match.code} ({match.game_key})",
+            markdown_content=f"### Replay: Match #{match.code} ({match.game_key})",
+            size_style=TextSize.HEADER
         )
     )
-    container = Container()
     container.add_text(TextDisplay(markdown_content=str(match.outcome)))
     container.add_separator()
+    
+    frame_action_rows = []
     if frame_view:
         for child in frame_view.children:
-            view.children.append(child)
+            if isinstance(child, ActionRow):
+                frame_action_rows.append(child)
+            elif isinstance(child, Container):
+                container.children.extend(child.children)
+            else:
+                container.children.append(child)
     else:
         container.add_text(TextDisplay(markdown_content=f"Frame {frame_index + 1}/{total}"))
-        view.add_container(container)
+    
+    view.add_container(container)
+    for row in frame_action_rows:
+        view.add_action_row(row)
 
     nav = ActionRow()
     nav.add_button(

@@ -12,6 +12,7 @@ from strife.presentation.components import (
     Select,
     SelectChoice,
     TextDisplay,
+    TextSize,
 )
 from strife.presentation.emoji import EmojiResolver, get_game_emoji
 from strife.routing import prefixes as P
@@ -25,8 +26,14 @@ def build_settings_view(
 ) -> LayoutView:
     game_emoji = get_game_emoji(emoji, meta.key)
     forward_emoji = emoji.get("forward")
-    view = LayoutView().header(game_emoji, f"{meta.name} {forward_emoji} Configuration")
+    view = LayoutView()
     container = Container()
+    container.add_text(
+        TextDisplay(
+            markdown_content=f"### {game_emoji} {meta.name} {forward_emoji} Configuration",
+            size_style=TextSize.HEADER,
+        )
+    )
     privacy = "Private" if lobby.private else "Public"
     container.add_text(TextDisplay(markdown_content=f"**Privacy:** {privacy}"))
     container.add_text(

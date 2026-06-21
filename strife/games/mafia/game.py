@@ -52,14 +52,15 @@ class Mafia(Game):
             role = self.role[player.seat]
             instructions = next((r.instructions for r in self.metadata.roles if r.key == role), "")
             view = LayoutView()
-            view.children.append(TextDisplay(markdown_content=f"## Your role: {role.title()}", size_style=TextSize.HEADER))
-            view.add_container(Container(children=[TextDisplay(instructions)]))
+            container = Container()
+            container.add_text(TextDisplay(markdown_content=f"### Your role: {role.title()}", size_style=TextSize.HEADER))
+            container.add_text(TextDisplay(instructions))
             if role == "mafia":
                 teammates = [p.display_name for p in self.players if self.role[p.seat] == "mafia" and p.seat != player.seat]
                 if teammates:
-                    view.add_container(
-                        Container(children=[TextDisplay(f"Your mafia teammates: {', '.join(teammates)}")])
-                    )
+                    container.add_separator()
+                    container.add_text(TextDisplay(f"Your mafia teammates: {', '.join(teammates)}"))
+            view.add_container(container)
             await ctx.send_private(player.seat, view)
 
     async def _night(self, ctx: GameContext) -> None:
@@ -131,8 +132,8 @@ class Mafia(Game):
 
     def _public_view(self, text: str) -> LayoutView:
         view = LayoutView()
-        view.children.append(TextDisplay(markdown_content="## Mafia", size_style=TextSize.HEADER))
         container = Container()
+        container.add_text(TextDisplay(markdown_content="### Mafia", size_style=TextSize.HEADER))
         container.add_text(TextDisplay(text))
         alive = ", ".join(self.players[s].display_name for s in sorted(self.alive))
         container.add_text(TextDisplay(f"**Alive:** {alive}"))
