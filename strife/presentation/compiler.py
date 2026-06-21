@@ -9,6 +9,7 @@ from strife.presentation.components import (
     ActionRow,
     Button,
     ButtonStyle,
+    ChannelSelect,
     Container,
     LayoutView,
     MediaGallery,
@@ -41,6 +42,10 @@ class Compiler:
         self._emoji = emoji
         self._encoder = encoder
         self._component_count = 0
+
+    @property
+    def emoji(self) -> EmojiResolver:
+        return self._emoji
 
     def compile(self, view: LayoutView, *, resource_id: int, prefix: str) -> ui.LayoutView:
         self._component_count = 0
@@ -138,19 +143,70 @@ class Compiler:
             disabled=select.disabled,
         )
 
+    _CHANNEL_TYPE_MAP = {
+        "text": discord.ChannelType.text,
+        "voice": discord.ChannelType.voice,
+        "category": discord.ChannelType.category,
+        "news": discord.ChannelType.news,
+        "stage": discord.ChannelType.stage_voice,
+        "forum": discord.ChannelType.forum,
+    }
+
+    def _compile_channel_select(
+        self, channel_select: ChannelSelect, *, resource_id: int, prefix: str
+    ) -> ui.ChannelSelect:
+        self._count()
+        custom_id = self._encoder.encode(
+            channel_select.route_prefix or prefix,
+            channel_select.resource_id if channel_select.resource_id is not None else resource_id,
+            channel_select.source,
+            channel_select.payload,
+        )
+        if len(custom_id) > 100:
+            raise LayoutError("custom_id exceeds 100 characters")
+        channel_types = [
+            self._CHANNEL_TYPE_MAP[t]
+            for t in channel_select.channel_types
+            if t in self._CHANNEL_TYPE_MAP
+        ] or [discord.ChannelType.text]
+        default_values = (
+            [discord.Object(id=channel_select.default_id)]
+            if channel_select.default_id is not None
+            else []
+        )
+        return ui.ChannelSelect(
+            custom_id=custom_id,
+            placeholder=channel_select.placeholder,
+            min_values=channel_select.min_values,
+            max_values=channel_select.max_values,
+            channel_types=channel_types,
+            default_values=default_values,
+            disabled=channel_select.disabled,
+        )
+
     def _compile_action_row(self, row: ActionRow, *, resource_id: int, prefix: str) -> ui.ActionRow:
         buttons = [item for item in row.items if isinstance(item, Button)]
         selects = [item for item in row.items if isinstance(item, Select)]
-        if buttons and selects:
+        channel_selects = [item for item in row.items if isinstance(item, ChannelSelect)]
+        interactive = buttons + selects + channel_selects
+        if len(interactive) != len(row.items):
+            raise LayoutError("ActionRow contains unsupported items")
+        if len(buttons) > 0 and (len(selects) > 0 or len(channel_selects) > 0):
             raise LayoutError("ActionRow cannot mix buttons and selects")
         if len(buttons) > 5:
             raise LayoutError("ActionRow cannot have more than 5 buttons")
-        if len(selects) > 1:
+        if len(selects) > 1 or len(channel_selects) > 1:
             raise LayoutError("ActionRow cannot have more than 1 select")
+        if len(selects) > 0 and len(channel_selects) > 0:
+            raise LayoutError("ActionRow cannot mix select types")
         compiled = ui.ActionRow()
         for item in row.items:
             if isinstance(item, Button):
                 compiled.add_item(self._compile_button(item, resource_id=resource_id, prefix=prefix))
+            elif isinstance(item, ChannelSelect):
+                compiled.add_item(
+                    self._compile_channel_select(item, resource_id=resource_id, prefix=prefix)
+                )
             else:
                 compiled.add_item(self._compile_select(item, resource_id=resource_id, prefix=prefix))
         return compiled

@@ -10,6 +10,9 @@ PROF_NAV = "prof_nav:"
 PROF_OPEN = "prof_open:"
 FORFEIT = "forfeit:"
 
+SERVER_NAV = "server_nav:"
+SERVER_CHANNEL = "server_channel:"
+
 LOBBY_JOIN = "lobby_join:"
 LOBBY_LEAVE = "lobby_leave:"
 LOBBY_READY = "lobby_ready:"
@@ -27,6 +30,8 @@ LOBBY_ADD_BLACKLIST = "lobby_add_blacklist:"
 LOBBY_REMOVE_BLACKLIST = "lobby_remove_blacklist:"
 
 ABOUT_NAV = "about_nav:"
+
+SERVER_PREFIXES = {SERVER_NAV, SERVER_CHANNEL}
 
 GAME_PREFIXES = {G_MOVE, G_SELECT}
 LOBBY_PREFIXES = {
@@ -47,7 +52,7 @@ LOBBY_PREFIXES = {
     LOBBY_REMOVE_BLACKLIST,
 }
 
-ALL_PREFIXES = GAME_PREFIXES | LOBBY_PREFIXES | {
+ALL_PREFIXES = GAME_PREFIXES | LOBBY_PREFIXES | SERVER_PREFIXES | {
     R_NAV,
     REMATCH,
     REPLAY_NOOP,

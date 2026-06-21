@@ -15,6 +15,7 @@ from strife.presentation.components import (
     TextDisplay,
     TextSize,
 )
+from strife.presentation.roster import player_mention
 
 
 class TicTacToe(Game):
@@ -36,7 +37,14 @@ class TicTacToe(Game):
     async def play(self, ctx: GameContext) -> GameOutcome:
         while True:
             seat = self.current
-            view = self._board_view(ctx, prompt=f"{self.marks[seat]}'s turn")
+            player = self.players[seat]
+            mark = ctx.emoji.get(self.marks[seat])
+            turn_label = player_mention(
+                user_id=player.user_id,
+                display_name=player.display_name,
+                is_bot=player.is_bot,
+            )
+            view = self._board_view(ctx, prompt=f"{mark} {turn_label}'s turn")
             empties = {
                 f"tile_{c}{r}"
                 for r in range(3)
@@ -48,18 +56,33 @@ class TicTacToe(Game):
             self.board[self._idx(col, row)] = seat
             line = self._winning_line(seat)
             if line is not None:
-                await ctx.update(self._board_view(ctx, prompt="Winner!", highlight=line))
-                return GameOutcome(results={seat: "win", 1 - seat: "loss"}, summary={"winner": seat, "line": line})
+                return GameOutcome(
+                    results={seat: "win", 1 - seat: "loss"},
+                    summary={"winner": seat, "line": line},
+                )
             if all(v is not None for v in self.board):
-                await ctx.update(self._board_view(ctx, prompt="Draw"))
                 return GameOutcome(results={0: "draw", 1: "draw"}, summary={"winner": None})
             self.current = 1 - seat
 
-    def _board_view(self, ctx: GameContext, *, prompt: str, highlight: list[int] | None = None) -> LayoutView:
-        header = LayoutView()
+    async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
+        summary = outcome.summary or {}
+        winner_seat = summary.get("winner")
+        line = summary.get("line")
+        if winner_seat is not None:
+            prompt = "Winner!"
+        elif winner_seat is None and all(v is not None for v in self.board):
+            prompt = "Draw"
+        else:
+            prompt = "Game Over"
+        highlight = line if isinstance(line, list) else None
+        return self._board_view(ctx, prompt=prompt, highlight=highlight)
+
+    def _board_view(
+        self, ctx: GameContext, *, prompt: str, highlight: list[int] | None = None
+    ) -> LayoutView:
+        view = LayoutView()
         container = Container()
         container.add_text(TextDisplay(markdown_content=prompt, size_style=TextSize.BODY))
-        header.add_container(container)
         for row in range(3):
             action = ActionRow()
             for col in range(3):
@@ -74,7 +97,11 @@ class TicTacToe(Game):
                         )
                     )
                 else:
-                    style = ButtonStyle.SUCCESS if highlight and idx in highlight else ButtonStyle.PRIMARY
+                    style = (
+                        ButtonStyle.SUCCESS
+                        if highlight and idx in highlight
+                        else ButtonStyle.PRIMARY
+                    )
                     action.add_button(
                         Button(
                             source=f"tile_{col}{row}",
@@ -84,8 +111,9 @@ class TicTacToe(Game):
                             disabled=True,
                         )
                     )
-            header.add_action_row(action)
-        return header
+            container.add_action_row(action)
+        view.add_container(container)
+        return view
 
     def _winning_line(self, seat: int) -> list[int] | None:
         lines = [

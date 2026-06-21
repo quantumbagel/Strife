@@ -8,8 +8,10 @@ from strife.config.text import TextConfig
 from strife.persistence.repositories import MatchRepository, MoveRepository
 from strife.presentation.compiler import Compiler
 from strife.presentation.message import send_ephemeral_error
+from strife.presentation.modals import PageJumpModal
 from strife.replay.simulator import ReplaySimulator
 from strife.replay.view import build_replay_view
+from strife.routing import prefixes as P
 
 
 class ReplayService:
@@ -61,9 +63,9 @@ class ReplayService:
             frame_view=frames[0].view,
             text=self.text,
             game_name=game_name,
-            emoji=self.compiler._emoji,
+            emoji=self.compiler.emoji,
         )
-        compiled = self.compiler.compile(view, resource_id=detail.id, prefix="r_nav:")
+        compiled = self.compiler.compile(view, resource_id=detail.id, prefix=P.R_NAV)
         await interaction.response.send_message(view=compiled)
 
     async def render_frame(
@@ -73,7 +75,6 @@ class ReplayService:
         interaction: discord.Interaction,
         *,
         owner_id: int,
-        seek: bool = False,
     ) -> None:
         detail = await self.matches.get(match_id)
         if detail is None:
@@ -93,10 +94,38 @@ class ReplayService:
             frame_view=frames[frame].view,
             text=self.text,
             game_name=game_name,
-            emoji=self.compiler._emoji,
+            emoji=self.compiler.emoji,
         )
-        compiled = self.compiler.compile(view, resource_id=match_id, prefix="r_nav:")
+        compiled = self.compiler.compile(view, resource_id=match_id, prefix=P.R_NAV)
         if interaction.response.is_done():
             await interaction.edit_original_response(view=compiled)
         else:
             await interaction.response.edit_message(view=compiled)
+
+    async def open_jump_modal(
+        self,
+        interaction: discord.Interaction,
+        match_id: int,
+        *,
+        owner_id: int,
+        total: int,
+        frame: int = 0,
+    ) -> None:
+        async def on_submit(modal_interaction: discord.Interaction, new_frame: int) -> None:
+            await modal_interaction.response.defer()
+            await self.render_frame(
+                match_id,
+                new_frame,
+                modal_interaction,
+                owner_id=owner_id,
+            )
+
+        modal = PageJumpModal(
+            title=self.text.get("replay.jump_modal_title"),
+            label=self.text.get("replay.jump_modal_label"),
+            placeholder=self.text.get("replay.jump_modal_placeholder"),
+            current=frame + 1,
+            total=total,
+            on_submit_cb=on_submit,
+        )
+        await interaction.response.send_modal(modal)

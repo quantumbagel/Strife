@@ -49,6 +49,7 @@ def build_about_view(emoji: EmojiResolver, text: TextConfig, active_tab: str = "
                 source="background",
                 label=text.get("about.background_btn"),
                 style=ButtonStyle.SECONDARY,
+                emoji="learn",
                 route_prefix=P.ABOUT_NAV,
                 payload={"tab": "background"},
             )
@@ -58,6 +59,7 @@ def build_about_view(emoji: EmojiResolver, text: TextConfig, active_tab: str = "
                 source="attributions",
                 label=text.get("about.attributions_btn"),
                 style=ButtonStyle.SECONDARY,
+                emoji="creator",
                 route_prefix=P.ABOUT_NAV,
                 payload={"tab": "attributions"},
             )

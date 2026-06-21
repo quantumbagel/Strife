@@ -97,8 +97,22 @@ class Select:
 
 
 @dataclass
+class ChannelSelect:
+    source: str
+    placeholder: str | None = None
+    channel_types: tuple[str, ...] = ("text",)
+    min_values: int = 1
+    max_values: int = 1
+    default_id: int | None = None
+    disabled: bool = False
+    payload: dict | None = None
+    route_prefix: str | None = None
+    resource_id: int | None = None
+
+
+@dataclass
 class ActionRow:
-    items: list[Button | Select] = field(default_factory=list)
+    items: list[Button | Select | ChannelSelect] = field(default_factory=list)
 
     def add_button(self, button: Button) -> ActionRow:
         self.items.append(button)
@@ -106,6 +120,10 @@ class ActionRow:
 
     def add_select(self, select: Select) -> ActionRow:
         self.items.append(select)
+        return self
+
+    def add_channel_select(self, channel_select: ChannelSelect) -> ActionRow:
+        self.items.append(channel_select)
         return self
 
 
@@ -165,11 +183,11 @@ class LayoutView:
         return self
 
 
-def walk_interactive(view: LayoutView) -> list[Button | Select]:
-    items: list[Button | Select] = []
+def walk_interactive(view: LayoutView) -> list[Button | Select | ChannelSelect]:
+    items: list[Button | Select | ChannelSelect] = []
 
     def visit(node: object) -> None:
-        if isinstance(node, Button | Select):
+        if isinstance(node, Button | Select | ChannelSelect):
             items.append(node)
         elif isinstance(node, ActionRow):
             for child in node.items:

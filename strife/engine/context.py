@@ -9,6 +9,7 @@ from strife.engine.players import Move, Player
 from strife.persistence.repositories import MoveRecord
 from strife.presentation.components import LayoutView
 from strife.presentation.compiler import clone_and_disable
+from strife.presentation.emoji import EmojiResolver
 
 
 class ReplayMoveUnderflow(RuntimeError):
@@ -19,6 +20,7 @@ class GameContext(Protocol):
     rng: random.Random
     players: Sequence[Player]
     settings: Mapping[str, object]
+    emoji: EmojiResolver
 
     def is_bot(self, seat: int) -> bool: ...
 
@@ -55,6 +57,10 @@ class LiveContext:
     @property
     def settings(self) -> Mapping[str, object]:
         return self._session.settings  # type: ignore[attr-defined]
+
+    @property
+    def emoji(self) -> EmojiResolver:
+        return self._session.surface.compiler.emoji  # type: ignore[attr-defined]
 
     def is_bot(self, seat: int) -> bool:
         return self._session.players[seat].is_bot  # type: ignore[attr-defined]
@@ -99,10 +105,12 @@ class ReplayContext:
         players: Sequence[Player],
         settings: Mapping[str, object],
         moves: list[MoveRecord],
+        emoji: EmojiResolver,
     ) -> None:
         self.rng = rng
         self.players = players
         self.settings = settings
+        self.emoji = emoji
         self._moves = list(moves)
         self._cursor = 0
         self.frames: list[ReplayFrame] = []

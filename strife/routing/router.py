@@ -32,6 +32,7 @@ class InteractionRouter:
         lifecycle: object | None,
         profile: object | None,
         catalog: object | None,
+        server_settings: object | None,
         encoder: CustomIdEncoder,
         text: TextConfig,
     ) -> None:
@@ -41,6 +42,7 @@ class InteractionRouter:
         self.lifecycle = lifecycle
         self.profile = profile
         self.catalog = catalog
+        self.server_settings = server_settings
         self.encoder = encoder
         self.text = text
 
@@ -79,6 +81,8 @@ class InteractionRouter:
                 await self._handle_about(route, interaction)
             elif route.prefix == P.FORFEIT:
                 await self._handle_forfeit(route, interaction)
+            elif route.prefix in P.SERVER_PREFIXES:
+                await self._handle_server(route, interaction)
             else:
                 log.warning("Unknown prefix %s", route.prefix)
                 await self._ephemeral(interaction, self.text.get("common.error"))
@@ -132,11 +136,19 @@ class InteractionRouter:
         if owner_id != interaction.user.id:
             await self._ephemeral(interaction, self.text.get("common.replay_owner_only"))
             return
+        if route.payload.get("jump"):
+            total = int(route.payload.get("total", 1))
+            frame = int(route.payload.get("frame", 0))
+            await self.replay.open_jump_modal(
+                interaction,
+                route.resource_id,
+                owner_id=owner_id,
+                total=total,
+                frame=frame,
+            )
+            return
         frame = int(route.payload.get("frame", 0))
-        seek = route.payload.get("mode") == "seek"
-        if seek and interaction.data and interaction.data.get("values"):
-            frame = int(interaction.data["values"][0])
-        await self.replay.render_frame(route.resource_id, frame, interaction, owner_id=owner_id, seek=seek)
+        await self.replay.render_frame(route.resource_id, frame, interaction, owner_id=owner_id)
 
     async def _handle_rematch(self, route, interaction: discord.Interaction) -> None:
         if self.lifecycle is None:
@@ -155,6 +167,11 @@ class InteractionRouter:
         if self.catalog is None:
             await self._ephemeral(interaction, self.text.get("common.error"))
             return
+        if route.payload.get("jump"):
+            pages = int(route.payload.get("pages", 1))
+            page = int(route.payload.get("page", 0))
+            await self.catalog.open_jump_modal(interaction, pages=pages, page=page)
+            return
         page = int(route.payload.get("page", 0))
         await self.catalog.navigate(interaction, page)
 
@@ -162,7 +179,23 @@ class InteractionRouter:
         if self.profile is None:
             await self._ephemeral(interaction, self.text.get("common.error"))
             return
+        if route.payload.get("jump"):
+            await self.profile.open_jump_modal(interaction, route)
+            return
         await self.profile.navigate(interaction, route)
+
+    async def _handle_server(self, route, interaction: discord.Interaction) -> None:
+        if self.server_settings is None:
+            await self._ephemeral(interaction, self.text.get("common.error"))
+            return
+        if route.prefix == P.SERVER_CHANNEL:
+            values = interaction.data.get("values") if interaction.data else []
+            if not values:
+                await self._defer(interaction)
+                return
+            await self.server_settings.set_channel(interaction, int(values[0]))
+            return
+        await self.server_settings.open(interaction, edit=True)
 
     async def _handle_about(self, route, interaction: discord.Interaction) -> None:
         if self.lobby is None:

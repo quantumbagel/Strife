@@ -16,6 +16,7 @@ from strife.presentation.components import (
     TextSize,
 )
 from strife.presentation.emoji import EmojiResolver
+from strife.presentation.roster import format_roster, member_line
 from strife.routing import prefixes as P
 from strife.settings import get_settings
 
@@ -94,18 +95,31 @@ def build_lobby_view(
     settings = get_settings()
     for member in lobby.members:
         status = text.get("lobby.ready") if member.user_id in lobby.ready else text.get("lobby.not_ready")
-        prefix = ""
-        if member.user_id in settings.owner_ids:
-            prefix += f"{emoji.get('admin')} "
-        if member.user_id == lobby.creator_id:
-            prefix += f"{emoji.get('creator')} "
-        roster_lines.append(f"{prefix}<@{member.user_id}> ({status})")
+        roster_lines.append(
+            member_line(
+                emoji,
+                user_id=member.user_id,
+                display_name=member.display_name,
+                owner_ids=frozenset(settings.owner_ids),
+                creator_id=lobby.creator_id,
+                suffix=f"({status})",
+            )
+        )
     for bot in lobby.bots:
-        roster_lines.append(f"**{bot.name}** ({bot.difficulty})")
+        roster_lines.append(
+            member_line(
+                emoji,
+                user_id=None,
+                display_name=bot.name,
+                is_bot=True,
+                bot_difficulty=bot.difficulty,
+            )
+        )
 
     container.add_text(
         TextDisplay(
-            markdown_content=f"{text.get('lobby.players_title')}\n" + ("\n".join(roster_lines) or text.get("lobby.empty_roster")),
+            markdown_content=f"{text.get('lobby.players_title')}\n"
+            + ("\n".join(roster_lines) or text.get("lobby.empty_roster")),
             size_style=TextSize.BODY,
         )
     )
@@ -130,7 +144,13 @@ def build_lobby_view(
 
     if meta.role_flow.value in {"selectable", "selectable_random"}:
         controls.add_button(
-            Button(source="assign", label=text.get("lobby.assign_roles_button"), style=ButtonStyle.SECONDARY, route_prefix=P.LOBBY_ASSIGN)
+            Button(
+                source="assign",
+                label=text.get("lobby.assign_roles_button"),
+                style=ButtonStyle.SECONDARY,
+                emoji="user",
+                route_prefix=P.LOBBY_ASSIGN,
+            )
         )
 
     controls.add_button(

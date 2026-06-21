@@ -8,6 +8,7 @@ from typing import Any, ClassVar
 from strife.engine.context import GameContext
 from strife.engine.metadata import GameMetadata
 from strife.engine.players import GameOutcome, Move, Player
+from strife.presentation.components import LayoutView
 
 
 class Game(ABC):
@@ -29,3 +30,6 @@ class Game(ABC):
 
     def validate_roles(self, assignment: dict[int, str]) -> tuple[bool, str | None]:
         return True, None
+
+    async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
+        return None

@@ -10,6 +10,8 @@ prev = "Prev"
 next = "Next"
 first = "First"
 last = "Last"
+jump_page_label = "Page number"
+jump_page_placeholder = "Enter a page number..."
 
 [lobby]
 title = "Queueing for {game_name}..."
@@ -94,7 +96,7 @@ invalid_roles = "Invalid roles selected."
 not_all_ready = "Not all players are ready."
 
 [match]
-result_title = "{game_name} - Result"
+result_title = "{game_name} {forward} Result"
 winner = "Winner: {winner}"
 draw = "Draw"
 rematch_progress = "Rematch {count}/{total}"
@@ -118,12 +120,24 @@ title = "Replay: Match #{code} ({game_name})"
 turn_label = "Turn {current}/{total}"
 jump_placeholder = "Jump to turn..."
 turn_choice_label = "Turn {current}"
+jump_modal_title = "Jump to Turn"
+jump_modal_label = "Turn number"
+jump_modal_placeholder = "Enter a turn number..."
 
 [timeout]
 warning = "{player} has {seconds}s left to move."
 
 [guild]
 channel_set = "Default channel set to {mention}"
+
+[server]
+title = "### {logo} Strife {forward} {settings_emoji} Server Settings"
+current_channel = "Default lobby channel: {mention}"
+no_channel = "No default lobby channel is set."
+channel_placeholder = "Select default lobby channel..."
+
+[rematch]
+lobby_created = "A rematch lobby was created in {mention}!"
 
 [about]
 title = "### {logo} Strife"

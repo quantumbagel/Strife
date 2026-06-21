@@ -28,8 +28,10 @@ from strife.presentation.compiler import Compiler
 from strife.presentation.emoji import EmojiResolver
 from strife.presentation.components import Container, LayoutView, TextDisplay, TextSize, ActionRow, Button, ButtonStyle, Separator
 from strife.presentation.message import ViewSurface, send_ephemeral_error
+from strife.presentation.roster import member_line
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route
+from strife.settings import get_settings
 
 log = get_logger("matchmaking.service")
 
@@ -564,27 +566,32 @@ class LobbyService:
             self.compiler, prefix=P.G_MOVE, resource_id=thread.id
         )
         game_emoji = self.emoji.get_game_emoji(meta.key)
+        forward = self.emoji.get("forward")
         starting_view = LayoutView()
         start_container = Container()
         start_container.add_text(
             TextDisplay(
-                markdown_content=f"### {game_emoji} {meta.name} — Match Start",
+                markdown_content=f"### {game_emoji} {forward} {meta.name} {forward} Match Start",
                 size_style=TextSize.HEADER,
             )
         )
         start_container.add_separator()
 
-        roster_lines = []
-        for p in players:
-            if p.user_id:
-                roster_lines.append(f"<@{p.user_id}>")
-            else:
-                roster_lines.append(f"🤖 **{p.display_name}** ({p.bot_difficulty})")
-
-        player_list = "\n".join(f"• {line}" for line in roster_lines)
+        settings = get_settings()
+        roster_lines = [
+            member_line(
+                self.emoji,
+                user_id=p.user_id,
+                display_name=p.display_name,
+                is_bot=p.is_bot,
+                bot_difficulty=p.bot_difficulty,
+                owner_ids=frozenset(settings.owner_ids),
+            )
+            for p in players
+        ]
         start_container.add_text(
             TextDisplay(
-                markdown_content=f"👥 **Players:**\n{player_list}",
+                markdown_content=f"{self.text.get('lobby.players_title')}\n" + "\n".join(roster_lines),
                 size_style=TextSize.BODY,
             )
         )
@@ -742,6 +749,7 @@ class LobbyService:
                 source="leave",
                 label=self.text.get("errors.leave_current_game"),
                 style=ButtonStyle.DANGER,
+                emoji="leave",
                 route_prefix=P.LOBBY_LEAVE,
                 resource_id=loc.thread_id,
             )
@@ -750,6 +758,7 @@ class LobbyService:
                 source="forfeit",
                 label=self.text.get("errors.forfeit_current_game"),
                 style=ButtonStyle.DANGER,
+                emoji="error",
                 route_prefix=P.FORFEIT,
                 resource_id=loc.thread_id,
             )

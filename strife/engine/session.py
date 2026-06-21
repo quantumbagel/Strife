@@ -27,7 +27,9 @@ from strife.presentation.components import (
     TextSize,
 )
 from strife.presentation.message import ViewSurface
+from strife.presentation.roster import member_line
 from strife.routing.router import InteractionInput
+from strife.settings import get_settings
 
 log = get_logger("engine.session")
 
@@ -234,7 +236,7 @@ class GameSession:
             return
         user = self._bot.get_user(player.user_id) or await self._bot.fetch_user(player.user_id)
         compiled_surface = ViewSurface(
-            self.surface._compiler, prefix=self.surface._prefix, resource_id=self.surface._resource_id
+            self.surface.compiler, prefix=self.surface.prefix, resource_id=self.surface.resource_id
         )
         try:
             dm = user.dm_channel or await user.create_dm()
@@ -255,38 +257,49 @@ class GameSession:
         self.last_move_at = time.monotonic()
 
     async def _finalize(self, outcome: GameOutcome, *, status: str) -> None:
-        await self.surface.disable_all()
+        final = await self.game.final_view(self.ctx, outcome)
+        if final is not None:
+            await self._update_surface(final)
+        else:
+            await self.surface.disable_all()
         if self.header_surface is not None:
             try:
-                game_emoji = self.header_surface._compiler._emoji.get_game_emoji(self.game_key)
+                emoji = self.header_surface.compiler.emoji
+                game_emoji = emoji.get_game_emoji(self.game_key)
+                forward = emoji.get("forward")
+                settings = get_settings()
                 finished_view = LayoutView()
                 container = Container()
                 container.add_text(
                     TextDisplay(
-                        markdown_content=f"### {game_emoji} {self.game.metadata.name} — Match Finished",
+                        markdown_content=f"### {game_emoji} {forward} {self.game.metadata.name} {forward} Match Finished",
                         size_style=TextSize.HEADER,
                     )
                 )
                 container.add_separator()
 
-                roster_lines = []
-                for p in self.players:
-                    if p.user_id:
-                        roster_lines.append(f"<@{p.user_id}>")
-                    else:
-                        roster_lines.append(f"🤖 **{p.display_name}** ({p.bot_difficulty})")
-
-                player_list = "\n".join(f"• {line}" for line in roster_lines)
+                roster_lines = [
+                    member_line(
+                        emoji,
+                        user_id=p.user_id,
+                        display_name=p.display_name,
+                        is_bot=p.is_bot,
+                        bot_difficulty=p.bot_difficulty,
+                        owner_ids=frozenset(settings.owner_ids),
+                    )
+                    for p in self.players
+                ]
                 container.add_text(
                     TextDisplay(
-                        markdown_content=f"👥 **Players:**\n{player_list}",
+                        markdown_content=f"{self.text.get('lobby.players_title')}\n"
+                        + ("\n".join(roster_lines) or self.text.get("lobby.empty_roster")),
                         size_style=TextSize.BODY,
                     )
                 )
                 container.add_separator(Separator(visible=False))
                 container.add_text(
                     TextDisplay(
-                        markdown_content=f"-# {self.header_surface._compiler._emoji.get('success')} {self.text.get('lobby.game_finished')}",
+                        markdown_content=f"-# {emoji.get('success')} {self.text.get('lobby.game_finished')}",
                         size_style=TextSize.BODY,
                     )
                 )
@@ -340,7 +353,7 @@ class GameSession:
             match_id=match_id,
             owner_id=next((p.user_id for p in self.players if p.user_id), 0),
             text=self.text,
-            emoji=self.surface._compiler._emoji,
+            emoji=self.surface.compiler.emoji,
         )
         if hasattr(self, "lobby_surface") and self.lobby_surface is not None:
             await self.lobby_surface.update(results_view)

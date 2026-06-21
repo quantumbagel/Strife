@@ -12,6 +12,7 @@ from strife.presentation.components import (
     TextSize,
 )
 from strife.presentation.emoji import EmojiResolver
+from strife.presentation.roster import member_line, player_mention
 from strife.routing import prefixes as P
 
 
@@ -31,25 +32,31 @@ def build_results_view(
     container = Container()
 
     game_emoji = emoji.get_game_emoji(game_key)
+    forward = emoji.get("forward")
     container.add_text(
         TextDisplay(
-            markdown_content=f"### {game_emoji} {text.get('match.result_title', game_name=game_name)}",
-            size_style=TextSize.HEADER
+            markdown_content=f"### {game_emoji} {text.get('match.result_title', game_name=game_name, forward=forward)}",
+            size_style=TextSize.HEADER,
         )
     )
 
     summary = outcome.summary or {}
     winner_seat = summary.get("winner")
     if winner_seat is not None and isinstance(winner_seat, int) and 0 <= winner_seat < len(players):
-        winner_name = players[winner_seat].display_name
-        body = text.get("match.winner", winner=winner_name)
-        body_text = f"🏆 **{body}**"
+        winner = players[winner_seat]
+        winner_label = player_mention(
+            user_id=winner.user_id,
+            display_name=winner.display_name,
+            is_bot=winner.is_bot,
+        )
+        body = text.get("match.winner", winner=winner_label)
+        body_text = f"{emoji.get('success')} **{body}**"
     elif "winning_faction" in summary:
         body = text.get("match.winner", winner=summary["winning_faction"])
-        body_text = f"🏆 **{body}**"
+        body_text = f"{emoji.get('success')} **{body}**"
     else:
         body = text.get("match.draw")
-        body_text = f"🤝 **{body}**"
+        body_text = f"{emoji.get('hmm')} **{body}**"
 
     container.add_text(TextDisplay(markdown_content=body_text))
     container.add_separator()
@@ -60,22 +67,28 @@ def build_results_view(
         role = f" ({player.role_key})" if player.role_key else ""
 
         if result == "win":
-            res_emoji = "🏆"
+            res_emoji = emoji.get("success")
             res_text = "Win"
         elif result == "loss":
-            res_emoji = "❌"
+            res_emoji = emoji.get("error")
             res_text = "Loss"
         elif result == "draw":
-            res_emoji = "🤝"
+            res_emoji = emoji.get("hmm")
             res_text = "Draw"
         else:
-            res_emoji = "🔹"
+            res_emoji = emoji.get("bullet")
             res_text = str(result).capitalize() if result else "—"
 
-        lines.append(f"• **{player.display_name}**{role} — {res_emoji} {res_text}")
+        name = member_line(
+            emoji,
+            user_id=player.user_id,
+            display_name=player.display_name,
+            is_bot=player.is_bot,
+            bot_difficulty=player.bot_difficulty,
+        )
+        lines.append(f"• {name}{role} {forward} {res_emoji} {res_text}")
 
     container.add_text(TextDisplay(markdown_content="\n".join(lines)))
-    view.add_container(container)
 
     row = ActionRow()
     row.add_button(
@@ -83,6 +96,7 @@ def build_results_view(
             source="vote",
             label=text.get("match.rematch_label"),
             style=ButtonStyle.PRIMARY,
+            emoji="rematch",
             route_prefix=P.REMATCH,
             resource_id=thread_id,
         )
@@ -92,10 +106,12 @@ def build_results_view(
             source="open",
             label=text.get("match.view_replay_label"),
             style=ButtonStyle.SECONDARY,
+            emoji="spectate",
             route_prefix=P.R_NAV,
             resource_id=match_id,
             payload={"frame": 0, "owner": owner_id},
         )
     )
-    view.add_action_row(row)
+    container.add_action_row(row)
+    view.add_container(container)
     return view

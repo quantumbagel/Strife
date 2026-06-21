@@ -4,9 +4,9 @@ import discord
 from discord import app_commands
 
 from strife.commands.catalog import CatalogService
+from strife.commands.server_settings import ServerSettingsService
 from strife.lifecycle.service import LifecycleService
 from strife.matchmaking.service import LobbyService
-from strife.persistence.repositories import GuildRepository
 from strife.presentation.message import send_ephemeral_error
 from strife.replay.profile import ProfileService
 from strife.replay.service import ReplayService
@@ -20,7 +20,7 @@ def register_strife_group(
     replay: ReplayService,
     profile: ProfileService,
     catalog: CatalogService,
-    guilds: GuildRepository,
+    server_settings: ServerSettingsService,
     registry,
 ) -> None:
     group = app_commands.Group(name="strife", description="Strife platform commands")
@@ -45,6 +45,11 @@ def register_strife_group(
     @app_commands.describe(private="Quick-toggle private lobby")
     async def settings_cmd(interaction: discord.Interaction, private: bool | None = None) -> None:
         await lobby.open_settings(interaction, private)
+
+    @group.command(name="server", description="Configure server-level Strife settings")
+    @app_commands.default_permissions(administrator=True)
+    async def server_cmd(interaction: discord.Interaction) -> None:
+        await server_settings.open(interaction)
 
     @group.command(name="forfeit", description="Forfeit your current game")
     async def forfeit_cmd(interaction: discord.Interaction) -> None:
@@ -80,6 +85,22 @@ def register_strife_group(
     async def replay_cmd(interaction: discord.Interaction, match_ref: str) -> None:
         await replay.open(interaction, match_ref)
 
+    @replay_cmd.autocomplete("match_ref")
+    async def replay_autocomplete(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        matches = await replay.matches.list_for_user(interaction.user.id, None, limit=25)
+        choices: list[app_commands.Choice[str]] = []
+        for match in matches:
+            if match.status != "completed":
+                continue
+            game_name = registry.metadata(match.game_key).name
+            label = f"#{match.code} - {game_name} - {match.created_at:%Y-%m-%d}"
+            if current.lower() not in label.lower() and current.lower() not in match.code.lower():
+                continue
+            choices.append(app_commands.Choice(name=label[:100], value=match.code))
+        return choices[:25]
+
     @group.command(name="about", description="Information about the Strife platform")
     async def about_cmd(interaction: discord.Interaction) -> None:
         from strife.presentation.about_view import build_about_view
@@ -89,14 +110,6 @@ def register_strife_group(
         compiled = lobby.compiler.compile(view, resource_id=interaction.user.id, prefix=P.ABOUT_NAV)
         await interaction.response.send_message(view=compiled, ephemeral=True)
 
-    @group.command(name="set_channel", description="Set the default lobby channel")
-    @app_commands.describe(channel="Default channel for new lobbies")
-    @app_commands.default_permissions(administrator=True)
-    async def set_channel_cmd(interaction: discord.Interaction, channel: discord.TextChannel) -> None:
-        await guilds.upsert(interaction.guild_id)
-        await guilds.set_default_channel(interaction.guild_id, channel.id)
-        await send_ephemeral_error(interaction, lobby.text.get("guild.channel_set", mention=channel.mention))
-
     bot_group = app_commands.Group(name="bot", description="Manage lobby bots", parent=group)
 
     @bot_group.command(name="add", description="Add bots to your lobby")
@@ -104,9 +117,48 @@ def register_strife_group(
     async def bot_add(interaction: discord.Interaction, difficulty: str = "medium", number: int = 1) -> None:
         await lobby.add_bots(interaction, difficulty, max(1, min(number, 5)))
 
+    @bot_add.autocomplete("difficulty")
+    async def bot_add_difficulty_autocomplete(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        loc = lobby.registries.location_of(interaction.user.id)
+        if loc is None or loc.kind != "lobby":
+            return []
+        lobby_obj = lobby.registries.get_lobby(loc.thread_id)
+        if lobby_obj is None:
+            return []
+        meta = registry.metadata(lobby_obj.game_key)
+        choices = []
+        for spec in meta.bots or ():
+            if current.lower() in spec.difficulty.lower():
+                choices.append(
+                    app_commands.Choice(name=spec.difficulty.capitalize(), value=spec.difficulty)
+                )
+        if not choices:
+            for fallback in ("easy", "medium", "hard"):
+                if current.lower() in fallback:
+                    choices.append(app_commands.Choice(name=fallback.capitalize(), value=fallback))
+        return choices[:25]
+
     @bot_group.command(name="remove", description="Remove a bot from your lobby")
     @app_commands.describe(name="Bot name")
     async def bot_remove(interaction: discord.Interaction, name: str) -> None:
         await lobby.remove_bot(interaction, name)
+
+    @bot_remove.autocomplete("name")
+    async def bot_remove_name_autocomplete(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        loc = lobby.registries.location_of(interaction.user.id)
+        if loc is None or loc.kind != "lobby":
+            return []
+        lobby_obj = lobby.registries.get_lobby(loc.thread_id)
+        if lobby_obj is None:
+            return []
+        return [
+            app_commands.Choice(name=bot.name, value=bot.name)
+            for bot in lobby_obj.bots
+            if current.lower() in bot.name.lower()
+        ][:25]
 
     tree.add_command(group)

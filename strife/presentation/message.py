@@ -14,10 +14,18 @@ if TYPE_CHECKING:
 
 class ViewSurface:
     def __init__(self, compiler: Compiler, *, prefix: str, resource_id: int) -> None:
-        self._compiler = compiler
+        self.compiler = compiler
         self._prefix = prefix
         self._resource_id = resource_id
         self._message: discord.Message | None = None
+
+    @property
+    def prefix(self) -> str:
+        return self._prefix
+
+    @property
+    def resource_id(self) -> int:
+        return self._resource_id
 
     @property
     def message(self) -> discord.Message | None:
@@ -40,7 +48,7 @@ class ViewSurface:
         *,
         ephemeral: bool = False,
     ) -> discord.Message:
-        compiled = self._compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
+        compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
         if isinstance(target, discord.Interaction):
             if ephemeral:
                 await target.response.send_message(view=compiled, ephemeral=True)
@@ -53,21 +61,18 @@ class ViewSurface:
         return self._message
 
     async def send_to_thread(self, thread: discord.Thread, view: LayoutView) -> discord.Message:
-        compiled = self._compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
+        compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
         self._message = await thread.send(view=compiled)
         return self._message
 
     async def update(self, view: LayoutView) -> None:
         if self._message is None:
             raise RuntimeError("No message bound to surface")
-        compiled = self._compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
+        compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
         await self._message.edit(content=None, embeds=[], view=compiled)
 
     async def replace(self, view: LayoutView) -> None:
-        if self._message is None:
-            raise RuntimeError("No message bound to surface")
-        compiled = self._compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
-        await self._message.edit(content=None, embeds=[], view=compiled)
+        await self.update(view)
 
     async def disable_all(self) -> None:
         if self._message is not None:
@@ -86,7 +91,7 @@ class ViewSurface:
         user: discord.abc.User,
         view: LayoutView,
     ) -> None:
-        compiled = self._compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
+        compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
         try:
             dm = user.dm_channel or await user.create_dm()
             await dm.send(view=compiled)

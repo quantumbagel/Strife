@@ -9,6 +9,7 @@ from discord.ext import commands
 from strife.commands.admin import AdminCommands
 from strife.commands.catalog import CatalogService
 from strife.commands.play import register_play
+from strife.commands.server_settings import ServerSettingsService
 from strife.commands.strife_group import register_strife_group
 from strife.config import load_app_config
 from strife.engine.registry import GameRegistry
@@ -103,10 +104,11 @@ class StrifeBot(commands.Bot):
         )
         self.lobby.lifecycle = self.lifecycle
 
-        simulator = ReplaySimulator(self.game_registry)
+        simulator = ReplaySimulator(self.game_registry, self.emoji)
         self.replay = ReplayService(matches, moves, simulator, compiler, self.config.text)
         self.profile = ProfileService(users, matches, compiler, self.config.text, self.replay)
         self.catalog = CatalogService(self.game_registry, self.config, compiler, self.emoji, self.config.text)
+        self.server_settings = ServerSettingsService(guilds, compiler, self.emoji, self.config.text)
 
         self.router = InteractionRouter(
             sessions=self.sessions,
@@ -115,6 +117,7 @@ class StrifeBot(commands.Bot):
             lifecycle=self.lifecycle,
             profile=self.profile,
             catalog=self.catalog,
+            server_settings=self.server_settings,
             encoder=encoder,
             text=self.config.text,
         )
@@ -127,7 +130,7 @@ class StrifeBot(commands.Bot):
             replay=self.replay,
             profile=self.profile,
             catalog=self.catalog,
-            guilds=guilds,
+            server_settings=self.server_settings,
             registry=self.game_registry,
         )
         await self.add_cog(AdminCommands(self, self.settings))
