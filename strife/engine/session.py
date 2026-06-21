@@ -235,7 +235,7 @@ class GameSession:
     async def _finalize(self, outcome: GameOutcome, *, status: str) -> None:
         await self.surface.disable_all()
         finished = FinishedMatch(
-            code=None,
+            code=self._match_code,
             game_key=self.game_key,
             guild_id=self.guild_id,
             thread_id=self.thread_id,

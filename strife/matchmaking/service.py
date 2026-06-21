@@ -22,6 +22,7 @@ from strife.persistence.repositories import (
     MatchRepository,
     PlayerResult,
     UserRepository,
+    generate_match_code,
 )
 from strife.presentation.compiler import Compiler
 from strife.presentation.emoji import EmojiResolver
@@ -508,6 +509,9 @@ class LobbyService:
             await self._ephemeral(interaction, self.text.get("common.error"))
             return
 
+        # Generate match code
+        match_code = generate_match_code(random.Random())
+
         # Create thread for the game
         channel = (
             interaction.guild.get_channel(lobby.channel_id)
@@ -516,7 +520,7 @@ class LobbyService:
         )
         if channel is None:
             channel = interaction.channel
-        thread_name = f"{meta.name} Game"
+        thread_name = f"{meta.name} Game (#{match_code})"
         thread = await channel.create_thread(
             name=thread_name, auto_archive_duration=1440
         )
@@ -613,6 +617,7 @@ class LobbyService:
             finalize_cb=finalize_cb,
             game_key=lobby.game_key,
         )
+        session._match_code = match_code
         session.set_bot(self.bot)
         self.registries.promote(lobby.thread_id, session)
         if not interaction.response.is_done():
