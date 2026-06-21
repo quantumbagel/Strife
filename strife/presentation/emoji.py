@@ -4,7 +4,7 @@ from pathlib import Path
 
 import discord
 
-from strife.config.emoji import EmojiConfig, EmojiEntry, load_emoji_config, save_emoji_config
+from strife.config.emoji import EmojiConfig, EmojiEntry, save_emoji_config
 from strife.logging import get_logger
 
 log = get_logger("presentation.emoji")
@@ -25,7 +25,7 @@ class EmojiResolver:
         entry = self._config.entries.get(name)
         if entry is None:
             log.warning("Unknown emoji: %s", name)
-            fallback = self._config.entries.get("error_cross")
+            fallback = self._config.entries.get("error")
             return fallback.fallback if (fallback and fallback.fallback) else "❓"
         if entry.id is not None:
             prefix = "a" if entry.animated else ""

@@ -41,7 +41,44 @@ class AdminCommands(commands.Cog):
         if handler is None:
             await message.reply(f"Unknown admin command: {cmd}")
             return
-        await handler(args, message)
+
+        emoji_resolver = getattr(self.bot, "emoji", None)
+        loading_emoji = emoji_resolver.get("loading") if emoji_resolver else "⏳"
+        success_emoji = emoji_resolver.get("success") if emoji_resolver else "✅"
+        error_emoji = emoji_resolver.get("error") if emoji_resolver else "❌"
+
+        if loading_emoji == "❓":
+            loading_emoji = "⏳"
+        if success_emoji == "❓":
+            success_emoji = "✅"
+        if error_emoji == "❓":
+            error_emoji = "❌"
+
+        try:
+            await message.add_reaction(loading_emoji)
+        except Exception:
+            log.warning("Failed to add loading reaction to message %s", message.id, exc_info=True)
+
+        try:
+            await handler(args, message)
+            try:
+                await message.remove_reaction(loading_emoji, self.bot.user)
+            except Exception:
+                pass
+            try:
+                await message.add_reaction(success_emoji)
+            except Exception:
+                log.warning("Failed to add success reaction to message %s", message.id, exc_info=True)
+        except Exception as e:
+            try:
+                await message.remove_reaction(loading_emoji, self.bot.user)
+            except Exception:
+                pass
+            try:
+                await message.add_reaction(error_emoji)
+            except Exception:
+                log.warning("Failed to add error reaction to message %s", message.id, exc_info=True)
+            raise e
 
     async def _sync(self, args: list[str], message: discord.Message) -> None:
         if not args:
