@@ -522,7 +522,7 @@ class LobbyService:
         )
         if channel is None:
             channel = interaction.channel
-        thread_name = f"{meta.name} Game (#{match_code})"
+        thread_name = f"{meta.name} (#{match_code})"
         thread = await channel.create_thread(
             name=thread_name, auto_archive_duration=1440
         )

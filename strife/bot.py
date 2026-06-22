@@ -15,6 +15,7 @@ from strife.config import load_app_config
 from strife.engine.registry import GameRegistry
 from strife.games.mafia.game import Mafia
 from strife.games.tictactoe.game import TicTacToe
+from strife.games.test.game import TestGame
 from strife.lifecycle.service import LifecycleService
 from strife.logging import configure_logging, get_logger
 from strife.matchmaking.registries import SessionRegistries
@@ -63,6 +64,7 @@ class StrifeBot(commands.Bot):
         self.game_registry = GameRegistry()
         self.game_registry.register(TicTacToe)
         self.game_registry.register(Mafia)
+        self.game_registry.register(TestGame)
 
         self.emoji = EmojiResolver(self.config.emoji)
         await self.emoji.sync(self)
