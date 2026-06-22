@@ -131,6 +131,7 @@ class GameSession:
     async def cancel(self, reason: str, forfeiter_seat: int | None = None) -> None:
         if self.task and not self.task.done():
             self.task.cancel()
+        self._record_action("game_end", {"reason": reason, "cancelled": True})
         results = {}
         summary = {"reason": reason}
         if forfeiter_seat is not None:
@@ -256,6 +257,18 @@ class GameSession:
         self._turn_index += 1
         self.last_move_at = time.monotonic()
 
+    def _record_action(self, source: str, arguments: dict) -> None:
+        self.recorded_moves.append(
+            RecordedMove(
+                turn_index=self._turn_index,
+                actor_seat=None,
+                source=source,
+                arguments=arguments,
+            )
+        )
+        self._turn_index += 1
+        self.last_move_at = time.monotonic()
+
     async def _finalize(self, outcome: GameOutcome, *, status: str) -> None:
         final = await self.game.final_view(self.ctx, outcome)
         if final is not None:
@@ -272,7 +285,7 @@ class GameSession:
                 container = Container()
                 container.add_text(
                     TextDisplay(
-                        markdown_content=f"### {game_emoji} {forward} {self.game.metadata.name} {forward} Match Finished",
+                        markdown_content=f"### {game_emoji} {self.game.metadata.name} {forward} Match Finished",
                         size_style=TextSize.HEADER,
                     )
                 )

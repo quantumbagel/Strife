@@ -5,7 +5,7 @@ from strife.presentation.emoji import EmojiResolver
 
 def player_mention(*, user_id: int | None, display_name: str, is_bot: bool) -> str:
     if is_bot or user_id is None:
-        return f"**{display_name}**"
+        return f"**{display_name} [BOT]**"
     return f"<@{user_id}>"
 
 
@@ -30,7 +30,7 @@ def member_line(
         line = f"{prefix}<@{user_id}>"
     else:
         difficulty = f" ({bot_difficulty})" if bot_difficulty else ""
-        line = f"**{display_name}**{difficulty}"
+        line = f"**{display_name} [BOT]**{difficulty}"
     if suffix:
         line = f"{line} {suffix}"
     return line

@@ -571,7 +571,7 @@ class LobbyService:
         start_container = Container()
         start_container.add_text(
             TextDisplay(
-                markdown_content=f"### {game_emoji} {forward} {meta.name} {forward} Match Start",
+                markdown_content=f"### {game_emoji} {meta.name} {forward} Match Start",
                 size_style=TextSize.HEADER,
             )
         )

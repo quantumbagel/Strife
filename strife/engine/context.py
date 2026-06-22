@@ -3,17 +3,11 @@ from __future__ import annotations
 import random
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from strife.engine.players import Move, Player
-from strife.persistence.repositories import MoveRecord
 from strife.presentation.components import LayoutView
-from strife.presentation.compiler import clone_and_disable
 from strife.presentation.emoji import EmojiResolver
-
-
-class ReplayMoveUnderflow(RuntimeError):
-    pass
 
 
 class GameContext(Protocol):
@@ -21,6 +15,9 @@ class GameContext(Protocol):
     players: Sequence[Player]
     settings: Mapping[str, object]
     emoji: EmojiResolver
+
+    @property
+    def is_replay(self) -> bool: ...
 
     def is_bot(self, seat: int) -> bool: ...
 
@@ -41,10 +38,16 @@ class GameContext(Protocol):
 
     async def send_private(self, seat: int, view: LayoutView) -> None: ...
 
+    async def record_action(self, source: str, arguments: dict[str, Any]) -> None: ...
+
 
 class LiveContext:
     def __init__(self, session: object) -> None:
         self._session = session
+
+    @property
+    def is_replay(self) -> bool:
+        return False
 
     @property
     def rng(self) -> random.Random:
@@ -88,6 +91,9 @@ class LiveContext:
     async def send_private(self, seat: int, view: LayoutView) -> None:
         await self._session._send_private(seat, view)  # type: ignore[attr-defined]
 
+    async def record_action(self, source: str, arguments: dict[str, Any]) -> None:
+        self._session._record_action(source, arguments)  # type: ignore[attr-defined]
+
 
 @dataclass
 class ReplayFrame:
@@ -95,6 +101,7 @@ class ReplayFrame:
     turn_label: str
     actor_seat: int | None
     view: LayoutView
+    takeover_info: dict | None = None
 
 
 class ReplayContext:
@@ -104,29 +111,27 @@ class ReplayContext:
         rng: random.Random,
         players: Sequence[Player],
         settings: Mapping[str, object],
-        moves: list[MoveRecord],
         emoji: EmojiResolver,
     ) -> None:
         self.rng = rng
         self.players = players
         self.settings = settings
         self.emoji = emoji
-        self._moves = list(moves)
-        self._cursor = 0
-        self.frames: list[ReplayFrame] = []
-        self._turn = 0
+
+    @property
+    def is_replay(self) -> bool:
+        return True
 
     def is_bot(self, seat: int) -> bool:
         return self.players[seat].is_bot
 
     async def update(self, view: LayoutView) -> None:
-        self._capture(view)
+        raise NotImplementedError("Replays do not support update()")
 
     async def request_input(
         self, view: LayoutView, *, actor: int, sources: set[str] | None = None
     ) -> Move:
-        self._capture(view, actor_seat=actor)
-        return self._next_move(actor)
+        raise NotImplementedError("Replays do not support request_input()")
 
     async def request_inputs(
         self,
@@ -136,33 +141,11 @@ class ReplayContext:
         sources: set[str] | None = None,
         until: Literal["all", "any"] = "all",
     ) -> dict[int, Move]:
-        self._capture(view)
-        moves: dict[int, Move] = {}
-        for seat in sorted(actors):
-            moves[seat] = self._next_move(seat)
-        return moves
+        raise NotImplementedError("Replays do not support request_inputs()")
 
     async def send_private(self, seat: int, view: LayoutView) -> None:
-        self._capture(view, actor_seat=seat)
+        raise NotImplementedError("Replays do not support send_private()")
 
-    def _capture(self, view: LayoutView, *, actor_seat: int | None = None) -> None:
-        if self._turn == 0:
-            return
-        cloned = clone_and_disable(view)
-        self.frames.append(
-            ReplayFrame(
-                index=len(self.frames),
-                turn_label=f"Turn {self._turn}",
-                actor_seat=actor_seat,
-                view=cloned,
-            )
-        )
+    async def record_action(self, source: str, arguments: dict[str, Any]) -> None:
+        pass
 
-    def _next_move(self, actor: int) -> Move:
-        if self._cursor >= len(self._moves):
-            raise ReplayMoveUnderflow("Replay move underflow")
-        record = self._moves[self._cursor]
-        self._cursor += 1
-        self._turn += 1
-        return Move(actor_seat=record.actor_seat if record.actor_seat is not None else actor,
-                    source=record.source, args=record.arguments)

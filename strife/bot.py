@@ -26,7 +26,6 @@ from strife.presentation.compiler import Compiler
 from strife.presentation.emoji import EmojiResolver
 from strife.replay.profile import ProfileService
 from strife.replay.service import ReplayService
-from strife.replay.simulator import ReplaySimulator
 from strife.routing.cache import InMemoryPayloadCache
 from strife.routing.custom_id import CustomIdEncoder
 from strife.routing.router import InteractionRouter
@@ -104,8 +103,7 @@ class StrifeBot(commands.Bot):
         )
         self.lobby.lifecycle = self.lifecycle
 
-        simulator = ReplaySimulator(self.game_registry, self.emoji)
-        self.replay = ReplayService(matches, moves, simulator, compiler, self.config.text)
+        self.replay = ReplayService(matches, moves, self.game_registry, compiler, self.config.text)
         self.profile = ProfileService(users, matches, compiler, self.config.text, self.replay)
         self.catalog = CatalogService(self.game_registry, self.config, compiler, self.emoji, self.config.text)
         self.server_settings = ServerSettingsService(guilds, compiler, self.emoji, self.config.text)

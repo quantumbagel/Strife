@@ -116,7 +116,7 @@ title = "Game Catalog"
 page = "Page {page}/{pages}"
 
 [replay]
-title = "Replay: Match #{code} ({game_name})"
+title = "{game_name} {forward_emoji} Replay {code}"
 turn_label = "Turn {current}/{total}"
 jump_placeholder = "Jump to turn..."
 turn_choice_label = "Turn {current}"

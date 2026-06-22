@@ -86,24 +86,7 @@ class LifecycleService:
                     await self._resolve_timeout(session, seat)
 
     async def _resolve_timeout(self, session, seat: int) -> None:
-        meta = session.game.metadata
-        if meta.supports_bots:
-            session.players[seat].is_bot = True
-            session.players[seat].bot_difficulty = "hard"
-            move = await session.game.bot_move("hard", seat)
-            await session.force_move(seat, move)
-            player = session.players[seat]
-            if player.user_id:
-                await self.registries.release_user(player.user_id)
-            return
-        if meta.supports_player_removal:
-            session.game.remove_player(seat)
-            move = Move(actor_seat=seat, source="forfeit", args={"reason": "timeout"})
-            await session.force_move(seat, move)
-            if session.players[seat].user_id:
-                await self.registries.release_user(session.players[seat].user_id)
-            return
-        await session.cancel("timeout", forfeiter_seat=seat)
+        await self._handle_abandon(session, seat, "timeout")
 
     async def forfeit(self, thread_id: int, user_id: int) -> None:
         session = self.registries.get_game(thread_id)
@@ -112,19 +95,36 @@ class LifecycleService:
         seat = session._seat_for_user(user_id)
         if seat is None:
             raise PermissionError
+        await self._handle_abandon(session, seat, "forfeit")
+
+    async def _handle_abandon(self, session, seat: int, reason: str) -> None:
+        player = session.players[seat]
+        if player.user_id:
+            await self.registries.release_user(player.user_id)
+
+        meta = session.game.metadata
+        if reason == "timeout" and meta.supports_bots:
+            player.is_bot = True
+            player.bot_difficulty = "hard"
+            move = await session.game.bot_move("hard", seat)
+            move.args = dict(move.args)
+            move.args["replaced_by_bot"] = True
+            move.args["replace_reason"] = "timeout"
+            await session.force_move(seat, move)
+            return
+
         humans = [p for p in session.players if not p.is_bot]
-        if len(humans) == 2:
-            opponent = next(p.seat for p in humans if p.seat != seat)
+        if reason == "forfeit" and len(humans) == 2:
             await session.cancel("forfeit", forfeiter_seat=seat)
-            await self.registries.release_user(user_id)
             return
-        if session.game.metadata.supports_player_removal:
+
+        if meta.supports_player_removal:
             session.game.remove_player(seat)
-            await session.force_move(seat, Move(actor_seat=seat, source="forfeit", args={}))
-            await self.registries.release_user(user_id)
+            args = {"reason": "timeout"} if reason == "timeout" else {}
+            await session.force_move(seat, Move(actor_seat=seat, source="forfeit", args=args))
             return
-        await session.cancel("forfeit", forfeiter_seat=seat)
-        await self.registries.release_user(user_id)
+
+        await session.cancel(reason, forfeiter_seat=seat)
 
     async def register_rematch_vote(self, thread_id: int, user: discord.User) -> None:
         await self.rematch.vote(thread_id, user.id)

@@ -35,6 +35,7 @@ def build_replay_view(
     *,
     owner_id: int,
     frame_view: LayoutView | None = None,
+    takeover_info: dict | None = None,
     text: TextConfig,
     game_name: str,
     emoji: EmojiResolver,
@@ -43,9 +44,10 @@ def build_replay_view(
     container = Container()
 
     game_emoji = emoji.get_game_emoji(match.game_key)
+    forward_emoji = emoji.get("forward")
     container.add_text(
         TextDisplay(
-            markdown_content=f"### {game_emoji} {text.get('replay.title', code=match.code, game_name=game_name)}",
+            markdown_content=f"### {game_emoji} {text.get('replay.title', code=match.code, game_name=game_name, forward_emoji=forward_emoji)}",
             size_style=TextSize.HEADER,
         )
     )
@@ -80,6 +82,28 @@ def build_replay_view(
         )
     )
     container.add_separator()
+
+    if takeover_info:
+        display_name = takeover_info.get("display_name")
+        reason = takeover_info.get("reason", "timeout")
+        info_type = takeover_info.get("type", "bot_takeover")
+        if info_type == "bot_takeover":
+            reason_str = "inactivity" if reason == "timeout" else reason
+            container.add_text(
+                TextDisplay(
+                    markdown_content=f"⚠️ **Notice:** **{display_name}** was replaced by a bot due to {reason_str}.",
+                    size_style=TextSize.BODY,
+                )
+            )
+        else:  # removal
+            action_str = "timed out" if reason == "timeout" else "forfeited"
+            container.add_text(
+                TextDisplay(
+                    markdown_content=f"⚠️ **Notice:** **{display_name}** {action_str} and was removed from the game.",
+                    size_style=TextSize.BODY,
+                )
+            )
+        container.add_separator()
 
     if frame_view:
         _merge_frame_into(container, frame_view)

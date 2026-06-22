@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 
-from strife.engine.context import GameContext
+from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
-from strife.engine.players import GameOutcome, Move
+from strife.engine.players import GameOutcome, Move, Player
+from strife.persistence.repositories import MoveRecord
 from strife.games.tictactoe.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -37,8 +38,9 @@ class TicTacToe(Game):
     async def play(self, ctx: GameContext) -> GameOutcome:
         while True:
             seat = self.current
-            player = self.players[seat]
-            mark = ctx.emoji.get(self.marks[seat])
+            display_seat = seat
+            player = self.players[display_seat]
+            mark = ctx.emoji.get(self.marks[display_seat])
             turn_label = player_mention(
                 user_id=player.user_id,
                 display_name=player.display_name,
@@ -63,6 +65,122 @@ class TicTacToe(Game):
             if all(v is not None for v in self.board):
                 return GameOutcome(results={0: "draw", 1: "draw"}, summary={"winner": None})
             self.current = 1 - seat
+
+    async def parse_replay(self, moves: list[MoveRecord], ctx: GameContext) -> list[ReplayFrame]:
+        self.board = [None] * 9
+        frames: list[ReplayFrame] = []
+        from strife.presentation.compiler import clone_and_disable
+        
+        # Show initial empty board frame (Turn 1 / Initial state)
+        if moves:
+            first_actor = moves[0].actor_seat if moves[0].actor_seat is not None else 0
+            player = self.players[first_actor]
+            mark = ctx.emoji.get(self.marks[first_actor])
+            turn_label = player_mention(
+                user_id=player.user_id,
+                display_name=player.display_name,
+                is_bot=player.is_bot,
+            )
+            prompt = f"{mark} {turn_label}'s turn"
+        else:
+            prompt = "Game Start"
+            
+        initial_view = self._board_view(ctx, prompt=prompt)
+        frames.append(
+            ReplayFrame(
+                index=len(frames),
+                turn_label="Turn 1",
+                actor_seat=None,
+                view=clone_and_disable(initial_view),
+            )
+        )
+        
+        # Now apply each move
+        for i, move in enumerate(moves):
+            actor = move.actor_seat
+            # Check for bot takeover / forfeit
+            takeover_info = None
+            if move.arguments.get("replaced_by_bot"):
+                for p in self.players:
+                    if p.seat == actor:
+                        p.is_bot = True
+                        p.bot_difficulty = "hard"
+                        takeover_info = {
+                            "display_name": p.display_name,
+                            "type": "bot_takeover",
+                            "reason": move.arguments.get("replace_reason", "timeout"),
+                        }
+            elif move.source == "forfeit" or move.source == "game_end":
+                if move.source == "forfeit":
+                    for p in self.players:
+                        if p.seat == actor:
+                            takeover_info = {
+                                "display_name": p.display_name,
+                                "type": "removal",
+                                "reason": move.arguments.get("reason", "forfeit"),
+                            }
+                # If game was forfeited/ended here, we just show final frame
+                is_last = True
+            
+            # Apply tile move if source is a tile
+            if move.source.startswith("tile_") and actor is not None:
+                col, row = int(move.source[5]), int(move.source[6])
+                self.board[row * 3 + col] = actor
+            
+            is_last = (i == len(moves) - 1) or move.source in ("forfeit", "game_end")
+            if is_last:
+                # Calculate final state view
+                winner_seat = None
+                winning_line = None
+                for seat in (0, 1):
+                    line = self._winning_line(seat)
+                    if line is not None:
+                        winner_seat = seat
+                        winning_line = line
+                        break
+                
+                if winner_seat is not None:
+                    prompt = "Winner!"
+                elif all(v is not None for v in self.board):
+                    prompt = "Draw"
+                else:
+                    prompt = "Game Over"
+                
+                final_view = self._board_view(ctx, prompt=prompt, highlight=winning_line)
+                frames.append(
+                    ReplayFrame(
+                        index=len(frames),
+                        turn_label="Final",
+                        actor_seat=None,
+                        view=clone_and_disable(final_view),
+                        takeover_info=takeover_info,
+                    )
+                )
+                break
+            else:
+                # Next move is at i + 1
+                next_move = moves[i + 1]
+                next_actor = next_move.actor_seat if next_move.actor_seat is not None else 0
+                player = self.players[next_actor]
+                mark = ctx.emoji.get(self.marks[next_actor])
+                turn_label = player_mention(
+                    user_id=player.user_id,
+                    display_name=player.display_name,
+                    is_bot=player.is_bot,
+                )
+                prompt = f"{mark} {turn_label}'s turn"
+                
+                view = self._board_view(ctx, prompt=prompt)
+                frames.append(
+                    ReplayFrame(
+                        index=len(frames),
+                        turn_label=f"Turn {i + 2}",
+                        actor_seat=actor,
+                        view=clone_and_disable(view),
+                        takeover_info=takeover_info,
+                    )
+                )
+        return frames
 
     async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
         summary = outcome.summary or {}

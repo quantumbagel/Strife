@@ -9,7 +9,9 @@ from strife.persistence.repositories import MatchRepository, MoveRepository
 from strife.presentation.compiler import Compiler
 from strife.presentation.message import send_ephemeral_error
 from strife.presentation.modals import PageJumpModal
-from strife.replay.simulator import ReplaySimulator
+from strife.engine.context import ReplayContext
+from strife.engine.players import Player
+from strife.engine.registry import GameRegistry
 from strife.replay.view import build_replay_view
 from strife.routing import prefixes as P
 
@@ -19,13 +21,13 @@ class ReplayService:
         self,
         matches: MatchRepository,
         moves: MoveRepository,
-        simulator: ReplaySimulator,
+        game_registry: GameRegistry,
         compiler: Compiler,
         text: TextConfig,
     ) -> None:
         self.matches = matches
         self.moves = moves
-        self.simulator = simulator
+        self.game_registry = game_registry
         self.compiler = compiler
         self.text = text
         self._cache: OrderedDict[int, list] = OrderedDict()
@@ -39,7 +41,25 @@ class ReplayService:
         if detail is None:
             return None
         move_records = await self.moves.list_for_match(match_id)
-        frames = await self.simulator.simulate(detail, move_records)
+        players = [
+            Player(
+                seat=p.seat_index,
+                user_id=p.user_id,
+                display_name=p.display_name,
+                is_bot=False if p.user_id is not None else p.is_bot,
+                bot_difficulty=None if p.user_id is not None else p.bot_difficulty,
+                role_key=p.role_key,
+            )
+            for p in detail.players
+        ]
+        game = self.game_registry.create(detail.game_key, players, detail.settings, detail.seed)
+        ctx = ReplayContext(
+            rng=game.rng,
+            players=players,
+            settings=detail.settings,
+            emoji=self.compiler.emoji,
+        )
+        frames = await game.parse_replay(move_records, ctx)
         self._cache[match_id] = frames
         if len(self._cache) > self._cache_size:
             self._cache.popitem(last=False)
@@ -54,13 +74,14 @@ class ReplayService:
         if not frames:
             await send_ephemeral_error(interaction, self.text.get("common.replay_unavailable"))
             return
-        game_name = self.simulator._registry.metadata(detail.game_key).name
+        game_name = self.game_registry.metadata(detail.game_key).name
         view = build_replay_view(
             detail,
             0,
             len(frames),
             owner_id=interaction.user.id,
             frame_view=frames[0].view,
+            takeover_info=frames[0].takeover_info,
             text=self.text,
             game_name=game_name,
             emoji=self.compiler.emoji,
@@ -85,13 +106,14 @@ class ReplayService:
             await send_ephemeral_error(interaction, self.text.get("common.replay_unavailable"))
             return
         frame = max(0, min(frame, len(frames) - 1))
-        game_name = self.simulator._registry.metadata(detail.game_key).name
+        game_name = self.game_registry.metadata(detail.game_key).name
         view = build_replay_view(
             detail,
             frame,
             len(frames),
             owner_id=owner_id,
             frame_view=frames[frame].view,
+            takeover_info=frames[frame].takeover_info,
             text=self.text,
             game_name=game_name,
             emoji=self.compiler.emoji,
