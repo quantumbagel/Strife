@@ -81,11 +81,11 @@ def register_strife_group(
                 await send_ephemeral_error(interaction, lobby.text.get("errors.not_in_game"))
 
     @group.command(name="replay", description="Open a match replay")
-    @app_commands.describe(match_ref="Match code or ID")
-    async def replay_cmd(interaction: discord.Interaction, match_ref: str) -> None:
-        await replay.open(interaction, match_ref)
+    @app_commands.describe(match="Match code or ID")
+    async def replay_cmd(interaction: discord.Interaction, match: str) -> None:
+        await replay.open(interaction, match)
 
-    @replay_cmd.autocomplete("match_ref")
+    @replay_cmd.autocomplete("match")
     async def replay_autocomplete(
         interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:

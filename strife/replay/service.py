@@ -65,8 +65,8 @@ class ReplayService:
             self._cache.popitem(last=False)
         return frames
 
-    async def open(self, interaction: discord.Interaction, match_ref: str | int) -> None:
-        detail = await self.matches.get(match_ref)
+    async def open(self, interaction: discord.Interaction, match: str | int) -> None:
+        detail = await self.matches.get(match)
         if detail is None:
             await send_ephemeral_error(interaction, self.text.get("common.match_not_found"))
             return
