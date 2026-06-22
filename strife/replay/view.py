@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from strife.config.text import TextConfig
 from strife.persistence.repositories import MatchDetail
 from strife.presentation.components import (
@@ -36,6 +38,7 @@ def build_replay_view(
     owner_id: int,
     frame_view: LayoutView | None = None,
     takeover_info: dict | None = None,
+    timestamp: datetime | None = None,
     text: TextConfig,
     game_name: str,
     emoji: EmojiResolver,
@@ -56,7 +59,9 @@ def build_replay_view(
     summary = outcome_dict.get("summary") or outcome_dict
     winner_seat = summary.get("winner")
 
-    if winner_seat is not None and isinstance(winner_seat, int):
+    if "description" in summary:
+        outcome_text = summary["description"]
+    elif winner_seat is not None and isinstance(winner_seat, int):
         winner_player = next((p for p in match.players if p.seat_index == winner_seat), None)
         if winner_player:
             winner_label = player_mention(
@@ -72,11 +77,16 @@ def build_replay_view(
     else:
         outcome_text = text.get("match.draw")
 
+    turn_info = text.get("replay.turn_label", current=frame_index + 1, total=total)
+    if timestamp:
+        ts_val = int(timestamp.timestamp())
+        turn_info = f"{turn_info} • <t:{ts_val}:f> (<t:{ts_val}:R>)"
+
     container.add_text(
         TextDisplay(
             markdown_content=(
                 f"{emoji.get('success')} **Outcome:** {outcome_text}\n"
-                f"-# {emoji.get('time')} {text.get('replay.turn_label', current=frame_index + 1, total=total)}"
+                f"-# {emoji.get('time')} {turn_info}"
             ),
             size_style=TextSize.BODY,
         )

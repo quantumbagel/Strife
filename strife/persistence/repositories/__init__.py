@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import asyncpg
@@ -13,6 +13,7 @@ class MoveRecord:
     actor_seat: int | None
     source: str
     arguments: dict[str, Any]
+    created_at: datetime | None = None
 
 
 @dataclass
@@ -35,6 +36,13 @@ class MatchSummary:
     outcome: dict[str, Any]
     created_at: datetime
     total_turns: int
+
+
+@dataclass
+class UserMatchSummary(MatchSummary):
+    seat_index: int | None
+    role_key: str | None
+    result: str | None
 
 
 @dataclass
@@ -182,14 +190,15 @@ class MatchRepository:
                 for move in record.moves:
                     await conn.execute(
                         """
-                        INSERT INTO moves(match_id, turn_index, actor_seat, source, arguments)
-                        VALUES($1,$2,$3,$4,$5)
+                        INSERT INTO moves(match_id, turn_index, actor_seat, source, arguments, created_at)
+                        VALUES($1,$2,$3,$4,$5,$6)
                         """,
                         match_id,
                         move.turn_index,
                         move.actor_seat,
                         move.source,
                         move.arguments,
+                        move.created_at or datetime.now(timezone.utc),
                     )
                 return match_id
 
@@ -235,7 +244,8 @@ class MatchRepository:
             if game_key:
                 rows = await conn.fetch(
                     """
-                    SELECT m.id, m.code, m.game_key, m.status, m.outcome, m.created_at, m.total_turns
+                    SELECT m.id, m.code, m.game_key, m.status, m.outcome, m.created_at, m.total_turns,
+                           mp.seat_index, mp.role_key, mp.result
                     FROM matches m
                     JOIN match_players mp ON mp.match_id = m.id
                     WHERE mp.user_id = $1 AND m.game_key = $2
@@ -249,7 +259,8 @@ class MatchRepository:
             else:
                 rows = await conn.fetch(
                     """
-                    SELECT DISTINCT m.id, m.code, m.game_key, m.status, m.outcome, m.created_at, m.total_turns
+                    SELECT m.id, m.code, m.game_key, m.status, m.outcome, m.created_at, m.total_turns,
+                           mp.seat_index, mp.role_key, mp.result
                     FROM matches m
                     JOIN match_players mp ON mp.match_id = m.id
                     WHERE mp.user_id = $1
@@ -262,6 +273,19 @@ class MatchRepository:
             return [self._to_summary(row) for row in rows]
 
     def _to_summary(self, row: asyncpg.Record) -> MatchSummary:
+        if "seat_index" in row:
+            return UserMatchSummary(
+                id=row["id"],
+                code=row["code"],
+                game_key=row["game_key"],
+                status=row["status"],
+                outcome=row["outcome"] or {},
+                created_at=row["created_at"],
+                total_turns=row["total_turns"],
+                seat_index=row["seat_index"],
+                role_key=row["role_key"],
+                result=row["result"],
+            )
         return MatchSummary(
             id=row["id"],
             code=row["code"],
@@ -318,6 +342,7 @@ class MoveRepository:
                     actor_seat=row["actor_seat"],
                     source=row["source"],
                     arguments=row["arguments"] or {},
+                    created_at=row["created_at"],
                 )
                 for row in rows
             ]

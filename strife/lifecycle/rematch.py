@@ -3,6 +3,7 @@ import time
 import discord
 
 from strife.config.text import TextConfig
+from strife.lifecycle.results import build_results_view
 from strife.matchmaking.lobby import Lobby, LobbyMember, QueuedBot
 from strife.matchmaking.lobby_view import build_lobby_view
 from strife.matchmaking.registries import SessionRegistries, UserLocation
@@ -20,12 +21,14 @@ class RematchManager:
         self._expires: dict[int, float] = {}
         self._match_ids: dict[int, int] = {}
         self._sessions: dict[int, object] = {}
+        self._outcomes: dict[int, object] = {}
 
-    def start_offer(self, thread_id: int, eligible: set[int], match_id: int) -> None:
+    def start_offer(self, thread_id: int, eligible: set[int], match_id: int, outcome: object) -> None:
         self._eligible[thread_id] = set(eligible)
         self._votes[thread_id] = set()
         self._expires[thread_id] = time.monotonic() + 120
         self._match_ids[thread_id] = match_id
+        self._outcomes[thread_id] = outcome
         session = self.registries.get_game(thread_id)
         if session:
             self._sessions[thread_id] = session
@@ -42,6 +45,23 @@ class RematchManager:
         votes.add(user_id)
         if votes >= eligible:
             await self._reset_to_lobby(thread_id)
+        else:
+            session = self._sessions.get(thread_id)
+            if session and hasattr(session, "lobby_surface") and session.lobby_surface is not None:
+                outcome = self._outcomes.get(thread_id)
+                results_view = build_results_view(
+                    game_name=session.game.metadata.name,
+                    game_key=session.game_key,
+                    outcome=outcome,
+                    players=session.players,
+                    thread_id=thread_id,
+                    match_id=self._match_ids[thread_id],
+                    owner_id=next((p.user_id for p in session.players if p.user_id), 0),
+                    text=self.text,
+                    emoji=session.surface.compiler.emoji,
+                    rematch_count=len(votes),
+                )
+                await session.lobby_surface.update(results_view)
 
     async def _reset_to_lobby(self, thread_id: int) -> None:
         session = self._sessions.pop(thread_id, None)
@@ -103,13 +123,7 @@ class RematchManager:
         )
         await surface.send(target_channel, view)
         lobby.message_id = surface.message_id
-
-        if isinstance(thread, discord.Thread):
-            try:
-                await thread.send(self.text.get("rematch.lobby_created", mention=target_channel.mention))
-            except discord.HTTPException:
-                pass
-
         self._votes.pop(thread_id, None)
         self._eligible.pop(thread_id, None)
         self._expires.pop(thread_id, None)
+        self._outcomes.pop(thread_id, None)

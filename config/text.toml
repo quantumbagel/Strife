@@ -99,7 +99,7 @@ not_all_ready = "Not all players are ready."
 result_title = "{game_name} {forward} Result"
 winner = "Winner: {winner}"
 draw = "Draw"
-rematch_progress = "Rematch {count}/{total}"
+rematch_progress = "Rematch ({count}/{total})"
 rematch_expired = "Rematch offer expired."
 forfeited = "You have forfeited."
 rematch_label = "Rematch"
@@ -136,8 +136,6 @@ current_channel = "Default lobby channel: {mention}"
 no_channel = "No default lobby channel is set."
 channel_placeholder = "Select default lobby channel..."
 
-[rematch]
-lobby_created = "A rematch lobby was created in {mention}!"
 
 [about]
 title = "### {logo} Strife"

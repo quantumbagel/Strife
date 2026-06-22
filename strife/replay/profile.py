@@ -86,15 +86,36 @@ class ProfileService:
             lines = []
             for m in matches:
                 g_emoji = emoji.get_game_emoji(m.game_key)
+                role_key = getattr(m, "role_key", None)
+                seat_index = getattr(m, "seat_index", None)
+                result = getattr(m, "result", None)
+
                 if m.status == "completed":
                     status_emoji = emoji.get("success")
+                    summary = m.outcome.get("summary") or m.outcome
+                    player_descriptions = summary.get("player_descriptions", {})
+                    player_desc = None
+                    if seat_index is not None:
+                        player_desc = player_descriptions.get(str(seat_index))
+                    if not player_desc:
+                        if result == "win":
+                            player_desc = "Win"
+                        elif result == "loss":
+                            player_desc = "Loss"
+                        elif result == "draw":
+                            player_desc = "Draw"
+                        else:
+                            player_desc = result.capitalize() if result else "Completed"
                 elif m.status == "abandoned":
                     status_emoji = emoji.get("error")
+                    player_desc = "Abandoned"
                 else:
                     status_emoji = emoji.get("loading")
-                status_str = m.status.capitalize()
+                    player_desc = "Active"
+
+                role_suffix = f" ({role_key.title()})" if role_key else ""
                 lines.append(
-                    f"{g_emoji} `#{m.code}` {status_emoji} {status_str} {forward} {m.created_at:%Y-%m-%d}"
+                    f"{g_emoji} `#{m.code}` {status_emoji} {player_desc}{role_suffix} {forward} {m.created_at:%Y-%m-%d}"
                 )
 
             recent_title = self.text.get("profile.recent", page=page + 1, pages=pages)

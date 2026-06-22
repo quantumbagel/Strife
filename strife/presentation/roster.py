@@ -4,9 +4,14 @@ from strife.presentation.emoji import EmojiResolver
 
 
 def player_mention(*, user_id: int | None, display_name: str, is_bot: bool) -> str:
-    if is_bot or user_id is None:
-        return f"**{display_name} [BOT]**"
-    return f"<@{user_id}>"
+    from strife.engine.players import Player
+    p = Player(
+        seat=-1,
+        user_id=user_id,
+        display_name=display_name,
+        is_bot=is_bot,
+    )
+    return str(p)
 
 
 def member_line(
@@ -20,17 +25,15 @@ def member_line(
     creator_id: int | None = None,
     suffix: str | None = None,
 ) -> str:
-    prefix = ""
-    if user_id is not None and not is_bot:
-        owners = owner_ids or frozenset()
-        if user_id in owners:
-            prefix += f"{emoji.get('admin')} "
-        if creator_id is not None and user_id == creator_id:
-            prefix += f"{emoji.get('creator')} "
-        line = f"{prefix}<@{user_id}>"
-    else:
-        difficulty = f" ({bot_difficulty})" if bot_difficulty else ""
-        line = f"**{display_name} [BOT]**{difficulty}"
+    from strife.engine.players import Player
+    p = Player(
+        seat=-1,
+        user_id=user_id,
+        display_name=display_name,
+        is_bot=is_bot,
+        bot_difficulty=bot_difficulty,
+    )
+    line = p.display(emoji, owner_ids=owner_ids, creator_id=creator_id)
     if suffix:
         line = f"{line} {suffix}"
     return line

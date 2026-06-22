@@ -58,6 +58,7 @@ class ReplayService:
             players=players,
             settings=detail.settings,
             emoji=self.compiler.emoji,
+            started_at=detail.started_at,
         )
         frames = await game.parse_replay(move_records, ctx)
         self._cache[match_id] = frames
@@ -82,6 +83,7 @@ class ReplayService:
             owner_id=interaction.user.id,
             frame_view=frames[0].view,
             takeover_info=frames[0].takeover_info,
+            timestamp=frames[0].timestamp,
             text=self.text,
             game_name=game_name,
             emoji=self.compiler.emoji,
@@ -114,6 +116,7 @@ class ReplayService:
             owner_id=owner_id,
             frame_view=frames[frame].view,
             takeover_info=frames[frame].takeover_info,
+            timestamp=frames[frame].timestamp,
             text=self.text,
             game_name=game_name,
             emoji=self.compiler.emoji,

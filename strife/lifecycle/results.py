@@ -27,6 +27,7 @@ def build_results_view(
     owner_id: int,
     text: TextConfig,
     emoji: EmojiResolver,
+    rematch_count: int = 0,
 ) -> LayoutView:
     view = LayoutView()
     container = Container()
@@ -42,7 +43,10 @@ def build_results_view(
 
     summary = outcome.summary or {}
     winner_seat = summary.get("winner")
-    if winner_seat is not None and isinstance(winner_seat, int) and 0 <= winner_seat < len(players):
+    description = getattr(outcome, "description", None) or summary.get("description")
+    if description:
+        body_text = f"{emoji.get('success')} **{description}**"
+    elif winner_seat is not None and isinstance(winner_seat, int) and 0 <= winner_seat < len(players):
         winner = players[winner_seat]
         winner_label = player_mention(
             user_id=winner.user_id,
@@ -61,6 +65,9 @@ def build_results_view(
     container.add_text(TextDisplay(markdown_content=body_text))
     container.add_separator()
 
+    raw_player_descriptions = getattr(outcome, "player_descriptions", None) or summary.get("player_descriptions") or {}
+    player_descriptions = {str(k): v for k, v in raw_player_descriptions.items()}
+
     lines = []
     for player in players:
         result = outcome.results.get(player.seat, "—")
@@ -68,16 +75,16 @@ def build_results_view(
 
         if result == "win":
             res_emoji = emoji.get("success")
-            res_text = "Win"
+            res_text = player_descriptions.get(str(player.seat), "Win")
         elif result == "loss":
             res_emoji = emoji.get("error")
-            res_text = "Loss"
+            res_text = player_descriptions.get(str(player.seat), "Loss")
         elif result == "draw":
             res_emoji = emoji.get("hmm")
-            res_text = "Draw"
+            res_text = player_descriptions.get(str(player.seat), "Draw")
         else:
             res_emoji = emoji.get("bullet")
-            res_text = str(result).capitalize() if result else "—"
+            res_text = player_descriptions.get(str(player.seat)) or (str(result).capitalize() if result else "—")
 
         name = member_line(
             emoji,
@@ -90,11 +97,18 @@ def build_results_view(
 
     container.add_text(TextDisplay(markdown_content="\n".join(lines)))
 
+    eligible_humans = [p for p in players if p.user_id and not p.is_bot]
+    total = len(eligible_humans)
+    if total > 0:
+        rematch_label = text.get("match.rematch_progress", count=rematch_count, total=total)
+    else:
+        rematch_label = text.get("match.rematch_label")
+
     row = ActionRow()
     row.add_button(
         Button(
             source="vote",
-            label=text.get("match.rematch_label"),
+            label=rematch_label,
             style=ButtonStyle.PRIMARY,
             emoji="rematch",
             route_prefix=P.REMATCH,

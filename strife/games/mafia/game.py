@@ -32,6 +32,7 @@ class Mafia(Game):
         self.day = 0
         self.history: list[str] = []
         self._phase = "night"
+        self.death_reason: dict[int, str] = {}
 
     def _name(self, seat: int) -> str:
         player = self.players[seat]
@@ -161,6 +162,7 @@ class Mafia(Game):
                 victim = None
         if victim is not None and victim in self.alive:
             self.remove_player(victim)
+            self.death_reason[victim] = "night"
             self.history.append(f"Night {self.day}: {self._name(victim)} was eliminated.")
         await ctx.record_action("night_outcome", {
             "victim": victim,
@@ -204,6 +206,7 @@ class Mafia(Game):
             if len(top) == 1 or top[0][1] > top[1][1]:
                 lynched = top[0][0]
                 self.remove_player(lynched)
+                self.death_reason[lynched] = "day"
                 self.history.append(f"Day {self.day}: {self._name(lynched)} was lynched.")
         await ctx.record_action("day_outcome", {
             "lynched": lynched,
@@ -276,6 +279,7 @@ class Mafia(Game):
                         actor_seat=None,
                         view=clone_and_disable(setup_view),
                         takeover_info=takeover_info,
+                        timestamp=move.created_at,
                     )
                 )
                 
@@ -303,6 +307,7 @@ class Mafia(Game):
                         actor_seat=None,
                         view=clone_and_disable(view),
                         takeover_info=takeover_info,
+                        timestamp=move.created_at,
                     )
                 )
                 
@@ -336,6 +341,7 @@ class Mafia(Game):
                         actor_seat=actor_seat,
                         view=clone_and_disable(view),
                         takeover_info=takeover_info,
+                        timestamp=move.created_at,
                     )
                 )
                 
@@ -367,6 +373,7 @@ class Mafia(Game):
                         actor_seat=detective_seat,
                         view=clone_and_disable(view),
                         takeover_info=takeover_info,
+                        timestamp=move.created_at,
                     )
                 )
                 
@@ -401,6 +408,7 @@ class Mafia(Game):
                         actor_seat=None,
                         view=clone_and_disable(view),
                         takeover_info=takeover_info,
+                        timestamp=move.created_at,
                     )
                 )
                 
@@ -447,6 +455,7 @@ class Mafia(Game):
                         actor_seat=None,
                         view=clone_and_disable(view),
                         takeover_info=takeover_info,
+                        timestamp=move.created_at,
                     )
                 )
                 
@@ -481,6 +490,7 @@ class Mafia(Game):
                         actor_seat=None,
                         view=clone_and_disable(view),
                         takeover_info=takeover_info,
+                        timestamp=move.created_at,
                     )
                 )
                 
@@ -535,9 +545,51 @@ class Mafia(Game):
             else:
                 results[player.seat] = "win" if winner == "town" else "loss"
         role_map = {player.seat: self.role[player.seat] for player in self.players}
+
+        mafia_names = [p.display_name for p in self.players if self.role[p.seat] == "mafia"]
+        if winner == "mafia":
+            description = f"Mafia won (parity reached) ({', '.join(mafia_names)})"
+        else:
+            description = "Town won (all Mafia eliminated)"
+
+        player_descriptions = {}
+        for player in self.players:
+            role = self.role[player.seat]
+            is_mafia = (role == "mafia")
+            if winner == "mafia":
+                if is_mafia:
+                    desc = "Won (survived)" if player.seat in self.alive else "Lynched by Town" if self.death_reason.get(player.seat) == "day" else "Eliminated"
+                else:
+                    if player.seat in self.alive:
+                        desc = "Let mafia reach parity"
+                    elif self.death_reason.get(player.seat) == "day":
+                        desc = "Lynched by Town"
+                    elif self.death_reason.get(player.seat) == "night":
+                        desc = "Killed by Mafia"
+                    else:
+                        desc = "Eliminated"
+            else:
+                if is_mafia:
+                    desc = "Lynched by Town" if self.death_reason.get(player.seat) == "day" else "Eliminated"
+                else:
+                    if player.seat in self.alive:
+                        desc = "Won (survived)"
+                    elif self.death_reason.get(player.seat) == "day":
+                        desc = "Lynched by Town"
+                    elif self.death_reason.get(player.seat) == "night":
+                        desc = "Killed by Mafia"
+                    else:
+                        desc = "Eliminated"
+            player_descriptions[player.seat] = desc
+
         return GameOutcome(
             results=results,
-            summary={"winning_faction": winner, "roles": role_map},
+            summary={
+                "winning_faction": winner,
+                "roles": role_map,
+            },
+            description=description,
+            player_descriptions=player_descriptions,
         )
 
     def remove_player(self, seat: int) -> None:

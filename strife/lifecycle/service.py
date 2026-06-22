@@ -40,7 +40,7 @@ class LifecycleService:
 
     def register_session_end(self, thread_id: int, match_id: int, outcome, players) -> None:
         humans = [p.user_id for p in players if p.user_id and not p.is_bot]
-        self.rematch.start_offer(thread_id, set(humans), match_id)
+        self.rematch.start_offer(thread_id, set(humans), match_id, outcome)
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop())

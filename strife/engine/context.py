@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import random
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -15,6 +16,9 @@ class GameContext(Protocol):
     players: Sequence[Player]
     settings: Mapping[str, object]
     emoji: EmojiResolver
+
+    @property
+    def started_at(self) -> datetime | None: ...
 
     @property
     def is_replay(self) -> bool: ...
@@ -44,6 +48,10 @@ class GameContext(Protocol):
 class LiveContext:
     def __init__(self, session: object) -> None:
         self._session = session
+
+    @property
+    def started_at(self) -> datetime | None:
+        return getattr(self._session, "_started_at", None)  # type: ignore[attr-defined]
 
     @property
     def is_replay(self) -> bool:
@@ -102,6 +110,7 @@ class ReplayFrame:
     actor_seat: int | None
     view: LayoutView
     takeover_info: dict | None = None
+    timestamp: datetime | None = None
 
 
 class ReplayContext:
@@ -112,15 +121,21 @@ class ReplayContext:
         players: Sequence[Player],
         settings: Mapping[str, object],
         emoji: EmojiResolver,
+        started_at: datetime | None = None,
     ) -> None:
         self.rng = rng
         self.players = players
         self.settings = settings
         self.emoji = emoji
+        self._started_at = started_at
 
     @property
     def is_replay(self) -> bool:
         return True
+
+    @property
+    def started_at(self) -> datetime | None:
+        return self._started_at
 
     def is_bot(self, seat: int) -> bool:
         return self.players[seat].is_bot

@@ -348,7 +348,7 @@ def build_settings_view(
             source="reset_rules",
             label=text.get("lobby.reset_rules_label"),
             style=ButtonStyle.SECONDARY,
-            emoji="rematch",
+            emoji="restart",
             route_prefix=P.LOBBY_RESET_RULES,
             resource_id=lobby.thread_id,
         )
@@ -358,7 +358,7 @@ def build_settings_view(
             source="end",
             label=text.get("lobby.end_lobby_label"),
             style=ButtonStyle.DANGER,
-            emoji="error",
+            emoji="leave",
             route_prefix=P.LOBBY_END,
             resource_id=lobby.thread_id,
         )

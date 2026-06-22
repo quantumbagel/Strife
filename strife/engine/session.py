@@ -47,6 +47,7 @@ class RecordedMove:
     actor_seat: int | None
     source: str
     arguments: dict
+    created_at: datetime
 
 
 class GameSession:
@@ -104,7 +105,15 @@ class GameSession:
             raise
         except Exception:
             log.exception("Game session crashed", extra={"match_id": self.id})
-            await self._finalize(GameOutcome(results={}, summary={"error": True}), status="abandoned")
+            await self._finalize(
+                GameOutcome(
+                    results={},
+                    summary={"error": True},
+                    description="Game session crashed",
+                    player_descriptions={},
+                ),
+                status="abandoned",
+            )
 
     async def submit(self, inp: InteractionInput) -> None:
         async with self.lock:
@@ -134,16 +143,35 @@ class GameSession:
         self._record_action("game_end", {"reason": reason, "cancelled": True})
         results = {}
         summary = {"reason": reason}
+        player_descriptions = {}
         if forfeiter_seat is not None:
             for player in self.players:
                 if player.seat == forfeiter_seat:
                     results[player.seat] = "loss"
+                    player_descriptions[player.seat] = "Timed out" if reason == "timeout" else "Forfeited"
                 else:
                     results[player.seat] = "win"
+                    player_descriptions[player.seat] = "Opponent timed out" if reason == "timeout" else "Opponent forfeited"
             opponents = [p.seat for p in self.players if p.seat != forfeiter_seat]
             if len(opponents) == 1:
                 summary["winner"] = opponents[0]
-        await self._finalize(GameOutcome(results=results, summary=summary), status="abandoned")
+            forfeiter_name = self.players[forfeiter_seat].display_name
+            action_str = "timed out" if reason == "timeout" else "forfeited"
+            description = f"{forfeiter_name} {action_str}"
+        else:
+            description = reason.capitalize()
+            for player in self.players:
+                player_descriptions[player.seat] = "Abandoned"
+
+        await self._finalize(
+            GameOutcome(
+                results=results,
+                summary=summary,
+                description=description,
+                player_descriptions=player_descriptions,
+            ),
+            status="abandoned",
+        )
 
     def _seat_for_user(self, user_id: int) -> int | None:
         for player in self.players:
@@ -252,6 +280,7 @@ class GameSession:
                 actor_seat=move.actor_seat,
                 source=move.source,
                 arguments=move.args,
+                created_at=datetime.now(timezone.utc),
             )
         )
         self._turn_index += 1
@@ -264,6 +293,7 @@ class GameSession:
                 actor_seat=None,
                 source=source,
                 arguments=arguments,
+                created_at=datetime.now(timezone.utc),
             )
         )
         self._turn_index += 1
@@ -328,7 +358,11 @@ class GameSession:
             seed=self.seed,
             settings=self.settings,
             status=status,
-            outcome=outcome.summary,
+            outcome={
+                "summary": outcome.summary,
+                "description": outcome.description,
+                "player_descriptions": {str(k): v for k, v in outcome.player_descriptions.items()} if outcome.player_descriptions else {},
+            },
             total_turns=len(self.recorded_moves),
             started_at=self._started_at,
             ended_at=datetime.now(timezone.utc),
@@ -350,6 +384,7 @@ class GameSession:
                     actor_seat=m.actor_seat,
                     source=m.source,
                     arguments=m.arguments,
+                    created_at=m.created_at,
                 )
                 for m in self.recorded_moves
             ],

@@ -58,12 +58,20 @@ class TicTacToe(Game):
             self.board[self._idx(col, row)] = seat
             line = self._winning_line(seat)
             if line is not None:
+                winner_name = self.players[seat].display_name
                 return GameOutcome(
                     results={seat: "win", 1 - seat: "loss"},
                     summary={"winner": seat, "line": line},
+                    description=f"{winner_name} won",
+                    player_descriptions={seat: "Won", 1 - seat: "Lost"},
                 )
             if all(v is not None for v in self.board):
-                return GameOutcome(results={0: "draw", 1: "draw"}, summary={"winner": None})
+                return GameOutcome(
+                    results={0: "draw", 1: "draw"},
+                    summary={"winner": None},
+                    description="Draw",
+                    player_descriptions={0: "Draw", 1: "Draw"},
+                )
             self.current = 1 - seat
 
     async def parse_replay(self, moves: list[MoveRecord], ctx: GameContext) -> list[ReplayFrame]:
@@ -92,6 +100,7 @@ class TicTacToe(Game):
                 turn_label="Turn 1",
                 actor_seat=None,
                 view=clone_and_disable(initial_view),
+                timestamp=ctx.started_at,
             )
         )
         
@@ -154,6 +163,7 @@ class TicTacToe(Game):
                         actor_seat=None,
                         view=clone_and_disable(final_view),
                         takeover_info=takeover_info,
+                        timestamp=move.created_at,
                     )
                 )
                 break
@@ -178,6 +188,7 @@ class TicTacToe(Game):
                         actor_seat=actor,
                         view=clone_and_disable(view),
                         takeover_info=takeover_info,
+                        timestamp=move.created_at,
                     )
                 )
         return frames
