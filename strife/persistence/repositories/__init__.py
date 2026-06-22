@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -36,24 +36,25 @@ class MatchSummary:
     outcome: dict[str, Any]
     created_at: datetime
     total_turns: int
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    player_count: int | None = None
 
 
 @dataclass
 class UserMatchSummary(MatchSummary):
-    seat_index: int | None
-    role_key: str | None
-    result: str | None
+    seat_index: int | None = None
+    role_key: str | None = None
+    result: str | None = None
 
 
 @dataclass
 class MatchDetail(MatchSummary):
-    guild_id: int
-    thread_id: int | None
-    seed: int
-    settings: dict[str, Any]
-    players: list[MatchPlayer]
-    started_at: datetime | None
-    ended_at: datetime | None
+    guild_id: int = 0
+    thread_id: int | None = None
+    seed: int = 0
+    settings: dict[str, Any] = field(default_factory=dict)
+    players: list[MatchPlayer] = field(default_factory=list)
 
 
 @dataclass
@@ -222,7 +223,8 @@ class MatchRepository:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT id, code, game_key, status, outcome, created_at, total_turns
+                SELECT id, code, game_key, status, outcome, created_at, started_at, ended_at, total_turns,
+                       (SELECT count(*) FROM match_players mp2 WHERE mp2.match_id = id) AS player_count
                 FROM matches WHERE guild_id = $1
                 ORDER BY created_at DESC LIMIT $2 OFFSET $3
                 """,
@@ -244,7 +246,8 @@ class MatchRepository:
             if game_key:
                 rows = await conn.fetch(
                     """
-                    SELECT m.id, m.code, m.game_key, m.status, m.outcome, m.created_at, m.total_turns,
+                    SELECT m.id, m.code, m.game_key, m.status, m.outcome, m.created_at, m.started_at, m.ended_at, m.total_turns,
+                           (SELECT count(*) FROM match_players mp2 WHERE mp2.match_id = m.id) AS player_count,
                            mp.seat_index, mp.role_key, mp.result
                     FROM matches m
                     JOIN match_players mp ON mp.match_id = m.id
@@ -259,7 +262,8 @@ class MatchRepository:
             else:
                 rows = await conn.fetch(
                     """
-                    SELECT m.id, m.code, m.game_key, m.status, m.outcome, m.created_at, m.total_turns,
+                    SELECT m.id, m.code, m.game_key, m.status, m.outcome, m.created_at, m.started_at, m.ended_at, m.total_turns,
+                           (SELECT count(*) FROM match_players mp2 WHERE mp2.match_id = m.id) AS player_count,
                            mp.seat_index, mp.role_key, mp.result
                     FROM matches m
                     JOIN match_players mp ON mp.match_id = m.id
@@ -282,6 +286,9 @@ class MatchRepository:
                 outcome=row["outcome"] or {},
                 created_at=row["created_at"],
                 total_turns=row["total_turns"],
+                started_at=row.get("started_at"),
+                ended_at=row.get("ended_at"),
+                player_count=row.get("player_count"),
                 seat_index=row["seat_index"],
                 role_key=row["role_key"],
                 result=row["result"],
@@ -294,6 +301,9 @@ class MatchRepository:
             outcome=row["outcome"] or {},
             created_at=row["created_at"],
             total_turns=row["total_turns"],
+            started_at=row.get("started_at"),
+            ended_at=row.get("ended_at"),
+            player_count=row.get("player_count"),
         )
 
     def _to_detail(self, row: asyncpg.Record, players: list[asyncpg.Record]) -> MatchDetail:

@@ -114,8 +114,26 @@ class ProfileService:
                     player_desc = "Active"
 
                 role_suffix = f" ({role_key.title()})" if role_key else ""
+                
+                # Format players count
+                players_str = f" | {m.player_count} players" if m.player_count is not None else ""
+                
+                # Format exact start time (UTC)
+                start_time = m.started_at or m.created_at
+                started_str = f" @ {start_time:%Y-%m-%d %H:%M:%S UTC}"
+                
+                # Format length/duration
+                duration_str = ""
+                if m.started_at and m.ended_at:
+                    diff = m.ended_at - m.started_at
+                    seconds = int(diff.total_seconds())
+                    mins, secs = divmod(seconds, 60)
+                    duration_str = f" ({mins}m {secs}s)"
+                elif m.total_turns:
+                    duration_str = f" ({m.total_turns} turns)"
+                
                 lines.append(
-                    f"{g_emoji} `#{m.code}` {status_emoji} {player_desc}{role_suffix} {forward} {m.created_at:%Y-%m-%d}"
+                    f"{g_emoji} `#{m.code}` {status_emoji} {player_desc}{role_suffix}{players_str}{started_str}{duration_str}"
                 )
 
             recent_title = self.text.get("profile.recent", page=page + 1, pages=pages)
