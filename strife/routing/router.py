@@ -172,6 +172,13 @@ class InteractionRouter:
             page = int(route.payload.get("page", 0))
             await self.catalog.open_jump_modal(interaction, pages=pages, page=page)
             return
+        play_game = route.payload.get("play")
+        if play_game:
+            if self.lobby is None:
+                await self._ephemeral(interaction, self.text.get("common.error"))
+                return
+            await self.lobby.create_lobby(interaction, play_game, private=False)
+            return
         page = int(route.payload.get("page", 0))
         await self.catalog.navigate(interaction, page)
 

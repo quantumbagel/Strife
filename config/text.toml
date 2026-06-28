@@ -114,6 +114,7 @@ no_matches = "No matches found."
 [catalog]
 title = "Game Catalog"
 page = "Page {page}/{pages}"
+play_now = "Play Now"
 
 [replay]
 title = "{game_name} {forward_emoji} Replay #{code}"

@@ -14,6 +14,7 @@ from strife.presentation.components import (
     ButtonStyle,
     Container,
     LayoutView,
+    Section,
     Separator,
     TextDisplay,
     TextSize,
@@ -64,17 +65,30 @@ class CatalogService:
             user_emoji = self.emoji.get("user")
             time_emoji = self.emoji.get("time")
             diff_emoji = self.emoji.get("difficulty")
+            diff_rating = min(max(0, meta.difficulty), 5)
+            diff_display = "★" * diff_rating + "☆" * (5 - diff_rating)
 
-            container.add_text(
+            section = Section(
+                accessory=Button(
+                    source="play",
+                    label=self.text.get("catalog.play_now"),
+                    style=ButtonStyle.SECONDARY,
+                    emoji="play",
+                    route_prefix=P.CAT_NAV,
+                    payload={"play": meta.key},
+                )
+            )
+            section.add_text(
                 TextDisplay(
                     markdown_content=(
                         f"{game_emoji} **{meta.name}**\n"
                         f"{meta.summary}\n"
-                        f"-# {user_emoji} {meta.player_count.describe()} • {time_emoji} {meta.time_estimate} • {diff_emoji} {meta.difficulty}/10"
+                        f"-# {user_emoji} {meta.player_count.describe()} • {time_emoji} {meta.time_estimate} • {diff_emoji} {diff_display}"
                     ),
                     size_style=TextSize.BODY,
                 )
             )
+            container.add_section(section)
 
         nav = ActionRow()
         nav.add_button(

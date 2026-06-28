@@ -80,11 +80,13 @@ def build_lobby_view(
         )
     )
 
+    diff_rating = min(max(0, meta.difficulty), 5)
+    diff_display = "★" * diff_rating + "☆" * (5 - diff_rating)
     container.add_text(
         TextDisplay(
             markdown_content=(
                 f"{meta.description}\n\n"
-                f"-# {emoji.get('user')} {meta.player_count.describe()} • {emoji.get('time')} {meta.time_estimate} • {emoji.get('difficulty')}: {meta.difficulty}/10"
+                f"-# {emoji.get('user')} {meta.player_count.describe()} • {emoji.get('time')} {meta.time_estimate} • {emoji.get('difficulty')}: {diff_display}"
             ),
             size_style=TextSize.BODY,
         )
