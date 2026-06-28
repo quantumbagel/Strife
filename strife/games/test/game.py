@@ -45,6 +45,37 @@ class TestGame(Game):
         self.alive.discard(seat)
         self.removed_players.add(seat)
 
+    def _forfeit_outcome(self, forfeiter_seat: int) -> GameOutcome:
+        results: dict[int, str] = {}
+        player_descriptions: dict[int, str] = {}
+        for player in self.players:
+            if player.seat == forfeiter_seat:
+                results[player.seat] = "loss"
+                player_descriptions[player.seat] = "Forfeited"
+            elif player.seat in self.alive:
+                results[player.seat] = "win"
+                player_descriptions[player.seat] = "Opponent forfeited"
+            else:
+                results[player.seat] = "loss"
+                player_descriptions[player.seat] = "Removed from play"
+        forfeiter_name = self.players[forfeiter_seat].display_name
+        return GameOutcome(
+            results=results,
+            summary={"reason": "forfeit", "forfeiter": forfeiter_seat},
+            description=f"{forfeiter_name} forfeited",
+            player_descriptions=player_descriptions,
+        )
+
+    def _should_end_after_forfeit(self) -> bool:
+        if not self.alive:
+            return True
+        alive_humans = [
+            player for player in self.players if player.seat in self.alive and not player.is_bot
+        ]
+        if not alive_humans:
+            return True
+        return len(self.alive) < self.metadata.player_count.min_players
+
     def validate_roles(self, assignment: dict[int, str]) -> tuple[bool, str | None]:
         for role in assignment.values():
             if role not in {"tester", "observer"}:
@@ -257,6 +288,8 @@ class TestGame(Game):
         # Phase 1: Layout Components & Interaction
         self.phase = 1
         while True:
+            if not self.alive:
+                return self._forfeit_outcome(next(iter(self.removed_players)))
             view = self._phase1_view(ctx)
             actor = sorted(self.alive)[0]
             move = await ctx.request_input(
@@ -274,6 +307,8 @@ class TestGame(Game):
                 },
             )
             await ctx.record_action(move.source, move.args)
+            if move.source == "forfeit" and self._should_end_after_forfeit():
+                return self._forfeit_outcome(move.actor_seat)
             if move.source == "btn_next_1":
                 break
 
@@ -336,6 +371,8 @@ class TestGame(Game):
         # Phase 4: Settings & Properties Check
         self.phase = 4
         view = self._phase4_view(ctx)
+        if not self.alive:
+            return self._forfeit_outcome(next(iter(self.removed_players)))
         actor = sorted(self.alive)[0]
         move = await ctx.request_input(view, actor=actor, sources={"btn_finish"})
         await ctx.record_action(move.source, move.args)

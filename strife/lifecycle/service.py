@@ -120,8 +120,21 @@ class LifecycleService:
 
         if meta.supports_player_removal:
             session.game.remove_player(seat)
+            alive = getattr(session.game, "alive", None)
+            if isinstance(alive, set):
+                remaining_humans = [
+                    p for p in session.players if p.seat in alive and not p.is_bot
+                ]
+                if not alive or not remaining_humans:
+                    await session.cancel(reason, forfeiter_seat=seat)
+                    return
+                if len(alive) < meta.player_count.min_players:
+                    await session.cancel(reason, forfeiter_seat=seat)
+                    return
             args = {"reason": "timeout"} if reason == "timeout" else {}
-            await session.force_move(seat, Move(actor_seat=seat, source="forfeit", args=args))
+            await session.force_move(
+                seat, Move(actor_seat=seat, source="forfeit", args=args)
+            )
             return
 
         await session.cancel(reason, forfeiter_seat=seat)

@@ -26,9 +26,11 @@ from strife.persistence.repositories import (
 )
 from strife.presentation.compiler import Compiler
 from strife.presentation.emoji import EmojiResolver
-from strife.presentation.components import Container, LayoutView, TextDisplay, TextSize, ActionRow, Button, ButtonStyle, Separator
-from strife.presentation.message import ViewSurface, send_ephemeral_error
+from strife.presentation.components import Container, LayoutView, TextDisplay, TextSize, Separator
+from strife.presentation.message import ViewSurface
 from strife.presentation.roster import member_line
+from strife.presentation.user_error import ErrorContext, UserErrorPresenter
+from strife.presentation.user_success import UserSuccessPresenter
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route
 from strife.settings import get_settings
@@ -97,6 +99,50 @@ class LobbyService:
         self.text = config.text
         self.finalizer = finalizer
         self.lifecycle = lifecycle
+        self.user_errors = UserErrorPresenter(compiler, emoji, config.text, registries)
+        self.user_success = UserSuccessPresenter(compiler, emoji, config.text)
+
+    def _error_ctx(
+        self,
+        interaction: discord.Interaction,
+        *,
+        lobby: Lobby | None = None,
+        user_id: int | None = None,
+        reason_key: str | None = None,
+        reason_kwargs: dict | None = None,
+    ) -> ErrorContext:
+        uid = user_id if user_id is not None else interaction.user.id
+        loc = self.registries.location_of(uid)
+        return ErrorContext(
+            interaction=interaction,
+            user_id=uid,
+            lobby=lobby,
+            location=loc,
+            reason_key=reason_key,
+            reason_kwargs=reason_kwargs,
+        )
+
+    async def _error(
+        self,
+        interaction: discord.Interaction,
+        code: str,
+        *,
+        lobby: Lobby | None = None,
+        user_id: int | None = None,
+        reason_key: str | None = None,
+        reason_kwargs: dict | None = None,
+    ) -> None:
+        await self.user_errors.send(
+            interaction,
+            code,
+            context=self._error_ctx(
+                interaction,
+                lobby=lobby,
+                user_id=user_id,
+                reason_key=reason_key,
+                reason_kwargs=reason_kwargs,
+            ),
+        )
 
     def _meta(self, game_key: str) -> GameMetadata:
         return self.registry.metadata(game_key)
@@ -113,12 +159,16 @@ class LobbyService:
     ) -> None:
         game_cfg = self.config.games.for_game(game_key)
         if not game_cfg.enabled:
-            await self._ephemeral(interaction, self.text.get("errors.game_disabled"))
+            await self._error(interaction, "errors.game_disabled")
             return
         if not await self.registries.reserve_user(
             interaction.user.id, UserLocation("lobby", 0, interaction.guild_id)
         ):
-            await self._send_already_in_session_error(interaction, interaction.user.id)
+            await self._error(
+                interaction,
+                "errors.already_in_session",
+                user_id=interaction.user.id,
+            )
             return
 
         meta = self._meta(game_key)
@@ -170,7 +220,7 @@ class LobbyService:
                 P.LOBBY_REMOVE_BLACKLIST: self._remove_blacklist,
             }.get(route.prefix)
             if handler is None:
-                await self._ephemeral(interaction, self.text.get("common.error"))
+                await self._error(interaction, "common.error")
                 return
             await handler(lobby, route, interaction)
 
@@ -187,18 +237,22 @@ class LobbyService:
     ) -> None:
         user = interaction.user
         if any(m.user_id == user.id for m in lobby.members):
-            await self._ephemeral(interaction, self.text.get("errors.already_in_lobby"))
+            await self._error(interaction, "errors.already_in_lobby", lobby=lobby)
             return
         if lobby.private and lobby.whitelist and user.id not in lobby.whitelist:
-            await self._ephemeral(interaction, self.text.get("errors.not_on_whitelist"))
+            await self._error(interaction, "errors.not_on_whitelist", lobby=lobby)
             return
         if user.id in lobby.blacklist:
-            await self._ephemeral(interaction, self.text.get("errors.blacklisted"))
+            await self._error(interaction, "errors.blacklisted", lobby=lobby)
             return
         if not await self.registries.reserve_user(
             user.id, UserLocation("lobby", lobby.thread_id, lobby.guild_id)
         ):
-            await self._send_already_in_session_error(interaction, user.id)
+            await self._error(
+                interaction,
+                "errors.already_in_session",
+                user_id=user.id,
+            )
             return
         lobby.members.append(LobbyMember(user.id, user.display_name))
         await self._refresh(lobby, interaction)
@@ -209,7 +263,7 @@ class LobbyService:
         try:
             await self._leave_lobby_inner(lobby, interaction.user.id, interaction)
         except PermissionError:
-            await self._ephemeral(interaction, self.text.get("errors.not_in_lobby"))
+            await self._error(interaction, "errors.not_in_lobby", lobby=lobby)
 
     async def leave_lobby(
         self, thread_id: int, user_id: int, interaction: discord.Interaction
@@ -258,15 +312,18 @@ class LobbyService:
             await self._refresh(lobby, interaction)
         else:
             meta = self._meta(lobby.game_key)
-            ok, reason = lobby.can_ready(meta, self.text)
+            ok, reason_key, reason_kwargs = lobby.can_ready(meta, self.text)
             if not ok:
-                await self._ephemeral(
+                await self._error(
                     interaction,
-                    self.text.get("lobby.cannot_start", reason=reason or "unknown"),
+                    reason_key or "common.error",
+                    lobby=lobby,
+                    reason_key=reason_key,
+                    reason_kwargs=reason_kwargs,
                 )
                 return
             lobby.ready.add(interaction.user.id)
-            ok_start, _ = lobby.can_start(meta, self.text)
+            ok_start, _, _ = lobby.can_start(meta, self.text)
             if ok_start:
                 await self._start(lobby, route, interaction)
             else:
@@ -281,7 +338,7 @@ class LobbyService:
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
         if interaction.user.id != lobby.creator_id:
-            await self._ephemeral(interaction, self.text.get("lobby.creator_only"))
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
         meta = self._meta(lobby.game_key)
         view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
@@ -303,7 +360,7 @@ class LobbyService:
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
         if interaction.user.id != lobby.creator_id:
-            await self._ephemeral(interaction, self.text.get("lobby.creator_only"))
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
         values = interaction.data.get("values") if interaction.data else []
         if values:
@@ -320,7 +377,7 @@ class LobbyService:
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
         if interaction.user.id != lobby.creator_id:
-            await self._ephemeral(interaction, self.text.get("lobby.creator_only"))
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
         lobby.private = False
         lobby.whitelist.clear()
@@ -337,7 +394,7 @@ class LobbyService:
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
         if interaction.user.id != lobby.creator_id:
-            await self._ephemeral(interaction, self.text.get("lobby.creator_only"))
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
         key = route.payload.get("option_key")
         opt_type = route.payload.get("option_type")
@@ -363,7 +420,7 @@ class LobbyService:
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
         if interaction.user.id != lobby.creator_id:
-            await self._ephemeral(interaction, self.text.get("lobby.creator_only"))
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
         lobby.settings = self._default_settings(self._meta(lobby.game_key))
         await interaction.response.defer(ephemeral=True)
@@ -379,7 +436,7 @@ class LobbyService:
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
         if interaction.user.id != lobby.creator_id:
-            await self._ephemeral(interaction, self.text.get("lobby.creator_only"))
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
         await self._teardown(lobby, interaction)
 
@@ -387,7 +444,7 @@ class LobbyService:
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
         if interaction.user.id != lobby.creator_id:
-            await self._ephemeral(interaction, self.text.get("lobby.creator_only"))
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
         values = interaction.data.get("values") if interaction.data else []
         if values:
@@ -406,7 +463,7 @@ class LobbyService:
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
         if interaction.user.id != lobby.creator_id:
-            await self._ephemeral(interaction, self.text.get("lobby.creator_only"))
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
         values = interaction.data.get("values") if interaction.data else []
         if values:
@@ -424,7 +481,7 @@ class LobbyService:
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
         if interaction.user.id != lobby.creator_id:
-            await self._ephemeral(interaction, self.text.get("lobby.creator_only"))
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
         values = interaction.data.get("values") if interaction.data else []
         kicked = False
@@ -451,7 +508,7 @@ class LobbyService:
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
         if interaction.user.id != lobby.creator_id:
-            await self._ephemeral(interaction, self.text.get("lobby.creator_only"))
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
         values = interaction.data.get("values") if interaction.data else []
         if values:
@@ -469,11 +526,14 @@ class LobbyService:
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
         meta = self._meta(lobby.game_key)
-        ok, reason = lobby.can_start(meta, self.text)
+        ok, reason_key, reason_kwargs = lobby.can_start(meta, self.text)
         if not ok:
-            await self._ephemeral(
+            await self._error(
                 interaction,
-                self.text.get("lobby.cannot_start", reason=reason or "unknown"),
+                reason_key or "common.error",
+                lobby=lobby,
+                reason_key=reason_key,
+                reason_kwargs=reason_kwargs,
             )
             return
         seed = secrets.randbits(63)
@@ -508,7 +568,7 @@ class LobbyService:
             lobby_selection=lobby.role_selection,
         )
         if lobby.surface is None:
-            await self._ephemeral(interaction, self.text.get("common.error"))
+            await self._error(interaction, "common.error", lobby=lobby)
             return
 
         # Generate match code
@@ -640,7 +700,7 @@ class LobbyService:
         for member in lobby.members:
             await self.registries.release_user(member.user_id)
         self.registries.remove_lobby(lobby.thread_id)
-        await self._ephemeral(interaction, self.text.get("lobby.closed"))
+        await self._success(interaction, "lobby.closed")
 
         if lobby.surface:
             await lobby.surface.delete()
@@ -650,11 +710,14 @@ class LobbyService:
     ) -> None:
         loc = self.registries.location_of(interaction.user.id)
         if loc is None or loc.kind != "lobby":
-            await self._ephemeral(interaction, self.text.get("errors.not_in_lobby"))
+            await self._error(interaction, "errors.not_in_lobby")
             return
         lobby = self.registries.get_lobby(loc.thread_id)
-        if lobby is None or lobby.creator_id != interaction.user.id:
-            await self._ephemeral(interaction, self.text.get("lobby.creator_only"))
+        if lobby is None:
+            await self._error(interaction, "lobby.already_dead")
+            return
+        if lobby.creator_id != interaction.user.id:
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
         for i in range(number):
             lobby.bots.append(
@@ -667,30 +730,33 @@ class LobbyService:
         view = build_lobby_view(lobby, meta, self.emoji, self.text)
         if lobby.surface:
             await lobby.surface.update(view)
-        await self._ephemeral(interaction, self.text.get("lobby.bot_added", count=number))
+        await self._success(interaction, "lobby.bot_added", count=number)
 
     async def remove_bot(self, interaction: discord.Interaction, name: str) -> None:
         loc = self.registries.location_of(interaction.user.id)
         if loc is None or loc.kind != "lobby":
-            await self._ephemeral(interaction, self.text.get("errors.not_in_lobby"))
+            await self._error(interaction, "errors.not_in_lobby")
             return
         lobby = self.registries.get_lobby(loc.thread_id)
-        if lobby is None or lobby.creator_id != interaction.user.id:
-            await self._ephemeral(interaction, self.text.get("lobby.creator_only"))
+        if lobby is None:
+            await self._error(interaction, "lobby.already_dead")
+            return
+        if lobby.creator_id != interaction.user.id:
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
         lobby.bots = [b for b in lobby.bots if b.name != name]
         meta = self._meta(lobby.game_key)
         view = build_lobby_view(lobby, meta, self.emoji, self.text)
         if lobby.surface:
             await lobby.surface.update(view)
-        await self._ephemeral(interaction, self.text.get("lobby.bot_removed", name=name))
+        await self._success(interaction, "lobby.bot_removed", name=name)
 
     async def open_settings(
         self, interaction: discord.Interaction, private: bool | None
     ) -> None:
         loc = self.registries.location_of(interaction.user.id)
         if loc is None or loc.kind != "lobby":
-            await self._ephemeral(interaction, self.text.get("errors.not_in_lobby"))
+            await self._error(interaction, "errors.not_in_lobby")
             return
         lobby = self.registries.get_lobby(loc.thread_id)
         if lobby is None:
@@ -702,13 +768,21 @@ class LobbyService:
             lobby, Route(P.LOBBY_SETTINGS, lobby.thread_id, "settings", {}), interaction
         )
 
-    async def _ephemeral(self, interaction: discord.Interaction, content: str) -> None:
-        await send_ephemeral_error(interaction, content)
+    async def _success(
+        self,
+        interaction: discord.Interaction,
+        code: str,
+        **format_kwargs: object,
+    ) -> None:
+        await self.user_success.send(
+            interaction,
+            code,
+            format_kwargs=format_kwargs or None,
+        )
 
     async def _disable_and_report_closed(
         self, interaction: discord.Interaction, message_key: str
     ) -> None:
-        content = self.text.get(message_key)
         if interaction.message:
             try:
                 view = discord.ui.LayoutView.from_message(interaction.message)
@@ -721,83 +795,12 @@ class LobbyService:
                 else:
                     await interaction.message.edit(view=view)
 
-                await self._ephemeral(interaction, content)
+                await self._error(interaction, message_key)
                 return
             except Exception as exc:
                 log.warning(
                     "Failed to disable components on closed lobby message: %s", exc
                 )
 
-        await self._ephemeral(interaction, content)
+        await self._error(interaction, message_key)
 
-    async def _send_already_in_session_error(
-        self, interaction: discord.Interaction, user_id: int
-    ) -> None:
-        loc = self.registries.location_of(user_id)
-        if loc is None:
-            await self._ephemeral(interaction, self.text.get("errors.already_in_session"))
-            return
-        if loc.thread_id == 0:
-            await self._ephemeral(interaction, self.text.get("errors.already_in_session"))
-            return
-
-        base_msg = self.text.get("errors.already_in_session")
-        link = f"https://discord.com/channels/{loc.guild_id}/{loc.thread_id}"
-
-        if loc.kind == "lobby":
-            btn = Button(
-                source="leave",
-                label=self.text.get("errors.leave_current_game"),
-                style=ButtonStyle.DANGER,
-                emoji="leave",
-                route_prefix=P.LOBBY_LEAVE,
-                resource_id=loc.thread_id,
-            )
-        else:
-            btn = Button(
-                source="forfeit",
-                label=self.text.get("errors.forfeit_current_game"),
-                style=ButtonStyle.DANGER,
-                emoji="error",
-                route_prefix=P.FORFEIT,
-                resource_id=loc.thread_id,
-            )
-
-        go_to_game_btn = Button(
-            label="Go to Session",
-            style=ButtonStyle.LINK,
-            emoji="external_link",
-            url=link,
-        )
-
-        row = ActionRow()
-        row.add_button(go_to_game_btn)
-        row.add_button(btn)
-
-        view = LayoutView()
-        container = Container()
-        logo = self.emoji.get("logo")
-        container.add_text(
-            TextDisplay(
-                markdown_content=f"### {logo} {base_msg}",
-                size_style=TextSize.HEADER
-            )
-        )
-        container.add_separator()
-        container.add_text(
-            TextDisplay(
-                markdown_content=(
-                    f"You are currently in an active **{loc.kind}**.\n"
-                    f"Please complete or leave that session before starting a new one."
-                ),
-                size_style=TextSize.BODY
-            )
-        )
-        container.add_action_row(row)
-        view.add_container(container)
-
-        compiled = self.compiler.compile(view, resource_id=loc.thread_id, prefix=P.LOBBY_LEAVE)
-        if not interaction.response.is_done():
-            await interaction.response.send_message(view=compiled, ephemeral=True)
-        else:
-            await interaction.followup.send(view=compiled, ephemeral=True)

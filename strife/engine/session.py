@@ -102,7 +102,7 @@ class GameSession:
             outcome = await self.game.play(self.ctx)
             await self._finalize(outcome, status="completed")
         except asyncio.CancelledError:
-            raise
+            return
         except Exception:
             log.exception("Game session crashed", extra={"match_id": self.id})
             await self._finalize(

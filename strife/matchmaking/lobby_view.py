@@ -128,7 +128,7 @@ def build_lobby_view(
 
     container.add_separator()
 
-    can_r, _ = lobby.can_ready(meta, text)
+    can_r, _, _ = lobby.can_ready(meta, text)
     join_style = ButtonStyle.SECONDARY if can_r else ButtonStyle.SUCCESS
     ready_style = ButtonStyle.SUCCESS if can_r else ButtonStyle.PRIMARY
 

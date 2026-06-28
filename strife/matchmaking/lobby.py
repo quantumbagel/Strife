@@ -44,26 +44,37 @@ class Lobby:
     def total_players(self) -> int:
         return len(self.members) + len(self.bots)
 
-    def can_ready(self, meta: GameMetadata, text: TextConfig, game: Game | None = None) -> tuple[bool, str | None]:
+    def can_ready(
+        self, meta: GameMetadata, text: TextConfig, game: Game | None = None
+    ) -> tuple[bool, str | None, dict | None]:
         if not meta.player_count.is_valid(self.total_players):
-            return False, text.get("errors.need_players", describe=meta.player_count.describe())
+            return False, "errors.need_players", {
+                "describe": meta.player_count.describe(),
+            }
         if meta.role_flow.value in {"selectable", "selectable_random"}:
             for member in self.members:
                 if member.user_id not in self.role_selection:
-                    return False, text.get("errors.role_selection_incomplete")
+                    return False, "errors.role_selection_incomplete", None
         if game is not None:
-            assignment = {m.user_id: self.role_selection[m.user_id] for m in self.members if m.user_id in self.role_selection}
+            assignment = {
+                m.user_id: self.role_selection[m.user_id]
+                for m in self.members
+                if m.user_id in self.role_selection
+            }
             ok, reason = game.validate_roles(assignment)
             if not ok:
-                return False, reason or text.get("errors.invalid_roles")
-        return True, None
+                kwargs = {"detail": reason} if reason else None
+                return False, "errors.invalid_roles", kwargs
+        return True, None, None
 
-    def can_start(self, meta: GameMetadata, text: TextConfig, game: Game | None = None) -> tuple[bool, str | None]:
-        ok, reason = self.can_ready(meta, text, game)
+    def can_start(
+        self, meta: GameMetadata, text: TextConfig, game: Game | None = None
+    ) -> tuple[bool, str | None, dict | None]:
+        ok, reason_key, reason_kwargs = self.can_ready(meta, text, game)
         if not ok:
-            return False, reason
+            return False, reason_key, reason_kwargs
         if len(self.ready) < len(self.members):
-            return False, text.get("errors.not_all_ready")
-        return True, None
+            return False, "errors.not_all_ready", None
+        return True, None, None
 
 

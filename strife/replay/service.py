@@ -7,7 +7,7 @@ import discord
 from strife.config.text import TextConfig
 from strife.persistence.repositories import MatchRepository, MoveRepository
 from strife.presentation.compiler import Compiler
-from strife.presentation.message import send_ephemeral_error
+from strife.presentation.user_error import UserErrorPresenter
 from strife.presentation.modals import PageJumpModal
 from strife.engine.context import ReplayContext
 from strife.engine.players import Player
@@ -24,12 +24,14 @@ class ReplayService:
         game_registry: GameRegistry,
         compiler: Compiler,
         text: TextConfig,
+        user_errors: UserErrorPresenter,
     ) -> None:
         self.matches = matches
         self.moves = moves
         self.game_registry = game_registry
         self.compiler = compiler
         self.text = text
+        self.user_errors = user_errors
         self._cache: OrderedDict[int, list] = OrderedDict()
         self._cache_size = 64
 
@@ -69,11 +71,11 @@ class ReplayService:
     async def open(self, interaction: discord.Interaction, match: str | int) -> None:
         detail = await self.matches.get(match)
         if detail is None:
-            await send_ephemeral_error(interaction, self.text.get("common.match_not_found"))
+            await self.user_errors.send(interaction, "common.match_not_found")
             return
         frames = await self._frames(detail.id)
         if not frames:
-            await send_ephemeral_error(interaction, self.text.get("common.replay_unavailable"))
+            await self.user_errors.send(interaction, "common.replay_unavailable")
             return
         game_name = self.game_registry.metadata(detail.game_key).name
         view = build_replay_view(
@@ -101,11 +103,11 @@ class ReplayService:
     ) -> None:
         detail = await self.matches.get(match_id)
         if detail is None:
-            await send_ephemeral_error(interaction, self.text.get("common.match_not_found"))
+            await self.user_errors.send(interaction, "common.match_not_found")
             return
         frames = await self._frames(match_id)
         if not frames:
-            await send_ephemeral_error(interaction, self.text.get("common.replay_unavailable"))
+            await self.user_errors.send(interaction, "common.replay_unavailable")
             return
         frame = max(0, min(frame, len(frames) - 1))
         game_name = self.game_registry.metadata(detail.game_key).name

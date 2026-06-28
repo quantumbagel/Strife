@@ -15,7 +15,8 @@ from strife.presentation.components import (
     TextSize,
 )
 from strife.presentation.emoji import EmojiResolver
-from strife.presentation.message import send_ephemeral_error
+from strife.presentation.user_error import UserErrorPresenter
+from strife.presentation.user_success import UserSuccessPresenter
 from strife.routing import prefixes as P
 
 
@@ -26,11 +27,15 @@ class ServerSettingsService:
         compiler: Compiler,
         emoji: EmojiResolver,
         text: TextConfig,
+        user_errors: UserErrorPresenter,
+        user_success: UserSuccessPresenter,
     ) -> None:
         self.guilds = guilds
         self.compiler = compiler
         self.emoji = emoji
         self.text = text
+        self.user_errors = user_errors
+        self.user_success = user_success
 
     def _build_view(self, guild_id: int, channel_id: int | None) -> LayoutView:
         view = LayoutView()
@@ -82,7 +87,7 @@ class ServerSettingsService:
 
     async def open(self, interaction: discord.Interaction, *, edit: bool = False) -> None:
         if interaction.guild is None:
-            await send_ephemeral_error(interaction, self.text.get("common.error"))
+            await self.user_errors.send(interaction, "common.error")
             return
         await self.guilds.upsert(interaction.guild_id)
         channel_id = await self.guilds.get_default_channel(interaction.guild_id)
@@ -98,7 +103,7 @@ class ServerSettingsService:
 
     async def set_channel(self, interaction: discord.Interaction, channel_id: int) -> None:
         if interaction.guild is None:
-            await send_ephemeral_error(interaction, self.text.get("common.error"))
+            await self.user_errors.send(interaction, "common.error")
             return
         await self.guilds.upsert(interaction.guild_id)
         await self.guilds.set_default_channel(interaction.guild_id, channel_id)
@@ -106,7 +111,8 @@ class ServerSettingsService:
         view = self._build_view(interaction.guild_id, channel_id)
         compiled = self.compiler.compile(view, resource_id=interaction.guild_id, prefix=P.SERVER_NAV)
         await interaction.edit_original_response(view=compiled)
-        await send_ephemeral_error(
+        await self.user_success.send(
             interaction,
-            self.text.get("guild.channel_set", mention=f"<#{channel_id}>"),
+            "guild.channel_set",
+            format_kwargs={"mention": f"<#{channel_id}>"},
         )

@@ -8,7 +8,8 @@ from strife.config.text import TextConfig
 from strife.logging import get_logger
 from strife.routing import prefixes as P
 from strife.routing.custom_id import CustomIdEncoder, CustomIdError, PayloadExpired
-from strife.presentation.message import send_ephemeral_error
+from strife.presentation.feedback import disable_feedback_actions
+from strife.presentation.user_error import ErrorContext, UserErrorPresenter
 
 log = get_logger("routing.router")
 
@@ -20,6 +21,17 @@ class InteractionInput:
     args: dict
     interaction: discord.Interaction
     values: list[str] | None = None
+
+
+_RUNTIME_ERROR_CODES = {
+    "not_your_turn": "common.not_your_turn",
+    "not_a_player": "errors.not_a_player",
+    "invalid_action": "errors.invalid_action",
+    "rematch_expired": "errors.rematch_expired",
+    "rematch_not_eligible": "errors.rematch_not_eligible",
+    "rematch_unavailable": "errors.rematch_unavailable",
+    "no_session": "errors.no_session",
+}
 
 
 class InteractionRouter:
@@ -35,6 +47,7 @@ class InteractionRouter:
         server_settings: object | None,
         encoder: CustomIdEncoder,
         text: TextConfig,
+        user_errors: UserErrorPresenter,
     ) -> None:
         self.sessions = sessions
         self.replay = replay
@@ -45,6 +58,28 @@ class InteractionRouter:
         self.server_settings = server_settings
         self.encoder = encoder
         self.text = text
+        self.user_errors = user_errors
+
+    async def _error(
+        self,
+        interaction: discord.Interaction,
+        code: str,
+        *,
+        user_id: int | None = None,
+    ) -> None:
+        await self.user_errors.send(
+            interaction,
+            code,
+            context=ErrorContext(
+                interaction=interaction,
+                user_id=user_id or interaction.user.id,
+                location=(
+                    self.sessions.location_of(user_id or interaction.user.id)
+                    if hasattr(self.sessions, "location_of")
+                    else None
+                ),
+            ),
+        )
 
     async def dispatch(self, interaction: discord.Interaction) -> None:
         custom_id = interaction.data.get("custom_id") if interaction.data else None
@@ -57,7 +92,7 @@ class InteractionRouter:
             return
         except (CustomIdError, KeyError, ValueError, TypeError) as exc:
             log.warning("Bad custom_id %s: %s", custom_id, exc)
-            await self._ephemeral(interaction, self.text.get("common.error"))
+            await self._error(interaction, "common.error")
             return
 
         if route.prefix == P.REPLAY_NOOP:
@@ -85,26 +120,17 @@ class InteractionRouter:
                 await self._handle_server(route, interaction)
             else:
                 log.warning("Unknown prefix %s", route.prefix)
-                await self._ephemeral(interaction, self.text.get("common.error"))
+                await self._error(interaction, "common.error")
         except PermissionError:
-            await self._ephemeral(interaction, self.text.get("common.forbidden"))
+            await self._error(interaction, "common.forbidden")
         except RuntimeError as exc:
             err_str = str(exc)
-            if err_str == "not_your_turn":
-                await self._ephemeral(interaction, self.text.get("common.not_your_turn"))
-            elif err_str == "not_a_player":
-                await self._ephemeral(interaction, self.text.get("errors.not_a_player"))
-            elif err_str == "invalid_action":
-                await self._ephemeral(interaction, self.text.get("errors.invalid_action"))
-            elif err_str == "rematch_expired":
-                await self._ephemeral(interaction, self.text.get("errors.rematch_expired"))
-            elif err_str == "rematch_not_eligible":
-                await self._ephemeral(interaction, self.text.get("errors.rematch_not_eligible"))
-            elif err_str == "rematch_unavailable":
-                await self._ephemeral(interaction, self.text.get("errors.rematch_unavailable"))
+            code = _RUNTIME_ERROR_CODES.get(err_str)
+            if code:
+                await self._error(interaction, code)
             else:
                 log.exception("Router error")
-                await self._ephemeral(interaction, self.text.get("common.error"))
+                await self._error(interaction, "common.error")
 
     async def _handle_game(self, route, interaction: discord.Interaction) -> None:
         session = self.sessions.get_game(route.resource_id)
@@ -130,11 +156,11 @@ class InteractionRouter:
 
     async def _handle_replay(self, route, interaction: discord.Interaction) -> None:
         if self.replay is None:
-            await self._ephemeral(interaction, self.text.get("common.error"))
+            await self._error(interaction, "common.error")
             return
         owner_id = int(route.payload.get("owner", interaction.user.id))
         if owner_id != interaction.user.id:
-            await self._ephemeral(interaction, self.text.get("common.replay_owner_only"))
+            await self._error(interaction, "common.replay_owner_only")
             return
         if route.payload.get("jump"):
             total = int(route.payload.get("total", 1))
@@ -152,20 +178,20 @@ class InteractionRouter:
 
     async def _handle_rematch(self, route, interaction: discord.Interaction) -> None:
         if self.lifecycle is None:
-            await self._ephemeral(interaction, self.text.get("common.error"))
+            await self._error(interaction, "common.error")
             return
         await self._defer(interaction)
         await self.lifecycle.register_rematch_vote(route.resource_id, interaction.user)
 
     async def _handle_lobby(self, route, interaction: discord.Interaction) -> None:
         if self.lobby is None:
-            await self._ephemeral(interaction, self.text.get("common.error"))
+            await self._error(interaction, "common.error")
             return
         await self.lobby.handle(route, interaction)
 
     async def _handle_catalog(self, route, interaction: discord.Interaction) -> None:
         if self.catalog is None:
-            await self._ephemeral(interaction, self.text.get("common.error"))
+            await self._error(interaction, "common.error")
             return
         if route.payload.get("jump"):
             pages = int(route.payload.get("pages", 1))
@@ -175,25 +201,31 @@ class InteractionRouter:
         play_game = route.payload.get("play")
         if play_game:
             if self.lobby is None:
-                await self._ephemeral(interaction, self.text.get("common.error"))
+                await self._error(interaction, "common.error")
                 return
             await self.lobby.create_lobby(interaction, play_game, private=False)
             return
         page = int(route.payload.get("page", 0))
-        await self.catalog.navigate(interaction, page)
+        if route.source == "catalog" and not interaction.response.is_done():
+            await self.catalog.show(interaction, page)
+        else:
+            await self.catalog.navigate(interaction, page)
 
     async def _handle_profile(self, route, interaction: discord.Interaction) -> None:
         if self.profile is None:
-            await self._ephemeral(interaction, self.text.get("common.error"))
+            await self._error(interaction, "common.error")
             return
         if route.payload.get("jump"):
             await self.profile.open_jump_modal(interaction, route)
             return
-        await self.profile.navigate(interaction, route)
+        if route.source == "profile" and not interaction.response.is_done():
+            await self.profile.show(interaction, interaction.user, None, 0)
+        else:
+            await self.profile.navigate(interaction, route)
 
     async def _handle_server(self, route, interaction: discord.Interaction) -> None:
         if self.server_settings is None:
-            await self._ephemeral(interaction, self.text.get("common.error"))
+            await self._error(interaction, "common.error")
             return
         if route.prefix == P.SERVER_CHANNEL:
             values = interaction.data.get("values") if interaction.data else []
@@ -206,7 +238,7 @@ class InteractionRouter:
 
     async def _handle_about(self, route, interaction: discord.Interaction) -> None:
         if self.lobby is None:
-            await self._ephemeral(interaction, self.text.get("common.error"))
+            await self._error(interaction, "common.error")
             return
         from strife.presentation.about_view import build_about_view
 
@@ -219,61 +251,44 @@ class InteractionRouter:
         if not interaction.response.is_done():
             await interaction.response.defer()
 
-    async def _ephemeral(self, interaction: discord.Interaction, content: str) -> None:
-        await send_ephemeral_error(interaction, content)
-
     async def _disable_and_report_ended(self, interaction: discord.Interaction, message_key: str) -> None:
-        content = self.text.get(message_key)
         if interaction.message:
             try:
                 view = discord.ui.LayoutView.from_message(interaction.message)
                 for item in view.walk_children():
                     if hasattr(item, "disabled"):
                         item.disabled = True
-                
+
                 if not interaction.response.is_done():
                     await interaction.response.edit_message(view=view)
                 else:
                     await interaction.message.edit(view=view)
-                
-                await send_ephemeral_error(interaction, content)
+
+                await self._error(interaction, message_key)
                 return
             except Exception as exc:
                 log.warning("Failed to disable components on old message: %s", exc)
 
-        await send_ephemeral_error(interaction, content)
+        await self._error(interaction, message_key)
 
     async def _handle_forfeit(self, route, interaction: discord.Interaction) -> None:
         if self.lifecycle is None:
-            await self._ephemeral(interaction, self.text.get("common.error"))
+            await self._error(interaction, "common.error")
             return
 
-        if interaction.message:
-            try:
-                view = discord.ui.LayoutView.from_message(interaction.message)
-                for item in view.walk_children():
-                    if hasattr(item, "disabled"):
-                        item.disabled = True
-
-                if not interaction.response.is_done():
-                    await interaction.response.edit_message(view=view)
-                else:
-                    await interaction.message.edit(view=view)
-            except Exception as exc:
-                log.warning("Failed to disable forfeit button: %s", exc)
-                if not interaction.response.is_done():
-                    await self._defer(interaction)
-        else:
-            if not interaction.response.is_done():
-                await self._defer(interaction)
+        await disable_feedback_actions(interaction)
+        if not interaction.response.is_done():
+            await self._defer(interaction)
 
         try:
             await self.lifecycle.forfeit(route.resource_id, interaction.user.id)
-            await send_ephemeral_error(interaction, self.text.get("match.forfeited"))
+            if self.lobby is not None:
+                await self.lobby.user_success.send(interaction, "match.forfeited")
+            return
         except RuntimeError as e:
             if str(e) == "no_session":
-                await send_ephemeral_error(interaction, self.text.get("errors.no_session"))
+                await self._error(interaction, "errors.no_session")
             else:
-                await send_ephemeral_error(interaction, self.text.get("common.error"))
+                await self._error(interaction, "common.error")
         except PermissionError:
-            await send_ephemeral_error(interaction, self.text.get("errors.not_in_game"))
+            await self._error(interaction, "errors.not_in_game")

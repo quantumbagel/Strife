@@ -25,6 +25,8 @@ from strife.persistence.pool import create_pool
 from strife.persistence.repositories import GuildRepository, MatchRepository, MoveRepository, UserRepository
 from strife.presentation.compiler import Compiler
 from strife.presentation.emoji import EmojiResolver
+from strife.presentation.user_error import UserErrorPresenter
+from strife.presentation.user_success import UserSuccessPresenter
 from strife.replay.profile import ProfileService
 from strife.replay.service import ReplayService
 from strife.routing.cache import InMemoryPayloadCache
@@ -73,6 +75,8 @@ class StrifeBot(commands.Bot):
         encoder = CustomIdEncoder(cache)
         compiler = Compiler(self.emoji, encoder)
         self.sessions = SessionRegistries()
+        user_errors = UserErrorPresenter(compiler, self.emoji, self.config.text, self.sessions)
+        user_success = UserSuccessPresenter(compiler, self.emoji, self.config.text)
 
         matches = MatchRepository(self.pool)
         moves = MoveRepository(self.pool)
@@ -105,10 +109,14 @@ class StrifeBot(commands.Bot):
         )
         self.lobby.lifecycle = self.lifecycle
 
-        self.replay = ReplayService(matches, moves, self.game_registry, compiler, self.config.text)
+        self.replay = ReplayService(
+            matches, moves, self.game_registry, compiler, self.config.text, user_errors
+        )
         self.profile = ProfileService(users, matches, compiler, self.config.text, self.replay)
         self.catalog = CatalogService(self.game_registry, self.config, compiler, self.emoji, self.config.text)
-        self.server_settings = ServerSettingsService(guilds, compiler, self.emoji, self.config.text)
+        self.server_settings = ServerSettingsService(
+            guilds, compiler, self.emoji, self.config.text, user_errors, user_success
+        )
 
         self.router = InteractionRouter(
             sessions=self.sessions,
@@ -120,6 +128,7 @@ class StrifeBot(commands.Bot):
             server_settings=self.server_settings,
             encoder=encoder,
             text=self.config.text,
+            user_errors=user_errors,
         )
 
         register_play(self.tree, self.lobby, self.game_registry)

@@ -115,7 +115,7 @@ async def send_ephemeral_error(
     *,
     timeout: float = 5.0,
 ) -> None:
-    """Sends an ephemeral plain-text message and schedules its deletion after a timeout."""
+    """Sends a short ephemeral toast (success/info). Do not use for user-facing errors."""
     if interaction.response.is_done():
         msg = await interaction.followup.send(content, ephemeral=True)
         if msg:

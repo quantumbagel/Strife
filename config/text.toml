@@ -6,12 +6,23 @@ error = "Something went wrong. Please try again."
 match_not_found = "Match not found."
 replay_unavailable = "Replay is unavailable for this match."
 replay_owner_only = "Open your own replay with /strife replay."
+error_fix = "How to fix:"
+success_next = "What's next:"
 prev = "Prev"
 next = "Next"
 first = "First"
 last = "Last"
 jump_page_label = "Page number"
 jump_page_placeholder = "Enter a page number..."
+
+[common_help]
+game_ended = "This match is over. Start a new game from the catalog or join an active lobby."
+not_your_turn = "Wait until it is your turn before interacting with the game board."
+forbidden = "You do not have permission for this action in the current context."
+error = "Try the action again. If it keeps failing, browse the catalog to start a fresh session."
+match_not_found = "Double-check the match code, or open your profile to find recent matches."
+replay_unavailable = "Replay data may be missing for older or incomplete matches."
+replay_owner_only = "Run `/strife replay` with a match code from one of your own completed games."
 
 [lobby]
 title = "Queueing for {game_name}..."
@@ -74,6 +85,18 @@ configure_option_placeholder = "Configure {title}..."
 reset_rules_label = "Reset Game Rules"
 end_lobby_label = "End Lobby"
 
+[lobby_success]
+left = "You can rejoin from the lobby message or start a new game from the catalog."
+bot_added = "Bots appear in the lobby roster until removed or replaced by players."
+bot_removed = "The lobby roster has been updated."
+closed = "The lobby has been closed."
+
+[lobby_help]
+creator_only = "Only the player who created this lobby can change settings, bots, or privacy."
+cannot_start = "Resolve the issue below, then press **Ready** again."
+closed = "This lobby has ended. Start a new game from the catalog."
+already_dead = "This lobby no longer exists. Start a new game from the catalog."
+
 [errors]
 already_in_session = "You are already in an active lobby or match."
 already_in_lobby = "You are already in this lobby."
@@ -94,6 +117,30 @@ need_players = "Need {describe} players"
 role_selection_incomplete = "Role selection incomplete."
 invalid_roles = "Invalid roles selected."
 not_all_ready = "Not all players are ready."
+browse_games = "Browse Games"
+go_to_lobby = "Go to Lobby"
+go_to_session = "Go to Session"
+open_settings = "Open Settings"
+open_profile = "Open Profile"
+
+[errors_help]
+already_in_session = "Leave or finish your current lobby or match before starting another."
+already_in_lobby = "You are already listed in this lobby. Use **Leave** on the lobby message if you want to exit."
+game_disabled = "That game is disabled on this server. Pick another game from the catalog."
+not_in_game = "Join or start a match first. If you are in a lobby, leave it or ready up to start."
+not_on_whitelist = "This is a private lobby. Ask {creator} to add you to the whitelist."
+blacklisted = "You cannot join this lobby. Contact {creator} if you think this is a mistake."
+not_in_lobby = "Open **/strife catalog** and press **Play Now**, or press **Join** on an existing lobby post."
+not_a_player = "Only players seated in this match can take that action."
+invalid_action = "That control is not available in the current game phase."
+rematch_not_eligible = "Only players from the finished match can vote for a rematch."
+rematch_expired = "The rematch window has closed. Start a new game from the catalog."
+rematch_unavailable = "A rematch cannot be offered right now. Start a new game from the catalog."
+no_session = "That session no longer exists. The button may be from an old message."
+need_players = "Invite more players to the lobby, or add bots if you are the lobby creator."
+role_selection_incomplete = "Every player must choose a role from the lobby role selector before readying up."
+invalid_roles = "Adjust role assignments so they satisfy the game's rules, then try again."
+not_all_ready = "Every human player in the lobby must press **Ready** before the game can start."
 
 [match]
 result_title = "{game_name} {forward} Result"
@@ -104,6 +151,9 @@ rematch_expired = "Rematch offer expired."
 forfeited = "You have forfeited."
 rematch_label = "Rematch"
 view_replay_label = "View Replay"
+
+[match_success]
+forfeited = "Results have been saved. Start a new game from the catalog whenever you are ready."
 
 [profile]
 title = "{name} - Profile"
@@ -130,6 +180,9 @@ warning = "{player} has {seconds}s left to move."
 
 [guild]
 channel_set = "Default channel set to {mention}"
+
+[guild_success]
+channel_set = "New public lobbies will default to posting in {mention}."
 
 [server]
 title = "### {logo} Strife {forward} {settings_emoji} Server Settings"
