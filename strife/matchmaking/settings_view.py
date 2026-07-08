@@ -146,7 +146,7 @@ def build_settings_view(
             ActionRow().add_user_select(
                 UserSelect(
                     source="add_blacklist",
-                    placeholder=text.get("lobby.add_blacklist_placeholder"),
+                    placeholder=text.get("lobby.add_blacklist_placeholder", ban_emoji=emoji.get("ban")),
                     route_prefix=P.LOBBY_ADD_BLACKLIST,
                     resource_id=lobby.thread_id,
                 )
@@ -158,7 +158,7 @@ def build_settings_view(
                 ActionRow().add_user_select(
                     UserSelect(
                         source="remove_blacklist",
-                        placeholder=text.get("lobby.remove_blacklist_placeholder"),
+                        placeholder=text.get("lobby.remove_blacklist_placeholder", unlock_emoji=emoji.get("unlock")),
                         route_prefix=P.LOBBY_REMOVE_BLACKLIST,
                         resource_id=lobby.thread_id,
                     )

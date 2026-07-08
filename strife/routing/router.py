@@ -141,6 +141,16 @@ class InteractionRouter:
         if session is None:
             await self._disable_and_report_ended(interaction, "common.game_ended")
             return
+
+        if route.source == "peek":
+            seat = session._seat_for_user(interaction.user.id)
+            if seat is None:
+                await interaction.response.send_message("You are not a player in this game.", ephemeral=True)
+                return
+            peek_text = session.game.peek_info(seat, session.ctx)
+            await interaction.response.send_message(peek_text, ephemeral=True)
+            return
+
         values = interaction.data.get("values") if interaction.data else None
         args = dict(route.payload)
         if values:

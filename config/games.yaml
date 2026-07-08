@@ -11,3 +11,15 @@ games:
     turn_timeout_seconds: 120
     settings_overrides:
       mafia_count_default: 2
+  connect_four:
+    enabled: true
+    turn_timeout_seconds: 60
+  liars_dice:
+    enabled: true
+    turn_timeout_seconds: 90
+  spyfall:
+    enabled: true
+    turn_timeout_seconds: 60
+  coup:
+    enabled: true
+    turn_timeout_seconds: 90

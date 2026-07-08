@@ -7,7 +7,7 @@ admin:
   id: 1524418807701962803
   animated: false
 ban:
-  fallback: null
+  fallback: 🚫
   id: 1524418808477909053
   animated: false
 clueless:
@@ -201,4 +201,68 @@ bot:
 restart:
   fallback: null
   id: 1524418850483998750
+  animated: false
+connect_four_red:
+  fallback: 🔴
+  id: null
+  animated: false
+connect_four_yellow:
+  fallback: 🟡
+  id: null
+  animated: false
+connect_four_empty:
+  fallback: ⚪
+  id: null
+  animated: false
+coup_duke:
+  fallback: 👑
+  id: null
+  animated: false
+coup_assassin:
+  fallback: 🗡️
+  id: null
+  animated: false
+coup_captain:
+  fallback: ⚓
+  id: null
+  animated: false
+coup_ambassador:
+  fallback: 💼
+  id: null
+  animated: false
+coup_contessa:
+  fallback: 🛡️
+  id: null
+  animated: false
+die_1:
+  fallback: ⚀
+  id: null
+  animated: false
+die_2:
+  fallback: ⚁
+  id: null
+  animated: false
+die_3:
+  fallback: ⚂
+  id: null
+  animated: false
+die_4:
+  fallback: ⚃
+  id: null
+  animated: false
+die_5:
+  fallback: ⚄
+  id: null
+  animated: false
+die_6:
+  fallback: ⚅
+  id: null
+  animated: false
+peek:
+  fallback: 👁️
+  id: null
+  animated: false
+unlock:
+  fallback: 🔓
+  id: null
   animated: false

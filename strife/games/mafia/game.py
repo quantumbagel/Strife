@@ -625,6 +625,11 @@ class Mafia(Game):
         if history_block:
             container.add_separator()
             container.add_text(TextDisplay(markdown_content=history_block))
+        
+        row = ActionRow()
+        row.add_button(Button(source="peek", label="Peek Role", emoji="peek", style=ButtonStyle.SECONDARY))
+        container.add_action_row(row)
+        
         view.add_container(container)
         return view
 
@@ -654,6 +659,11 @@ class Mafia(Game):
         choices.append(SelectChoice(label="Skip", value="skip"))
         row.add_select(Select(source="vote", placeholder="Cast your vote", choices=choices))
         container.add_action_row(row)
+
+        row2 = ActionRow()
+        row2.add_button(Button(source="peek", label="Peek Role", emoji="peek", style=ButtonStyle.SECONDARY))
+        container.add_action_row(row2)
+
         view.add_container(container)
         return view
 
@@ -727,3 +737,19 @@ class Mafia(Game):
     async def bot_move(self, difficulty: str, seat: int) -> Move:
         source, args = await asyncio.to_thread(choose_mafia_move, self, difficulty, seat)
         return Move(actor_seat=seat, source=source, args=args)
+
+    def peek_info(self, seat: int, ctx: GameContext) -> str:
+        role = self.role.get(seat, "unknown")
+        role_emoji = self._role_emoji(ctx, role)
+        instructions = next((r.instructions for r in self.metadata.roles if r.key == role), "")
+        
+        text = f"{role_emoji} **Your Role: {role.title()}**\n{instructions}"
+        if role == "mafia":
+            teammates = [
+                self._name(p.seat)
+                for p in self.players
+                if self.role.get(p.seat) == "mafia" and p.seat != seat
+            ]
+            if teammates:
+                text += f"\n\n**Mafia teammates:** {', '.join(teammates)}"
+        return text

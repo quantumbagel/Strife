@@ -251,6 +251,8 @@ class GameSession:
         await self._update_surface(view)
 
         if until == "any":
+            if not futures:
+                return results
             done, pending_futures = await asyncio.wait(
                 futures.values(), return_when=asyncio.FIRST_COMPLETED
             )

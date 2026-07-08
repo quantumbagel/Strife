@@ -7,6 +7,9 @@ from strife.engine.game import Game
 from strife.engine.metadata import GameMetadata
 from strife.engine.players import Player
 from strife.engine.roles import assign_roles
+from strife.logging import get_logger
+
+log = get_logger("engine.registry")
 
 
 class GameRegistry:
@@ -14,15 +17,31 @@ class GameRegistry:
         self._games: dict[str, type[Game]] = {}
 
     def register(self, game_cls: type[Game]) -> None:
-        key = game_cls.metadata.key
-        if key in self._games:
-            raise ValueError(f"Duplicate game key: {key}")
-        self._games[key] = game_cls
+        try:
+            if not hasattr(game_cls, "metadata") or game_cls.metadata is None:
+                log.error("Failed to register game module %s: Class is missing 'metadata' attribute.", game_cls.__name__)
+                return
+            metadata = game_cls.metadata
+            if not hasattr(metadata, "key") or not metadata.key:
+                log.error("Failed to register game module %s: Metadata is missing 'key' attribute.", game_cls.__name__)
+                return
+            key = metadata.key
+            if key in self._games:
+                log.warning("Duplicate game key '%s' detected during registration of %s. Skipping duplicate registration.", key, game_cls.__name__)
+                return
+            self._games[key] = game_cls
+            log.info("Successfully registered game module: %s (%s)", metadata.name, key)
+        except Exception as e:
+            log.exception("Unexpected error registering game class %s: %s", game_cls.__name__, e)
 
     def get(self, key: str) -> type[Game]:
+        if key not in self._games:
+            raise KeyError(f"Game '{key}' is not registered or failed configuration.")
         return self._games[key]
 
     def metadata(self, key: str) -> GameMetadata:
+        if key not in self._games:
+            raise KeyError(f"Game '{key}' is not registered or failed configuration.")
         return self._games[key].metadata
 
     def all(self) -> list[GameMetadata]:

@@ -38,3 +38,6 @@ class Game(ABC):
     async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
         return None
 
+    def peek_info(self, seat: int, ctx: GameContext) -> str:
+        return "This game does not contain any secret roles or hidden information."
+
