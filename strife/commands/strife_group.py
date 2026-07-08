@@ -107,15 +107,10 @@ def register_strife_group(
             if match.status != "completed":
                 continue
             game_name = registry.metadata(match.game_key).name
-            
-            # Format players count
-            players_str = f"{match.player_count} players" if match.player_count is not None else ""
-            
-            # Format exact start time (UTC)
-            start_time = match.started_at or match.created_at
-            started_str = "Started: " + start_time.strftime("%Y-%m-%d %H:%M:%S UTC")
-            
-            # Format length/duration
+
+            result = getattr(match, "result", None)
+            result_str = result.capitalize() if result else ""
+
             duration_str = ""
             if match.started_at and match.ended_at:
                 diff = match.ended_at - match.started_at
@@ -124,15 +119,19 @@ def register_strife_group(
                 duration_str = f"{mins}m {secs}s"
             elif match.total_turns:
                 duration_str = f"{match.total_turns} turns"
-                
+
+            start_time = match.started_at or match.created_at
+
             parts = [f"#{match.code}", game_name]
-            if players_str:
-                parts.append(players_str)
-            parts.append(started_str)
+            if result_str:
+                parts.append(result_str)
+            if match.player_count is not None:
+                parts.append(f"{match.player_count} players")
             if duration_str:
                 parts.append(duration_str)
-            label = " - ".join(parts)
-            
+            parts.append(start_time.strftime("%Y-%m-%d"))
+            label = " · ".join(parts)
+
             if current.lower() not in label.lower() and current.lower() not in match.code.lower():
                 continue
             choices.append(app_commands.Choice(name=label[:100], value=match.code))

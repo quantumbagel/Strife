@@ -109,131 +109,78 @@ def build_settings_view(
     )
     container.add_action_row(reset_priv)
 
-    # Access Lists (Whitelist & Blacklist) Management
+    # Access Lists (Blacklist) Management
     if interaction and interaction.guild:
         guild = interaction.guild
-        members = guild.members
-        
-        # Exclude bot itself and the lobby creator from candidates
-        bot_user_id = guild.me.id if guild.me else None
-        candidates = [
-            m for m in members 
-            if not m.bot and m.id != lobby.creator_id and m.id != bot_user_id
-        ]
-        candidates.sort(key=lambda m: m.display_name.lower())
 
-        # Whitelist & Blacklist Display Names
         def get_member_name(uid: int) -> str:
             member = guild.get_member(uid)
             return member.display_name if member else f"User ID: {uid}"
 
         container.add_separator()
         if lobby.private:
-            wl_names = [get_member_name(uid) for uid in lobby.whitelist]
-            wl_str = ", ".join(wl_names) if wl_names else "_None_"
             container.add_text(
                 TextDisplay(
-                    markdown_content=(
-                        f"{text.get('lobby.access_control_title', user_emoji=emoji.get('user'))}\n"
-                        f"{text.get('lobby.whitelisted_label', whitelist=wl_str)}"
+                    markdown_content=text.get(
+                        "lobby.private_access_summary",
+                        approved=len(lobby.approved),
+                        pending=len(lobby.pending_requests),
                     ),
                     size_style=TextSize.SUBHEADER,
                 )
             )
 
-            # Whitelist Add Selector
+        bl_names = [get_member_name(uid) for uid in lobby.blacklist]
+        bl_str = ", ".join(bl_names) if bl_names else "_None_"
+        container.add_text(
+            TextDisplay(
+                markdown_content=(
+                    f"{text.get('lobby.access_control_title', user_emoji=emoji.get('user'))}\n"
+                    f"{text.get('lobby.blacklisted_label', blacklist=bl_str)}"
+                ),
+                size_style=TextSize.SUBHEADER,
+            )
+        )
+
+        container.add_action_row(
+            ActionRow().add_user_select(
+                UserSelect(
+                    source="add_blacklist",
+                    placeholder=text.get("lobby.add_blacklist_placeholder"),
+                    route_prefix=P.LOBBY_ADD_BLACKLIST,
+                    resource_id=lobby.thread_id,
+                )
+            )
+        )
+
+        if lobby.blacklist:
             container.add_action_row(
                 ActionRow().add_user_select(
                     UserSelect(
-                        source="add_whitelist",
-                        placeholder=text.get("lobby.add_whitelist_placeholder"),
-                        route_prefix=P.LOBBY_ADD_WHITELIST,
+                        source="remove_blacklist",
+                        placeholder=text.get("lobby.remove_blacklist_placeholder"),
+                        route_prefix=P.LOBBY_REMOVE_BLACKLIST,
                         resource_id=lobby.thread_id,
                     )
                 )
             )
-
-            # Whitelist Remove Selector
-            if lobby.whitelist:
-                container.add_action_row(
-                    ActionRow().add_select(
-                        Select(
-                            source="remove_whitelist",
-                            placeholder=text.get("lobby.remove_whitelist_placeholder"),
-                            choices=[
-                                SelectChoice(
-                                    label=get_member_name(uid),
-                                    value=str(uid),
-                                    description=text.get("lobby.revoke_join_desc"),
-                                    emoji="error",
-                                )
-                                for uid in lobby.whitelist
-                            ][:25],
-                            route_prefix=P.LOBBY_REMOVE_WHITELIST,
-                            resource_id=lobby.thread_id,
-                        )
-                    )
-                )
-        else:
-            bl_names = [get_member_name(uid) for uid in lobby.blacklist]
-            bl_str = ", ".join(bl_names) if bl_names else "_None_"
-            container.add_text(
-                TextDisplay(
-                    markdown_content=(
-                        f"{text.get('lobby.access_control_title', user_emoji=emoji.get('user'))}\n"
-                        f"{text.get('lobby.blacklisted_label', blacklist=bl_str)}"
-                    ),
-                    size_style=TextSize.SUBHEADER,
-                )
-            )
-
-            # Blacklist Add Selector
-            container.add_action_row(
-                ActionRow().add_user_select(
-                    UserSelect(
-                        source="add_blacklist",
-                        placeholder=text.get("lobby.add_blacklist_placeholder"),
-                        route_prefix=P.LOBBY_ADD_BLACKLIST,
-                        resource_id=lobby.thread_id,
-                    )
-                )
-            )
-
-            # Blacklist Remove Selector
-            if lobby.blacklist:
-                container.add_action_row(
-                    ActionRow().add_select(
-                        Select(
-                            source="remove_blacklist",
-                            placeholder=text.get("lobby.remove_blacklist_placeholder"),
-                            choices=[
-                                SelectChoice(
-                                    label=get_member_name(uid),
-                                    value=str(uid),
-                                    description=text.get("lobby.allow_join_again_desc"),
-                                    emoji="success",
-                                )
-                                for uid in lobby.blacklist
-                            ][:25],
-                            route_prefix=P.LOBBY_REMOVE_BLACKLIST,
-                            resource_id=lobby.thread_id,
-                        )
-                    )
-                )
     else:
         container.add_separator()
         if lobby.private:
             container.add_text(
                 TextDisplay(
-                    markdown_content=text.get("lobby.whitelist_count", count=len(lobby.whitelist))
+                    markdown_content=text.get(
+                        "lobby.private_access_summary",
+                        approved=len(lobby.approved),
+                        pending=len(lobby.pending_requests),
+                    )
                 )
             )
-        else:
-            container.add_text(
-                TextDisplay(
-                    markdown_content=text.get("lobby.blacklist_count", count=len(lobby.blacklist))
-                )
+        container.add_text(
+            TextDisplay(
+                markdown_content=text.get("lobby.blacklist_count", count=len(lobby.blacklist))
             )
+        )
 
     # Game Settings Section
     if meta.settings:

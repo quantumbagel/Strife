@@ -163,7 +163,9 @@ class InteractionRouter:
             await self._error(interaction, "common.error")
             return
         if route.source == "open" or route.payload.get("fresh"):
-            await self.replay.open(interaction, route.resource_id)
+            values = interaction.data.get("values") if interaction.data else None
+            target = values[0] if values else route.resource_id
+            await self.replay.open(interaction, target)
             return
         owner_id = int(route.payload.get("owner", interaction.user.id))
         if "owner" in route.payload and owner_id != interaction.user.id:

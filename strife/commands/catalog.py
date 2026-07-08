@@ -49,12 +49,21 @@ class CatalogService:
         container = Container()
 
         logo = self.emoji.get("logo")
+        forward = self.emoji.get("forward")
+        game_emoji = self.emoji.get("game")
         container.add_text(
             TextDisplay(
-                markdown_content=f"### {logo} {self.text.get('catalog.title')}",
+                markdown_content=self.text.get("catalog.header", logo=logo, forward=forward),
                 size_style=TextSize.HEADER,
             )
         )
+        container.add_text(
+            TextDisplay(
+                markdown_content=f"-# {game_emoji} {self.text.get('catalog.subtitle', count=len(games))}",
+                size_style=TextSize.BODY,
+            )
+        )
+        container.add_separator(Separator(visible=False))
         container.add_separator()
 
         if not games:
@@ -69,7 +78,7 @@ class CatalogService:
             if idx > 0:
                 container.add_separator()
 
-            game_emoji = self.emoji.get_game_emoji(meta.key)
+            entry_emoji = self.emoji.get_game_emoji(meta.key)
             user_emoji = self.emoji.get("user")
             time_emoji = self.emoji.get("time")
             diff_emoji = self.emoji.get("difficulty")
@@ -89,7 +98,7 @@ class CatalogService:
             section.add_text(
                 TextDisplay(
                     markdown_content=(
-                        f"{game_emoji} **{meta.name}**\n"
+                        f"{entry_emoji} **{meta.name}**\n"
                         f"{meta.summary}\n"
                         f"-# {user_emoji} {meta.player_count.describe()} • {time_emoji} {meta.time_estimate} • {diff_emoji} {diff_display}"
                     ),
@@ -98,39 +107,40 @@ class CatalogService:
             )
             container.add_section(section)
 
-        nav = ActionRow()
-        nav.add_button(
-            Button(
-                source="prev",
-                label=self.text.get("common.prev"),
-                style=ButtonStyle.SECONDARY,
-                emoji="previous",
-                route_prefix=P.CAT_NAV,
-                payload={"page": max(0, page - 1)},
-                disabled=page <= 0,
+        if pages > 1:
+            nav = ActionRow()
+            nav.add_button(
+                Button(
+                    source="prev",
+                    label=self.text.get("common.prev"),
+                    style=ButtonStyle.SECONDARY,
+                    emoji="previous",
+                    route_prefix=P.CAT_NAV,
+                    payload={"page": max(0, page - 1)},
+                    disabled=page <= 0,
+                )
             )
-        )
-        nav.add_button(
-            Button(
-                source="jump",
-                label=self.text.get("catalog.page", page=page + 1, pages=pages),
-                style=ButtonStyle.SECONDARY,
-                route_prefix=P.CAT_NAV,
-                payload={"jump": True, "pages": pages, "page": page},
+            nav.add_button(
+                Button(
+                    source="jump",
+                    label=self.text.get("catalog.page", page=page + 1, pages=pages),
+                    style=ButtonStyle.SECONDARY,
+                    route_prefix=P.CAT_NAV,
+                    payload={"jump": True, "pages": pages, "page": page},
+                )
             )
-        )
-        nav.add_button(
-            Button(
-                source="next",
-                label=self.text.get("common.next"),
-                style=ButtonStyle.SECONDARY,
-                emoji="next",
-                route_prefix=P.CAT_NAV,
-                payload={"page": min(pages - 1, page + 1)},
-                disabled=page >= pages - 1,
+            nav.add_button(
+                Button(
+                    source="next",
+                    label=self.text.get("common.next"),
+                    style=ButtonStyle.SECONDARY,
+                    emoji="next",
+                    route_prefix=P.CAT_NAV,
+                    payload={"page": min(pages - 1, page + 1)},
+                    disabled=page >= pages - 1,
+                )
             )
-        )
-        container.add_action_row(nav)
+            container.add_action_row(nav)
         view.add_container(container)
         return view
 

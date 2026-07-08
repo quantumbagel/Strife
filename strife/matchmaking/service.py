@@ -225,8 +225,8 @@ class LobbyService:
                 P.LOBBY_OPT: self._option,
                 P.LOBBY_RESET_RULES: self._reset_rules,
                 P.LOBBY_END: self._end,
-                P.LOBBY_ADD_WHITELIST: self._add_whitelist,
-                P.LOBBY_REMOVE_WHITELIST: self._remove_whitelist,
+                P.LOBBY_APPROVE: self._approve,
+                P.LOBBY_DENY: self._deny,
                 P.LOBBY_ADD_BLACKLIST: self._add_blacklist,
                 P.LOBBY_REMOVE_BLACKLIST: self._remove_blacklist,
             }.get(route.prefix)
@@ -259,6 +259,21 @@ class LobbyService:
                     return
                 raise
 
+    async def _seat_member(
+        self, lobby: Lobby, user_id: int, display_name: str, interaction: discord.Interaction
+    ) -> bool:
+        if not await self.registries.reserve_user(
+            user_id, UserLocation("lobby", lobby.thread_id, lobby.guild_id)
+        ):
+            await self._error(
+                interaction,
+                "errors.already_in_session",
+                user_id=user_id,
+            )
+            return False
+        lobby.members.append(LobbyMember(user_id, display_name))
+        return True
+
     async def _join(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
@@ -266,22 +281,30 @@ class LobbyService:
         if any(m.user_id == user.id for m in lobby.members):
             await self._error(interaction, "errors.already_in_lobby", lobby=lobby)
             return
-        if lobby.private and lobby.whitelist and user.id not in lobby.whitelist:
-            await self._error(interaction, "errors.not_on_whitelist", lobby=lobby)
-            return
         if user.id in lobby.blacklist:
             await self._error(interaction, "errors.blacklisted", lobby=lobby)
             return
-        if not await self.registries.reserve_user(
-            user.id, UserLocation("lobby", lobby.thread_id, lobby.guild_id)
-        ):
-            await self._error(
+
+        if lobby.private and user.id not in lobby.approved:
+            if user.id in lobby.denied:
+                await self._error(interaction, "errors.request_denied", lobby=lobby)
+                return
+            if user.id in lobby.pending_requests:
+                await self._error(interaction, "errors.request_pending", lobby=lobby)
+                return
+            lobby.pending_requests[user.id] = user.display_name
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True)
+            await self._refresh(lobby, interaction)
+            await self._success(
                 interaction,
-                "errors.already_in_session",
-                user_id=user.id,
+                "lobby.request_sent",
+                creator=f"<@{lobby.creator_id}>",
             )
             return
-        lobby.members.append(LobbyMember(user.id, user.display_name))
+
+        if not await self._seat_member(lobby, user.id, user.display_name, interaction):
+            return
         await self._refresh(lobby, interaction)
 
     async def _leave(
@@ -413,6 +436,7 @@ class LobbyService:
             view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
         )
         await interaction.edit_original_response(view=compiled)
+        await self._refresh(lobby, interaction)
 
     async def _reset_privacy(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
@@ -421,7 +445,9 @@ class LobbyService:
             await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
         lobby.private = False
-        lobby.whitelist.clear()
+        lobby.approved.clear()
+        lobby.pending_requests.clear()
+        lobby.denied.clear()
         lobby.blacklist.clear()
         await interaction.response.defer(ephemeral=True)
         meta = self._meta(lobby.game_key)
@@ -430,6 +456,7 @@ class LobbyService:
             view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
         )
         await interaction.edit_original_response(view=compiled)
+        await self._refresh(lobby, interaction)
 
     async def _option(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
@@ -496,7 +523,7 @@ class LobbyService:
             return
         await self._teardown(lobby, interaction)
 
-    async def _add_whitelist(
+    async def _approve(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
         if interaction.user.id != lobby.creator_id:
@@ -505,17 +532,14 @@ class LobbyService:
         values = interaction.data.get("values") if interaction.data else []
         if values:
             target_id = int(values[0])
-            lobby.whitelist.add(target_id)
-            lobby.blacklist.discard(target_id)
-        await interaction.response.defer(ephemeral=True)
-        meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
-        compiled = self.compiler.compile(
-            view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
-        )
-        await interaction.edit_original_response(view=compiled)
+            display_name = lobby.pending_requests.pop(target_id, f"User {target_id}")
+            lobby.approved.add(target_id)
+            lobby.denied.discard(target_id)
+            if not any(m.user_id == target_id for m in lobby.members):
+                await self._seat_member(lobby, target_id, display_name, interaction)
+        await self._refresh(lobby, interaction)
 
-    async def _remove_whitelist(
+    async def _deny(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
         if interaction.user.id != lobby.creator_id:
@@ -524,14 +548,9 @@ class LobbyService:
         values = interaction.data.get("values") if interaction.data else []
         if values:
             target_id = int(values[0])
-            lobby.whitelist.discard(target_id)
-        await interaction.response.defer(ephemeral=True)
-        meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
-        compiled = self.compiler.compile(
-            view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
-        )
-        await interaction.edit_original_response(view=compiled)
+            lobby.pending_requests.pop(target_id, None)
+            lobby.denied.add(target_id)
+        await self._refresh(lobby, interaction)
 
     async def _add_blacklist(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
@@ -543,8 +562,12 @@ class LobbyService:
         kicked = False
         if values:
             target_id = int(values[0])
+            if target_id == lobby.creator_id:
+                await self._error(interaction, "errors.cannot_blacklist_self", lobby=lobby)
+                return
             lobby.blacklist.add(target_id)
-            lobby.whitelist.discard(target_id)
+            lobby.approved.discard(target_id)
+            lobby.pending_requests.pop(target_id, None)
             if any(m.user_id == target_id for m in lobby.members):
                 lobby.members = [m for m in lobby.members if m.user_id != target_id]
                 lobby.ready.discard(target_id)
@@ -569,6 +592,9 @@ class LobbyService:
         values = interaction.data.get("values") if interaction.data else []
         if values:
             target_id = int(values[0])
+            if target_id not in lobby.blacklist:
+                await self._error(interaction, "errors.not_blacklisted", lobby=lobby)
+                return
             lobby.blacklist.discard(target_id)
         await interaction.response.defer(ephemeral=True)
         meta = self._meta(lobby.game_key)
@@ -713,7 +739,7 @@ class LobbyService:
             start_container.add_separator(Separator(visible=False))
             start_container.add_text(
                 TextDisplay(
-                    markdown_content=f"-# {self.emoji.get('loading')} {self.text.get('lobby.starting_game', game_name=meta.name)}",
+                    markdown_content=f"-# {self.emoji.get('loading')} {self.text.get('lobby.game_in_progress')}",
                     size_style=TextSize.BODY,
                 )
             )
@@ -826,6 +852,10 @@ class LobbyService:
             return
         if private is not None:
             lobby.private = private
+            meta = self._meta(lobby.game_key)
+            view = build_lobby_view(lobby, meta, self.emoji, self.text)
+            if lobby.surface:
+                await lobby.surface.update(view)
         await self._settings(
             lobby, Route(P.LOBBY_SETTINGS, lobby.thread_id, "settings", {}), interaction
         )

@@ -93,6 +93,17 @@ def build_lobby_view(
     )
     container.add_separator()
 
+    if lobby.private:
+        container.add_text(
+            TextDisplay(
+                markdown_content=text.get(
+                    "lobby.private_indicator",
+                    private_emoji=emoji.get("private"),
+                ),
+                size_style=TextSize.BODY,
+            )
+        )
+
     roster_lines = []
     settings = get_settings()
     for member in lobby.members:
@@ -133,8 +144,13 @@ def build_lobby_view(
     ready_style = ButtonStyle.SUCCESS if can_r else ButtonStyle.PRIMARY
 
     controls = ActionRow()
+    join_label = (
+        text.get("lobby.request_join_button")
+        if lobby.private
+        else text.get("lobby.join_button")
+    )
     controls.add_button(
-        Button(source="join", label=text.get("lobby.join_button"), style=join_style, emoji="join", route_prefix=P.LOBBY_JOIN)
+        Button(source="join", label=join_label, style=join_style, emoji="join", route_prefix=P.LOBBY_JOIN)
     )
     controls.add_button(
         Button(source="leave", label=text.get("lobby.leave_button"), style=ButtonStyle.SECONDARY, emoji="leave", route_prefix=P.LOBBY_LEAVE)
@@ -167,6 +183,58 @@ def build_lobby_view(
 
     # Controls added to the container instead of the view
     container.add_action_row(controls)
+
+    if lobby.pending_requests:
+        container.add_separator()
+        container.add_text(
+            TextDisplay(
+                markdown_content=text.get(
+                    "lobby.join_requests_title",
+                    count=len(lobby.pending_requests),
+                    user_emoji=emoji.get("user"),
+                ),
+                size_style=TextSize.SUBHEADER,
+            )
+        )
+        pending_items = list(lobby.pending_requests.items())[:25]
+        approve_row = ActionRow()
+        approve_row.add_select(
+            Select(
+                source="approve",
+                placeholder=text.get("lobby.approve_request_placeholder"),
+                choices=[
+                    SelectChoice(
+                        label=name,
+                        value=str(uid),
+                        description=text.get("lobby.approve_request_desc"),
+                        emoji="success",
+                    )
+                    for uid, name in pending_items
+                ],
+                route_prefix=P.LOBBY_APPROVE,
+                resource_id=lobby.thread_id,
+            )
+        )
+        container.add_action_row(approve_row)
+        deny_row = ActionRow()
+        deny_row.add_select(
+            Select(
+                source="deny",
+                placeholder=text.get("lobby.deny_request_placeholder"),
+                choices=[
+                    SelectChoice(
+                        label=name,
+                        value=str(uid),
+                        description=text.get("lobby.deny_request_desc"),
+                        emoji="error",
+                    )
+                    for uid, name in pending_items
+                ],
+                route_prefix=P.LOBBY_DENY,
+                resource_id=lobby.thread_id,
+            )
+        )
+        container.add_action_row(deny_row)
 
     if meta.role_flow.value == "selectable":
         role_members = lobby.members[:8]

@@ -114,7 +114,9 @@ class StrifeBot(commands.Bot):
         self.replay = ReplayService(
             matches, moves, self.game_registry, compiler, self.config.text, user_errors
         )
-        self.profile = ProfileService(users, matches, compiler, self.config.text, self.replay)
+        self.profile = ProfileService(
+            users, matches, compiler, self.config.text, self.game_registry, self.replay
+        )
         self.catalog = CatalogService(self.game_registry, self.config, compiler, self.emoji, self.config.text)
         self.server_settings = ServerSettingsService(
             guilds, compiler, self.emoji, self.config.text, user_errors, user_success

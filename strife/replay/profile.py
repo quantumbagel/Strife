@@ -5,6 +5,7 @@ import math
 import discord
 
 from strife.config.text import TextConfig
+from strife.engine.registry import GameRegistry
 from strife.persistence.repositories import MatchRepository, UserRepository
 from strife.presentation.compiler import Compiler
 from strife.presentation.components import (
@@ -13,6 +14,8 @@ from strife.presentation.components import (
     ButtonStyle,
     Container,
     LayoutView,
+    Select,
+    SelectChoice,
     Separator,
     TextDisplay,
     TextSize,
@@ -30,14 +33,63 @@ class ProfileService:
         matches: MatchRepository,
         compiler: Compiler,
         text: TextConfig,
+        registry: GameRegistry | None = None,
         replay: ReplayService | None = None,
     ) -> None:
         self.users = users
         self.matches = matches
         self.compiler = compiler
         self.text = text
+        self.registry = registry
         self.replay = replay
         self._page_size = 6
+
+    def _game_name(self, game_key: str) -> str | None:
+        if self.registry is None:
+            return None
+        try:
+            return self.registry.metadata(game_key).name
+        except KeyError:
+            return None
+
+    @staticmethod
+    def _duration_str(m) -> str | None:
+        if m.started_at and m.ended_at:
+            seconds = int((m.ended_at - m.started_at).total_seconds())
+            mins, secs = divmod(seconds, 60)
+            return f"{mins}m {secs}s"
+        if m.total_turns:
+            return f"{m.total_turns} turns"
+        return None
+
+    def _result_desc(self, m) -> tuple[str, str]:
+        """Return (status_emoji_name, player-facing result description)."""
+        result = getattr(m, "result", None)
+        seat_index = getattr(m, "seat_index", None)
+
+        if m.status == "completed":
+            summary = m.outcome.get("summary") or m.outcome
+            player_descriptions = summary.get("player_descriptions", {})
+            player_desc = None
+            if seat_index is not None:
+                player_desc = player_descriptions.get(str(seat_index))
+            if not player_desc:
+                if result == "win":
+                    player_desc = self.text.get("profile.result_win")
+                elif result == "loss":
+                    player_desc = self.text.get("profile.result_loss")
+                elif result == "draw":
+                    player_desc = self.text.get("profile.result_draw")
+                else:
+                    player_desc = (
+                        result.capitalize()
+                        if result
+                        else self.text.get("profile.result_completed")
+                    )
+            return "success", player_desc
+        if m.status == "abandoned":
+            return "error", self.text.get("profile.result_abandoned")
+        return "loading", self.text.get("profile.result_active")
 
     def _build_view(
         self,
@@ -51,93 +103,92 @@ class ProfileService:
         rate: int,
     ) -> LayoutView:
         view = LayoutView()
-        suffix = f" ({game})" if game else ""
         container = Container()
 
         emoji = self.compiler.emoji
+        text = self.text
         user_emoji = emoji.get("user")
         forward = emoji.get("forward")
+
+        header = f"### {user_emoji} {text.get('profile.title', name=user.display_name, forward=forward)}"
+        if game:
+            game_name = self._game_name(game) or game
+            header += f" {forward} {emoji.get_game_emoji(game)} {game_name}"
         container.add_text(
             TextDisplay(
-                markdown_content=f"### {user_emoji} {self.text.get('profile.title', name=user.display_name)}{suffix}",
+                markdown_content=header,
                 size_style=TextSize.HEADER,
             )
         )
+        container.add_separator(Separator(visible=False))
 
-        diff_emoji = emoji.get("difficulty")
-        stats_str = self.text.get(
+        stats_line = text.get(
             "profile.stats",
+            success=emoji.get("success"),
+            error=emoji.get("error"),
+            hmm=emoji.get("hmm"),
             wins=stats.wins,
             losses=stats.losses,
             draws=stats.draws,
-            played=stats.played,
-            rate=rate,
         )
+        stats_sub = text.get("profile.stats_sub", played=stats.played, rate=rate)
         container.add_text(
             TextDisplay(
-                markdown_content=f"{diff_emoji} **Stats Summary**\n{stats_str}",
+                markdown_content=(
+                    f"{emoji.get('difficulty')} **{text.get('profile.stats_title')}**\n"
+                    f"{stats_line}\n"
+                    f"-# {emoji.get('game')} {stats_sub}"
+                ),
                 size_style=TextSize.BODY,
             )
         )
         container.add_separator()
 
         game_emoji = emoji.get("game")
+        replay_choices: list[SelectChoice] = []
         if matches:
             lines = []
             for m in matches:
                 g_emoji = emoji.get_game_emoji(m.game_key)
                 role_key = getattr(m, "role_key", None)
-                seat_index = getattr(m, "seat_index", None)
-                result = getattr(m, "result", None)
-
-                if m.status == "completed":
-                    status_emoji = emoji.get("success")
-                    summary = m.outcome.get("summary") or m.outcome
-                    player_descriptions = summary.get("player_descriptions", {})
-                    player_desc = None
-                    if seat_index is not None:
-                        player_desc = player_descriptions.get(str(seat_index))
-                    if not player_desc:
-                        if result == "win":
-                            player_desc = "Win"
-                        elif result == "loss":
-                            player_desc = "Loss"
-                        elif result == "draw":
-                            player_desc = "Draw"
-                        else:
-                            player_desc = result.capitalize() if result else "Completed"
-                elif m.status == "abandoned":
-                    status_emoji = emoji.get("error")
-                    player_desc = "Abandoned"
-                else:
-                    status_emoji = emoji.get("loading")
-                    player_desc = "Active"
+                status_emoji_name, player_desc = self._result_desc(m)
+                status_emoji = emoji.get(status_emoji_name)
 
                 role_suffix = f" ({role_key.title()})" if role_key else ""
-                
-                # Format players count
-                players_str = f" | {m.player_count} players" if m.player_count is not None else ""
-                
-                # Format exact start time (UTC)
+
+                players_str = ""
+                if m.player_count is not None:
+                    players_str = f" • {text.get('profile.players_count', count=m.player_count)}"
+
                 start_time = m.started_at or m.created_at
-                ts = int(start_time.timestamp())
-                started_str = f" <t:{ts}:R>"
-                
-                # Format length/duration
-                duration_str = ""
-                if m.started_at and m.ended_at:
-                    diff = m.ended_at - m.started_at
-                    seconds = int(diff.total_seconds())
-                    mins, secs = divmod(seconds, 60)
-                    duration_str = f" ({mins}m {secs}s)"
-                elif m.total_turns:
-                    duration_str = f" ({m.total_turns} turns)"
-                
+                started_str = f" • <t:{int(start_time.timestamp())}:R>"
+
+                duration = self._duration_str(m)
+                duration_str = f" ({duration})" if duration else ""
+
                 lines.append(
                     f"{g_emoji} `#{m.code}` {status_emoji} {player_desc}{role_suffix}{players_str}{started_str}{duration_str}"
                 )
 
-            recent_title = self.text.get("profile.recent", page=page + 1, pages=pages)
+                if m.status == "completed":
+                    game_name = self._game_name(m.game_key) or m.game_key
+                    desc_parts = [player_desc]
+                    if m.player_count is not None:
+                        desc_parts.append(
+                            text.get("profile.players_count", count=m.player_count)
+                        )
+                    if duration:
+                        desc_parts.append(duration)
+                    replay_choices.append(
+                        SelectChoice(
+                            label=f"#{m.code} — {game_name}",
+                            value=m.code,
+                            description=" • ".join(desc_parts),
+                            emoji="spectate",
+                        )
+                    )
+
+            recent_title = text.get("profile.recent", page=page + 1, pages=pages)
             container.add_text(
                 TextDisplay(
                     markdown_content=f"{game_emoji} **{recent_title}**\n" + "\n".join(lines),
@@ -148,17 +199,30 @@ class ProfileService:
             container.add_text(
                 TextDisplay(
                     markdown_content=(
-                        f"{game_emoji} **Recent Matches**\n{self.text.get('profile.no_matches')}"
+                        f"{game_emoji} **{text.get('profile.recent_title')}**\n"
+                        f"{text.get('profile.no_matches')}"
                     ),
                     size_style=TextSize.BODY,
                 )
             )
 
+        if replay_choices:
+            replay_row = ActionRow()
+            replay_row.add_select(
+                Select(
+                    source="open",
+                    placeholder=text.get("profile.replay_select_placeholder"),
+                    choices=replay_choices,
+                    route_prefix=P.R_NAV,
+                )
+            )
+            container.add_action_row(replay_row)
+
         nav = ActionRow()
         nav.add_button(
             Button(
                 source="prev",
-                label=self.text.get("common.prev"),
+                label=text.get("common.prev"),
                 style=ButtonStyle.SECONDARY,
                 emoji="previous",
                 route_prefix=P.PROF_NAV,
@@ -169,7 +233,7 @@ class ProfileService:
         nav.add_button(
             Button(
                 source="jump",
-                label=self.text.get("catalog.page", page=page + 1, pages=pages),
+                label=text.get("catalog.page", page=page + 1, pages=pages),
                 style=ButtonStyle.SECONDARY,
                 route_prefix=P.PROF_NAV,
                 payload={"game": game, "jump": True, "pages": pages, "page": page, "user": user.id},
@@ -178,7 +242,7 @@ class ProfileService:
         nav.add_button(
             Button(
                 source="next",
-                label=self.text.get("common.next"),
+                label=text.get("common.next"),
                 style=ButtonStyle.SECONDARY,
                 emoji="next",
                 route_prefix=P.PROF_NAV,
@@ -254,7 +318,7 @@ class ProfileService:
             await self.show(modal_interaction, user, game, new_page, edit=True)
 
         modal = PageJumpModal(
-            title=self.text.get("profile.title", name=interaction.user.display_name),
+            title=self.text.get("profile.jump_modal_title"),
             label=self.text.get("common.jump_page_label"),
             placeholder=self.text.get("common.jump_page_placeholder"),
             current=page + 1,

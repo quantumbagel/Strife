@@ -30,6 +30,31 @@ def _merge_frame_into(container: Container, frame_view: LayoutView | None) -> No
             container.children.append(child)
 
 
+def _meta_line(match: MatchDetail, emoji: EmojiResolver) -> str | None:
+    parts: list[str] = []
+
+    player_labels = [
+        player_mention(
+            user_id=p.user_id,
+            display_name=p.display_name,
+            is_bot=p.is_bot,
+        )
+        for p in sorted(match.players, key=lambda p: p.seat_index)
+    ]
+    if player_labels:
+        joiner = " vs " if len(player_labels) == 2 else ", "
+        parts.append(f"{emoji.get('user')} {joiner.join(player_labels)}")
+
+    if match.started_at and match.ended_at:
+        seconds = int((match.ended_at - match.started_at).total_seconds())
+        mins, secs = divmod(seconds, 60)
+        parts.append(f"{emoji.get('timer')} {mins}m {secs}s")
+
+    if not parts:
+        return None
+    return " • ".join(parts)
+
+
 def build_replay_view(
     match: MatchDetail,
     frame_index: int,
@@ -39,6 +64,7 @@ def build_replay_view(
     frame_view: LayoutView | None = None,
     takeover_info: dict | None = None,
     timestamp: datetime | None = None,
+    turn_label: str | None = None,
     text: TextConfig,
     game_name: str,
     emoji: EmojiResolver,
@@ -55,12 +81,22 @@ def build_replay_view(
         )
     )
 
+    meta = _meta_line(match, emoji)
+    if meta:
+        container.add_text(
+            TextDisplay(
+                markdown_content=f"-# {meta}",
+                size_style=TextSize.BODY,
+            )
+        )
+
     outcome_dict = match.outcome or {}
     summary = outcome_dict.get("summary") or outcome_dict
     winner_seat = summary.get("winner")
+    description = outcome_dict.get("description") or summary.get("description")
 
-    if "description" in summary:
-        outcome_text = summary["description"]
+    if description:
+        outcome_text = description
     elif winner_seat is not None and isinstance(winner_seat, int):
         winner_player = next((p for p in match.players if p.seat_index == winner_seat), None)
         if winner_player:
@@ -77,15 +113,35 @@ def build_replay_view(
     else:
         outcome_text = text.get("match.draw")
 
-    turn_info = text.get("replay.turn_label", current=frame_index + 1, total=total)
+    if match.status == "abandoned":
+        result_emoji = emoji.get("error")
+    elif winner_seat is not None or "winning_faction" in summary:
+        result_emoji = emoji.get("success")
+    else:
+        result_emoji = emoji.get("hmm")
+
+    if turn_label and turn_label != f"Turn {frame_index + 1}":
+        turn_info = text.get(
+            "replay.turn_label_detail",
+            current=frame_index + 1,
+            total=total,
+            label=turn_label,
+        )
+    else:
+        turn_info = text.get("replay.turn_label", current=frame_index + 1, total=total)
     if timestamp:
         ts_val = int(timestamp.timestamp())
         turn_info = f"{turn_info} • <t:{ts_val}:f> (<t:{ts_val}:R>)"
 
+    outcome_line = text.get(
+        "replay.outcome_line",
+        result_emoji=result_emoji,
+        outcome=outcome_text,
+    )
     container.add_text(
         TextDisplay(
             markdown_content=(
-                f"{emoji.get('success')} **Outcome:** {outcome_text}\n"
+                f"{outcome_line}\n"
                 f"-# {emoji.get('time')} {turn_info}"
             ),
             size_style=TextSize.BODY,
@@ -98,21 +154,33 @@ def build_replay_view(
         reason = takeover_info.get("reason", "timeout")
         info_type = takeover_info.get("type", "bot_takeover")
         if info_type == "bot_takeover":
-            reason_str = "inactivity" if reason == "timeout" else reason
-            container.add_text(
-                TextDisplay(
-                    markdown_content=f"⚠️ **Notice:** **{display_name}** was replaced by a bot due to {reason_str}.",
-                    size_style=TextSize.BODY,
-                )
+            reason_str = (
+                text.get("replay.reason_inactivity") if reason == "timeout" else reason
+            )
+            notice = text.get(
+                "replay.notice_bot_takeover",
+                error_emoji=emoji.get("error"),
+                name=display_name,
+                reason=reason_str,
             )
         else:  # removal
-            action_str = "timed out" if reason == "timeout" else "forfeited"
-            container.add_text(
-                TextDisplay(
-                    markdown_content=f"⚠️ **Notice:** **{display_name}** {action_str} and was removed from the game.",
-                    size_style=TextSize.BODY,
-                )
+            action_str = (
+                text.get("replay.action_timed_out")
+                if reason == "timeout"
+                else text.get("replay.action_forfeited")
             )
+            notice = text.get(
+                "replay.notice_removal",
+                error_emoji=emoji.get("error"),
+                name=display_name,
+                action=action_str,
+            )
+        container.add_text(
+            TextDisplay(
+                markdown_content=notice,
+                size_style=TextSize.BODY,
+            )
+        )
         container.add_separator()
 
     if frame_view:

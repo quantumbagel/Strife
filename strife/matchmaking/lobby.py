@@ -34,7 +34,9 @@ class Lobby:
     ready: set[int] = field(default_factory=set)
     settings: dict = field(default_factory=dict)
     role_selection: dict[int, str] = field(default_factory=dict)
-    whitelist: set[int] = field(default_factory=set)
+    approved: set[int] = field(default_factory=set)
+    pending_requests: dict[int, str] = field(default_factory=dict)
+    denied: set[int] = field(default_factory=set)
     blacklist: set[int] = field(default_factory=set)
     message_id: int | None = None
     surface: ViewSurface | None = None
