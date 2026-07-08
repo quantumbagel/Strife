@@ -39,6 +39,7 @@ class Lobby:
     message_id: int | None = None
     surface: ViewSurface | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    starting: bool = False
 
     @property
     def total_players(self) -> int:

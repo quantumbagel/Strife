@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 
 import asyncpg
 import discord
@@ -72,7 +73,8 @@ class StrifeBot(commands.Bot):
         await self.emoji.sync(self)
 
         cache = InMemoryPayloadCache()
-        encoder = CustomIdEncoder(cache)
+        signing_key = hashlib.sha256(self.settings.discord_token.encode()).digest()
+        encoder = CustomIdEncoder(cache, signing_key=signing_key)
         compiler = Compiler(self.emoji, encoder)
         self.sessions = SessionRegistries()
         user_errors = UserErrorPresenter(compiler, self.emoji, self.config.text, self.sessions)
@@ -156,6 +158,19 @@ class StrifeBot(commands.Bot):
     async def close(self) -> None:
         if self.lifecycle:
             await self.lifecycle.stop()
+        if self.sessions:
+            pending: list[asyncio.Task] = []
+            for session in list(self.sessions.active_games.values()):
+                if session.task and not session.task.done():
+                    session.task.cancel()
+                    pending.append(session.task)
+            for task in pending:
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    log.exception("Session task failed during shutdown")
         if self.pool:
             await self.pool.close()
         await super().close()

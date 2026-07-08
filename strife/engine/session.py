@@ -90,6 +90,7 @@ class GameSession:
         self._match_id: int | None = None
         self._match_code: str | None = None
         self._bot = None
+        self._finalized = False
 
     def set_bot(self, bot) -> None:
         self._bot = bot
@@ -105,15 +106,16 @@ class GameSession:
             return
         except Exception:
             log.exception("Game session crashed", extra={"match_id": self.id})
-            await self._finalize(
-                GameOutcome(
-                    results={},
-                    summary={"error": True},
-                    description="Game session crashed",
-                    player_descriptions={},
-                ),
-                status="abandoned",
-            )
+            if not self._finalized:
+                await self._finalize(
+                    GameOutcome(
+                        results={},
+                        summary={"error": True},
+                        description="Game session crashed",
+                        player_descriptions={},
+                    ),
+                    status="abandoned",
+                )
 
     async def submit(self, inp: InteractionInput) -> None:
         async with self.lock:
@@ -138,6 +140,8 @@ class GameSession:
                 self.pending.pop(seat, None)
 
     async def cancel(self, reason: str, forfeiter_seat: int | None = None) -> None:
+        if self._finalized:
+            return
         if self.task and not self.task.done():
             self.task.cancel()
         self._record_action("game_end", {"reason": reason, "cancelled": True})
@@ -220,6 +224,7 @@ class GameSession:
         actors: set[int],
         sources: set[str] | None,
         until: Literal["all", "any"],
+        per_seat_sources: dict[int, set[str]] | None = None,
     ) -> dict[int, Move]:
         results: dict[int, Move] = {}
         humans = {seat for seat in actors if not self.players[seat].is_bot}
@@ -235,21 +240,28 @@ class GameSession:
         for seat in humans:
             future: asyncio.Future[Move] = loop.create_future()
             futures[seat] = future
-            self.pending[seat] = PendingInput({seat}, sources, future)
+            seat_sources = (
+                per_seat_sources.get(seat, sources)
+                if per_seat_sources is not None
+                else sources
+            )
+            self.pending[seat] = PendingInput({seat}, seat_sources, future)
         self.last_move_at = time.monotonic()
         self._warned = False
         await self._update_surface(view)
 
         if until == "any":
-            done, _ = await asyncio.wait(futures.values(), return_when=asyncio.FIRST_COMPLETED)
+            done, pending_futures = await asyncio.wait(
+                futures.values(), return_when=asyncio.FIRST_COMPLETED
+            )
             for seat, future in futures.items():
                 if future in done:
                     move = future.result()
                     results[seat] = move
                     self._record_move(move)
-                    if not future.done():
-                        future.cancel()
-                    self.pending.pop(seat, None)
+                elif not future.done():
+                    future.cancel()
+                self.pending.pop(seat, None)
             return results
 
         for seat, future in futures.items():
@@ -271,7 +283,23 @@ class GameSession:
             dm = user.dm_channel or await user.create_dm()
             await compiled_surface.send(dm, view)
         except discord.HTTPException:
-            pass
+            log.warning("Failed to DM player %s (seat %s)", player.display_name, seat)
+            thread = self._bot.get_channel(self.thread_id)
+            if thread is None:
+                try:
+                    thread = await self._bot.fetch_channel(self.thread_id)
+                except Exception:
+                    thread = None
+            if isinstance(thread, discord.Thread):
+                try:
+                    await thread.send(
+                        self.text.get(
+                            "match.dm_failed",
+                            player=player.display_name,
+                        )
+                    )
+                except discord.HTTPException:
+                    log.exception("Failed to post DM failure notice in thread %s", self.thread_id)
 
     def _record_move(self, move: Move) -> None:
         self.recorded_moves.append(
@@ -300,123 +328,140 @@ class GameSession:
         self.last_move_at = time.monotonic()
 
     async def _finalize(self, outcome: GameOutcome, *, status: str) -> None:
-        final = await self.game.final_view(self.ctx, outcome)
-        if final is not None:
-            await self._update_surface(final)
-        else:
-            await self.surface.disable_all()
-        if self.header_surface is not None:
-            try:
-                emoji = self.header_surface.compiler.emoji
-                game_emoji = emoji.get_game_emoji(self.game_key)
-                forward = emoji.get("forward")
-                settings = get_settings()
-                finished_view = LayoutView()
-                container = Container()
-                container.add_text(
-                    TextDisplay(
-                        markdown_content=f"### {game_emoji} {self.game.metadata.name} {forward} Match Finished",
-                        size_style=TextSize.HEADER,
-                    )
-                )
-                container.add_separator()
-
-                roster_lines = [
-                    member_line(
-                        emoji,
+        if self._finalized:
+            return
+        self._finalized = True
+        match_id = 0
+        try:
+            finished = FinishedMatch(
+                code=self._match_code,
+                game_key=self.game_key,
+                guild_id=self.guild_id,
+                thread_id=self.thread_id,
+                seed=self.seed,
+                settings=self.settings,
+                status=status,
+                outcome={
+                    "summary": outcome.summary,
+                    "description": outcome.description,
+                    "player_descriptions": {
+                        str(k): v for k, v in outcome.player_descriptions.items()
+                    }
+                    if outcome.player_descriptions
+                    else {},
+                },
+                total_turns=len(self.recorded_moves),
+                started_at=self._started_at,
+                ended_at=datetime.now(timezone.utc),
+                players=[
+                    MatchPlayer(
+                        seat_index=p.seat,
                         user_id=p.user_id,
-                        display_name=p.display_name,
                         is_bot=p.is_bot,
                         bot_difficulty=p.bot_difficulty,
-                        owner_ids=frozenset(settings.owner_ids),
+                        display_name=p.display_name,
+                        role_key=p.role_key,
+                        result=outcome.results.get(p.seat),
                     )
                     for p in self.players
-                ]
-                container.add_text(
-                    TextDisplay(
-                        markdown_content=f"{self.text.get('lobby.players_title')}\n"
-                        + ("\n".join(roster_lines) or self.text.get("lobby.empty_roster")),
-                        size_style=TextSize.BODY,
+                ],
+                moves=[
+                    MoveRecord(
+                        turn_index=m.turn_index,
+                        actor_seat=m.actor_seat,
+                        source=m.source,
+                        arguments=m.arguments,
+                        created_at=m.created_at,
                     )
-                )
-                container.add_separator(Separator(visible=False))
-                container.add_text(
-                    TextDisplay(
-                        markdown_content=f"-# {emoji.get('success')} {self.text.get('lobby.game_finished')}",
-                        size_style=TextSize.BODY,
-                    )
-                )
-                finished_view.add_container(container)
-                await self.header_surface.update(finished_view)
+                    for m in self.recorded_moves
+                ],
+            )
+            match_id, code = await self._finalize_cb(finished, outcome)
+            self._match_id = match_id
+            self._match_code = code
+
+            try:
+                final = await self.game.final_view(self.ctx, outcome)
+                if final is not None:
+                    await self._update_surface(final)
+                else:
+                    await self.surface.disable_all()
             except Exception:
-                log.exception("Failed to update game thread header message to finished")
-        finished = FinishedMatch(
-            code=self._match_code,
-            game_key=self.game_key,
-            guild_id=self.guild_id,
-            thread_id=self.thread_id,
-            seed=self.seed,
-            settings=self.settings,
-            status=status,
-            outcome={
-                "summary": outcome.summary,
-                "description": outcome.description,
-                "player_descriptions": {str(k): v for k, v in outcome.player_descriptions.items()} if outcome.player_descriptions else {},
-            },
-            total_turns=len(self.recorded_moves),
-            started_at=self._started_at,
-            ended_at=datetime.now(timezone.utc),
-            players=[
-                MatchPlayer(
-                    seat_index=p.seat,
-                    user_id=p.user_id,
-                    is_bot=p.is_bot,
-                    bot_difficulty=p.bot_difficulty,
-                    display_name=p.display_name,
-                    role_key=p.role_key,
-                    result=outcome.results.get(p.seat),
-                )
-                for p in self.players
-            ],
-            moves=[
-                MoveRecord(
-                    turn_index=m.turn_index,
-                    actor_seat=m.actor_seat,
-                    source=m.source,
-                    arguments=m.arguments,
-                    created_at=m.created_at,
-                )
-                for m in self.recorded_moves
-            ],
-        )
-        match_id, code = await self._finalize_cb(finished, outcome)
-        self._match_id = match_id
-        self._match_code = code
-        results_view = build_results_view(
-            game_name=self.game.metadata.name,
-            game_key=self.game_key,
-            outcome=outcome,
-            players=self.players,
-            thread_id=self.thread_id,
-            match_id=match_id,
-            owner_id=next((p.user_id for p in self.players if p.user_id), 0),
-            text=self.text,
-            emoji=self.surface.compiler.emoji,
-        )
-        if hasattr(self, "lobby_surface") and self.lobby_surface is not None:
-            await self.lobby_surface.update(results_view)
+                log.exception("Failed to update game surface on finalize")
 
-        if self._bot:
-            thread = self._bot.get_channel(self.thread_id)
-            if not thread:
+            if self.header_surface is not None:
                 try:
-                    thread = await self._bot.fetch_channel(self.thread_id)
-                except Exception:
-                    pass
-            if isinstance(thread, discord.Thread):
-                try:
-                    await thread.edit(locked=True)
-                except Exception:
-                    log.exception("Failed to lock game thread %s", self.thread_id)
+                    emoji = self.header_surface.compiler.emoji
+                    game_emoji = emoji.get_game_emoji(self.game_key)
+                    forward = emoji.get("forward")
+                    settings = get_settings()
+                    finished_view = LayoutView()
+                    container = Container()
+                    container.add_text(
+                        TextDisplay(
+                            markdown_content=f"### {game_emoji} {self.game.metadata.name} {forward} Match Finished",
+                            size_style=TextSize.HEADER,
+                        )
+                    )
+                    container.add_separator()
 
-        await self._finalize_cb.session_complete(self)  # type: ignore[attr-defined]
+                    roster_lines = [
+                        member_line(
+                            emoji,
+                            user_id=p.user_id,
+                            display_name=p.display_name,
+                            is_bot=p.is_bot,
+                            bot_difficulty=p.bot_difficulty,
+                            owner_ids=frozenset(settings.owner_ids),
+                        )
+                        for p in self.players
+                    ]
+                    container.add_text(
+                        TextDisplay(
+                            markdown_content=f"{self.text.get('lobby.players_title')}\n"
+                            + ("\n".join(roster_lines) or self.text.get("lobby.empty_roster")),
+                            size_style=TextSize.BODY,
+                        )
+                    )
+                    container.add_separator(Separator(visible=False))
+                    container.add_text(
+                        TextDisplay(
+                            markdown_content=f"-# {emoji.get('success')} {self.text.get('lobby.game_finished')}",
+                            size_style=TextSize.BODY,
+                        )
+                    )
+                    finished_view.add_container(container)
+                    await self.header_surface.update(finished_view)
+                except Exception:
+                    log.exception("Failed to update game thread header message to finished")
+
+            try:
+                results_view = build_results_view(
+                    game_name=self.game.metadata.name,
+                    game_key=self.game_key,
+                    outcome=outcome,
+                    players=self.players,
+                    thread_id=self.thread_id,
+                    match_id=match_id,
+                    text=self.text,
+                    emoji=self.surface.compiler.emoji,
+                )
+                if hasattr(self, "lobby_surface") and self.lobby_surface is not None:
+                    await self.lobby_surface.update(results_view)
+            except Exception:
+                log.exception("Failed to update results view on finalize")
+
+            if self._bot:
+                thread = self._bot.get_channel(self.thread_id)
+                if not thread:
+                    try:
+                        thread = await self._bot.fetch_channel(self.thread_id)
+                    except Exception:
+                        pass
+                if isinstance(thread, discord.Thread):
+                    try:
+                        await thread.edit(locked=True)
+                    except Exception:
+                        log.exception("Failed to lock game thread %s", self.thread_id)
+        finally:
+            await self._finalize_cb.session_complete(self)  # type: ignore[attr-defined]

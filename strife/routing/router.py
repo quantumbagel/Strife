@@ -31,6 +31,7 @@ _RUNTIME_ERROR_CODES = {
     "rematch_not_eligible": "errors.rematch_not_eligible",
     "rematch_unavailable": "errors.rematch_unavailable",
     "no_session": "errors.no_session",
+    "unknown_game": "errors.unknown_game",
 }
 
 
@@ -88,7 +89,7 @@ class InteractionRouter:
         try:
             route = self.encoder.decode(custom_id)
         except PayloadExpired:
-            await self._disable_and_report_ended(interaction, "common.game_ended")
+            await self._disable_and_report_ended(interaction, "common.button_expired")
             return
         except (CustomIdError, KeyError, ValueError, TypeError) as exc:
             log.warning("Bad custom_id %s: %s", custom_id, exc)
@@ -131,6 +132,9 @@ class InteractionRouter:
             else:
                 log.exception("Router error")
                 await self._error(interaction, "common.error")
+        except Exception:
+            log.exception("Unhandled router error")
+            await self._error(interaction, "common.error")
 
     async def _handle_game(self, route, interaction: discord.Interaction) -> None:
         session = self.sessions.get_game(route.resource_id)
@@ -158,8 +162,11 @@ class InteractionRouter:
         if self.replay is None:
             await self._error(interaction, "common.error")
             return
+        if route.source == "open" or route.payload.get("fresh"):
+            await self.replay.open(interaction, route.resource_id)
+            return
         owner_id = int(route.payload.get("owner", interaction.user.id))
-        if owner_id != interaction.user.id:
+        if "owner" in route.payload and owner_id != interaction.user.id:
             await self._error(interaction, "common.replay_owner_only")
             return
         if route.payload.get("jump"):
@@ -226,6 +233,10 @@ class InteractionRouter:
     async def _handle_server(self, route, interaction: discord.Interaction) -> None:
         if self.server_settings is None:
             await self._error(interaction, "common.error")
+            return
+        member = interaction.user
+        if not isinstance(member, discord.Member) or not member.guild_permissions.administrator:
+            await self._error(interaction, "common.forbidden")
             return
         if route.prefix == P.SERVER_CHANNEL:
             values = interaction.data.get("values") if interaction.data else []

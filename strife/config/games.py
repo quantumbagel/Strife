@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 
 class GameDefaults(BaseModel):
@@ -22,9 +22,12 @@ class GameConfig(BaseModel):
 class GamesConfig(BaseModel):
     defaults: GameDefaults
     games: dict[str, GameConfig]
+    _merged: dict[str, GameConfig] = PrivateAttr(default_factory=dict)
 
-    def for_game(self, key: str) -> GameConfig:
-        game = self.games.get(key, GameConfig())
+    def model_post_init(self, __context: object) -> None:
+        self._merged = {key: self._merge_config(key, game) for key, game in self.games.items()}
+
+    def _merge_config(self, key: str, game: GameConfig) -> GameConfig:
         return GameConfig(
             enabled=game.enabled,
             turn_timeout_seconds=(
@@ -39,6 +42,11 @@ class GamesConfig(BaseModel):
             ),
             settings_overrides=dict(game.settings_overrides),
         )
+
+    def for_game(self, key: str) -> GameConfig:
+        if key in self._merged:
+            return self._merged[key]
+        return self._merge_config(key, GameConfig())
 
 
 def load_games_config(path: Path) -> GamesConfig:

@@ -112,12 +112,19 @@ class GuildRepository:
 
     async def set_default_channel(self, guild_id: int, channel_id: int) -> None:
         async with self._pool.acquire() as conn:
-            await self.upsert(guild_id)
-            await conn.execute(
-                "UPDATE guilds SET default_channel_id = $2, updated_at = now() WHERE guild_id = $1",
-                guild_id,
-                channel_id,
-            )
+            async with conn.transaction():
+                await conn.execute(
+                    """
+                    INSERT INTO guilds(guild_id) VALUES($1)
+                    ON CONFLICT (guild_id) DO UPDATE SET updated_at = now()
+                    """,
+                    guild_id,
+                )
+                await conn.execute(
+                    "UPDATE guilds SET default_channel_id = $2, updated_at = now() WHERE guild_id = $1",
+                    guild_id,
+                    channel_id,
+                )
 
     async def get_default_channel(self, guild_id: int) -> int | None:
         async with self._pool.acquire() as conn:
@@ -132,24 +139,25 @@ class MatchRepository:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
 
-    async def create_finished(self, record: FinishedMatch) -> int:
+    async def create_finished(self, record: FinishedMatch) -> tuple[int, str]:
         import random
 
         async with self._pool.acquire() as conn:
-            async with conn.transaction():
-                match_id: int | None = None
-                code = record.code
-                for _ in range(10):
-                    if code is None:
-                        code = generate_match_code(random.Random())
-                    try:
+            match_id: int | None = None
+            final_code: str | None = None
+            code = record.code
+            for _ in range(10):
+                if code is None:
+                    code = generate_match_code(random.Random())
+                try:
+                    async with conn.transaction():
                         row = await conn.fetchrow(
                             """
                             INSERT INTO matches(
                                 code, game_key, guild_id, thread_id, seed, settings,
                                 status, outcome, total_turns, started_at, ended_at
                             ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-                            RETURNING id
+                            RETURNING id, code
                             """,
                             code,
                             record.game_key,
@@ -164,44 +172,55 @@ class MatchRepository:
                             record.ended_at,
                         )
                         match_id = row["id"]
-                        break
-                    except asyncpg.UniqueViolationError:
-                        code = None
-                if match_id is None:
-                    raise RuntimeError("Failed to generate unique match code")
+                        final_code = row["code"]
 
-                for player in record.players:
-                    await conn.execute(
-                        """
-                        INSERT INTO match_players(
-                            match_id, seat_index, user_id, is_bot, bot_difficulty,
-                            display_name, role_key, result
-                        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-                        """,
-                        match_id,
-                        player.seat_index,
-                        player.user_id,
-                        player.is_bot,
-                        player.bot_difficulty,
-                        player.display_name,
-                        player.role_key,
-                        player.result,
-                    )
+                        if record.players:
+                            await conn.executemany(
+                                """
+                                INSERT INTO match_players(
+                                    match_id, seat_index, user_id, is_bot, bot_difficulty,
+                                    display_name, role_key, result
+                                ) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+                                """,
+                                [
+                                    (
+                                        match_id,
+                                        player.seat_index,
+                                        player.user_id,
+                                        player.is_bot,
+                                        player.bot_difficulty,
+                                        player.display_name,
+                                        player.role_key,
+                                        player.result,
+                                    )
+                                    for player in record.players
+                                ],
+                            )
 
-                for move in record.moves:
-                    await conn.execute(
-                        """
-                        INSERT INTO moves(match_id, turn_index, actor_seat, source, arguments, created_at)
-                        VALUES($1,$2,$3,$4,$5,$6)
-                        """,
-                        match_id,
-                        move.turn_index,
-                        move.actor_seat,
-                        move.source,
-                        move.arguments,
-                        move.created_at or datetime.now(timezone.utc),
-                    )
-                return match_id
+                        if record.moves:
+                            await conn.executemany(
+                                """
+                                INSERT INTO moves(match_id, turn_index, actor_seat, source, arguments, created_at)
+                                VALUES($1,$2,$3,$4,$5,$6)
+                                """,
+                                [
+                                    (
+                                        match_id,
+                                        move.turn_index,
+                                        move.actor_seat,
+                                        move.source,
+                                        move.arguments,
+                                        move.created_at or datetime.now(timezone.utc),
+                                    )
+                                    for move in record.moves
+                                ],
+                            )
+                    break
+                except asyncpg.UniqueViolationError:
+                    code = None
+            if match_id is None or final_code is None:
+                raise RuntimeError("Failed to generate unique match code")
+            return match_id, final_code
 
     async def get(self, ref: str | int) -> MatchDetail | None:
         async with self._pool.acquire() as conn:
@@ -275,6 +294,31 @@ class MatchRepository:
                     offset,
                 )
             return [self._to_summary(row) for row in rows]
+
+    async def count_for_user(self, user_id: int, game_key: str | None) -> int:
+        async with self._pool.acquire() as conn:
+            if game_key:
+                row = await conn.fetchrow(
+                    """
+                    SELECT count(*) AS total
+                    FROM matches m
+                    JOIN match_players mp ON mp.match_id = m.id
+                    WHERE mp.user_id = $1 AND m.game_key = $2
+                    """,
+                    user_id,
+                    game_key,
+                )
+            else:
+                row = await conn.fetchrow(
+                    """
+                    SELECT count(*) AS total
+                    FROM matches m
+                    JOIN match_players mp ON mp.match_id = m.id
+                    WHERE mp.user_id = $1
+                    """,
+                    user_id,
+                )
+            return int(row["total"]) if row else 0
 
     def _to_summary(self, row: asyncpg.Record) -> MatchSummary:
         if "seat_index" in row:
@@ -362,46 +406,47 @@ class UserRepository:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
 
-    async def touch(self, user_id: int, display_name: str) -> None:
-        async with self._pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO users(user_id, display_name)
-                VALUES($1, $2)
-                ON CONFLICT (user_id) DO UPDATE
-                SET display_name = EXCLUDED.display_name, last_seen = now()
-                """,
-                user_id,
-                display_name,
-            )
+    async def touch(self, user_id: int, display_name: str, *, conn: asyncpg.Connection | None = None) -> None:
+        query = """
+            INSERT INTO users(user_id, display_name)
+            VALUES($1, $2)
+            ON CONFLICT (user_id) DO UPDATE
+            SET display_name = EXCLUDED.display_name, last_seen = now()
+        """
+        if conn is not None:
+            await conn.execute(query, user_id, display_name)
+            return
+        async with self._pool.acquire() as owned:
+            await owned.execute(query, user_id, display_name)
 
     async def apply_results(self, results: list[PlayerResult], game_key: str) -> None:
         async with self._pool.acquire() as conn:
-            for result in results:
-                await self.touch(result.user_id, result.display_name)
-                wins = losses = draws = 0
-                if result.result == "win":
-                    wins = 1
-                elif result.result == "loss":
-                    losses = 1
-                elif result.result == "draw":
-                    draws = 1
-                await conn.execute(
-                    """
-                    INSERT INTO user_game_stats(user_id, game_key, wins, losses, draws, played)
-                    VALUES($1, $2, $3, $4, $5, 1)
-                    ON CONFLICT (user_id, game_key) DO UPDATE SET
-                        wins = user_game_stats.wins + EXCLUDED.wins,
-                        losses = user_game_stats.losses + EXCLUDED.losses,
-                        draws = user_game_stats.draws + EXCLUDED.draws,
-                        played = user_game_stats.played + 1
-                    """,
-                    result.user_id,
-                    game_key,
-                    wins,
-                    losses,
-                    draws,
-                )
+            async with conn.transaction():
+                for result in results:
+                    await self.touch(result.user_id, result.display_name, conn=conn)
+                    wins = losses = draws = 0
+                    if result.result == "win":
+                        wins = 1
+                    elif result.result == "loss":
+                        losses = 1
+                    elif result.result == "draw":
+                        draws = 1
+                    await conn.execute(
+                        """
+                        INSERT INTO user_game_stats(user_id, game_key, wins, losses, draws, played)
+                        VALUES($1, $2, $3, $4, $5, 1)
+                        ON CONFLICT (user_id, game_key) DO UPDATE SET
+                            wins = user_game_stats.wins + EXCLUDED.wins,
+                            losses = user_game_stats.losses + EXCLUDED.losses,
+                            draws = user_game_stats.draws + EXCLUDED.draws,
+                            played = user_game_stats.played + 1
+                        """,
+                        result.user_id,
+                        game_key,
+                        wins,
+                        losses,
+                        draws,
+                    )
 
     async def get_stats(self, user_id: int, game_key: str | None) -> UserStats:
         async with self._pool.acquire() as conn:

@@ -24,10 +24,11 @@ def build_results_view(
     players: list[Player],
     thread_id: int,
     match_id: int,
-    owner_id: int,
     text: TextConfig,
     emoji: EmojiResolver,
     rematch_count: int = 0,
+    rematch_disabled: bool = False,
+    rematch_expires_at: int | None = None,
 ) -> LayoutView:
     view = LayoutView()
     container = Container()
@@ -100,7 +101,15 @@ def build_results_view(
     eligible_humans = [p for p in players if p.user_id and not p.is_bot]
     total = len(eligible_humans)
     if total > 0:
-        rematch_label = text.get("match.rematch_progress", count=rematch_count, total=total)
+        if rematch_expires_at is not None:
+            rematch_label = text.get(
+                "match.rematch_progress_expires",
+                count=rematch_count,
+                total=total,
+                expires=rematch_expires_at,
+            )
+        else:
+            rematch_label = text.get("match.rematch_progress", count=rematch_count, total=total)
     else:
         rematch_label = text.get("match.rematch_label")
 
@@ -113,6 +122,7 @@ def build_results_view(
             emoji="rematch",
             route_prefix=P.REMATCH,
             resource_id=thread_id,
+            disabled=rematch_disabled,
         )
     )
     row.add_button(
@@ -123,7 +133,7 @@ def build_results_view(
             emoji="spectate",
             route_prefix=P.R_NAV,
             resource_id=match_id,
-            payload={"frame": 0, "owner": owner_id},
+            payload={"frame": 0, "fresh": True},
         )
     )
     container.add_action_row(row)

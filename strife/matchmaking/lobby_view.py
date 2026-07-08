@@ -86,7 +86,7 @@ def build_lobby_view(
         TextDisplay(
             markdown_content=(
                 f"{meta.description}\n\n"
-                f"-# {emoji.get('user')} {meta.player_count.describe()} • {emoji.get('time')} {meta.time_estimate} • {emoji.get('difficulty')}: {diff_display}"
+                f"-# {emoji.get('user')} {meta.player_count.describe()} • {emoji.get('time')} {meta.time_estimate} • {emoji.get('difficulty')} {diff_display}"
             ),
             size_style=TextSize.BODY,
         )
@@ -169,7 +169,15 @@ def build_lobby_view(
     container.add_action_row(controls)
 
     if meta.role_flow.value == "selectable":
-        for member in lobby.members:
+        role_members = lobby.members[:8]
+        if len(lobby.members) > 8:
+            container.add_text(
+                TextDisplay(
+                    markdown_content="-# Role picks are shown for the first 8 players.",
+                    size_style=TextSize.BODY,
+                )
+            )
+        for member in role_members:
             row = ActionRow()
             choices = [
                 SelectChoice(
@@ -188,7 +196,6 @@ def build_lobby_view(
                     route_prefix=P.LOBBY_ROLE,
                 )
             )
-            # Role rows added to the container instead of the view
             container.add_action_row(row)
 
     # Finally, add the fully populated container to the view

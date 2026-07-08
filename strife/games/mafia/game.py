@@ -91,8 +91,25 @@ class Mafia(Game):
         view.add_container(container)
         return view
 
+    def _normalize_target(self, move: Move) -> str | None:
+        target = move.args.get("target")
+        if target is None and move.args.get("value") is not None:
+            target = move.args["value"]
+            move.args["target"] = target
+        return target
+
+    def _parse_alive_target(self, raw: str | None) -> int | None:
+        if raw is None or raw == "skip":
+            return None
+        if not isinstance(raw, str) or not raw.isdigit():
+            return None
+        seat = int(raw)
+        if seat not in self.alive:
+            return None
+        return seat
+
     async def _send_role_dms(self, ctx: GameContext) -> None:
-        for player in self.players:
+        async def send_one(player: Player) -> None:
             role = self.role[player.seat]
             instructions = next((r.instructions for r in self.metadata.roles if r.key == role), "")
             view = LayoutView()
@@ -116,12 +133,16 @@ class Mafia(Game):
             view.add_container(container)
             await ctx.send_private(player.seat, view)
 
+        await asyncio.gather(*(send_one(player) for player in self.players))
+
     async def _night(self, ctx: GameContext) -> None:
         self._phase = "night"
         acting = sorted(seat for seat in self.alive if self.role[seat] in {"mafia", "doctor", "detective"})
         await ctx.update(self._public_view(ctx, f"Night {self.day} falls..."))
         await ctx.record_action("night_start", {"day": self.day})
-        moves: dict[int, Move] = {}
+        source_map = {"mafia": "kill", "doctor": "protect", "detective": "investigate"}
+        private_views: dict[int, LayoutView] = {}
+        per_seat_sources: dict[int, set[str]] = {}
         for seat in acting:
             role = self.role[seat]
             choices = [
@@ -134,25 +155,40 @@ class Mafia(Game):
                 children=[TextDisplay(f"Night action for your role: **{role}**")]
             )
             row = ActionRow()
-            source = {"mafia": "kill", "doctor": "protect", "detective": "investigate"}[role]
+            source = source_map[role]
             row.add_select(Select(source=source, placeholder="Choose a target", choices=choices))
             container.add_action_row(row)
             private.add_container(container)
-            await ctx.send_private(seat, private)
-            move = await ctx.request_input(private, actor=seat, sources={source})
-            if move.args.get("value"):
-                move.args["target"] = move.args["value"]
-            moves[seat] = move
+            private_views[seat] = private
+            per_seat_sources[seat] = {source}
+
+        await asyncio.gather(
+            *(ctx.send_private(seat, private_views[seat]) for seat in acting)
+        )
+        public = self._public_view(ctx, f"Night {self.day} — waiting for night actions...")
+        moves = await ctx.request_inputs(
+            public,
+            actors=set(acting),
+            sources=None,
+            per_seat_sources=per_seat_sources,
+            until="all",
+        )
+        for move in moves.values():
+            self._normalize_target(move)
 
         kills = [
-            int(m.args.get("target"))
+            seat_target
             for seat, m in moves.items()
-            if self.role[seat] == "mafia" and m.args.get("target") is not None
+            if self.role[seat] == "mafia"
+            for seat_target in [self._parse_alive_target(self._normalize_target(m))]
+            if seat_target is not None
         ]
         protects = [
-            int(m.args.get("target"))
+            seat_target
             for seat, m in moves.items()
-            if self.role[seat] == "doctor" and m.args.get("target") is not None
+            if self.role[seat] == "doctor"
+            for seat_target in [self._parse_alive_target(self._normalize_target(m))]
+            if seat_target is not None
         ]
         victim = None
         if kills:
@@ -170,8 +206,8 @@ class Mafia(Game):
         })
 
         for seat, move in moves.items():
-            if self.role[seat] == "detective" and move.args.get("target") is not None:
-                target = int(move.args["target"])
+            target = self._parse_alive_target(self._normalize_target(move))
+            if self.role[seat] == "detective" and target is not None:
                 alignment = "mafia" if self.role.get(target) == "mafia" else "town"
                 reveal = LayoutView()
                 reveal.add_container(
@@ -196,10 +232,12 @@ class Mafia(Game):
         votes = await ctx.request_inputs(day_view, actors=set(self.alive), sources={"vote"}, until="all")
         tally: Counter[int] = Counter()
         for seat, move in votes.items():
-            target = move.args.get("target")
+            target = self._normalize_target(move)
             if target == "skip":
                 continue
-            tally[int(target)] += 1
+            seat_target = self._parse_alive_target(target)
+            if seat_target is not None:
+                tally[seat_target] += 1
         lynched = None
         if tally:
             top = tally.most_common()

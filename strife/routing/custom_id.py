@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 import base64
+import hmac
+import hashlib
 from dataclasses import dataclass
 
 import msgpack
 
 from strife.routing.cache import PayloadCache
+
+_MSGPACK_OPTS = {
+    "strict_map_key": True,
+    "max_bin_len": 256,
+    "max_str_len": 256,
+    "max_array_len": 64,
+    "max_map_len": 64,
+}
 
 
 class PayloadExpired(Exception):
@@ -25,18 +35,41 @@ class Route:
 
 
 class CustomIdEncoder:
-    def __init__(self, cache: PayloadCache, *, limit: int = 100) -> None:
+    def __init__(
+        self,
+        cache: PayloadCache,
+        *,
+        signing_key: bytes,
+        limit: int = 100,
+    ) -> None:
         self._cache = cache
         self._limit = limit
+        self._signing_key = signing_key
+
+    def _sign(self, body: bytes) -> str:
+        digest = hmac.new(self._signing_key, body, hashlib.sha256).digest()[:6]
+        return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+
+    def _verify(self, body: bytes, signature: str) -> None:
+        pad = "=" * (-len(signature) % 4)
+        expected = base64.urlsafe_b64decode(signature + pad)
+        actual = hmac.new(self._signing_key, body, hashlib.sha256).digest()[:6]
+        if not hmac.compare_digest(expected, actual):
+            raise CustomIdError("invalid signature")
+
+    def _unpack(self, raw: bytes) -> dict:
+        return msgpack.unpackb(raw, **_MSGPACK_OPTS)
 
     def encode(self, prefix: str, resource_id: int, source: str, payload: dict | None) -> str:
         body = {"s": source, "p": payload or {}}
-        blob = base64.urlsafe_b64encode(msgpack.packb(body)).rstrip(b"=").decode()
-        cid = f"{prefix}{resource_id}/{blob}"
+        packed = msgpack.packb(body)
+        signature = self._sign(packed)
+        blob = base64.urlsafe_b64encode(packed).rstrip(b"=").decode()
+        cid = f"{prefix}{resource_id}/{blob}.{signature}"
         if len(cid) <= self._limit:
             return cid
-        token = self._cache.put(msgpack.packb(body))
-        return f"{prefix}{resource_id}/~{token}"
+        token = self._cache.put(packed)
+        return f"{prefix}{resource_id}/~{token}.{signature}"
 
     def decode(self, custom_id: str) -> Route:
         if ":" not in custom_id:
@@ -46,12 +79,18 @@ class CustomIdEncoder:
         rid_str, _, body = rest.partition("/")
         if not rid_str or not body:
             raise CustomIdError("malformed custom_id")
-        if body.startswith("~"):
-            raw = self._cache.get(body[1:])
+        if "." not in body:
+            raise CustomIdError("missing signature")
+        payload_part, signature = body.rsplit(".", 1)
+        if payload_part.startswith("~"):
+            raw = self._cache.get(payload_part[1:])
             if raw is None:
                 raise PayloadExpired()
-            data = msgpack.unpackb(raw)
+            self._verify(raw, signature)
+            data = self._unpack(raw)
         else:
-            pad = "=" * (-len(body) % 4)
-            data = msgpack.unpackb(base64.urlsafe_b64decode(body + pad))
+            pad = "=" * (-len(payload_part) % 4)
+            raw = base64.urlsafe_b64decode(payload_part + pad)
+            self._verify(raw, signature)
+            data = self._unpack(raw)
         return Route(prefix, int(rid_str), data["s"], data.get("p", {}))

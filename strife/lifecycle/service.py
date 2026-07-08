@@ -62,6 +62,7 @@ class LifecycleService:
             await asyncio.sleep(5)
 
     async def _tick(self) -> None:
+        await self.rematch.expire_stale()
         now = time.monotonic()
         for session in list(self.registries.active_games.values()):
             if not session.pending:

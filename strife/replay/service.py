@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import time
 from collections import OrderedDict
+from dataclasses import dataclass
 
 import discord
 
 from strife.config.text import TextConfig
-from strife.persistence.repositories import MatchRepository, MoveRepository
+from strife.persistence.repositories import MatchDetail, MatchRepository, MoveRepository
 from strife.presentation.compiler import Compiler
 from strife.presentation.user_error import UserErrorPresenter
 from strife.presentation.modals import PageJumpModal
@@ -14,6 +16,12 @@ from strife.engine.players import Player
 from strife.engine.registry import GameRegistry
 from strife.replay.view import build_replay_view
 from strife.routing import prefixes as P
+
+
+@dataclass
+class _ReplayCacheEntry:
+    detail: MatchDetail
+    frames: list
 
 
 class ReplayService:
@@ -32,10 +40,28 @@ class ReplayService:
         self.compiler = compiler
         self.text = text
         self.user_errors = user_errors
-        self._cache: OrderedDict[int, list] = OrderedDict()
+        self._cache: OrderedDict[int, _ReplayCacheEntry] = OrderedDict()
         self._cache_size = 64
+        self._autocomplete_cache: dict[int, tuple[float, list]] = {}
 
-    async def _frames(self, match_id: int):
+    async def autocomplete_matches(
+        self, user_id: int, *, limit: int = 25
+    ) -> list:
+        now = time.monotonic()
+        cached = self._autocomplete_cache.get(user_id)
+        if cached and now - cached[0] < 15:
+            return cached[1]
+        matches = await self.matches.list_for_user(user_id, None, limit=limit)
+        self._autocomplete_cache[user_id] = (now, matches)
+        if len(self._autocomplete_cache) > 256:
+            oldest = min(self._autocomplete_cache, key=lambda k: self._autocomplete_cache[k][0])
+            self._autocomplete_cache.pop(oldest, None)
+        return matches
+
+    def _participant_ids(self, detail: MatchDetail) -> set[int]:
+        return {p.user_id for p in detail.players if p.user_id is not None}
+
+    async def _load_entry(self, match_id: int) -> _ReplayCacheEntry | None:
         if match_id in self._cache:
             self._cache.move_to_end(match_id)
             return self._cache[match_id]
@@ -63,35 +89,44 @@ class ReplayService:
             started_at=detail.started_at,
         )
         frames = await game.parse_replay(move_records, ctx)
-        self._cache[match_id] = frames
+        entry = _ReplayCacheEntry(detail=detail, frames=frames)
+        self._cache[match_id] = entry
         if len(self._cache) > self._cache_size:
             self._cache.popitem(last=False)
-        return frames
+        return entry
 
     async def open(self, interaction: discord.Interaction, match: str | int) -> None:
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         detail = await self.matches.get(match)
         if detail is None:
             await self.user_errors.send(interaction, "common.match_not_found")
             return
-        frames = await self._frames(detail.id)
-        if not frames:
+        if interaction.user.id not in self._participant_ids(detail):
+            await self.user_errors.send(interaction, "common.replay_owner_only")
+            return
+        entry = await self._load_entry(detail.id)
+        if entry is None or not entry.frames:
             await self.user_errors.send(interaction, "common.replay_unavailable")
             return
         game_name = self.game_registry.metadata(detail.game_key).name
         view = build_replay_view(
-            detail,
+            entry.detail,
             0,
-            len(frames),
+            len(entry.frames),
             owner_id=interaction.user.id,
-            frame_view=frames[0].view,
-            takeover_info=frames[0].takeover_info,
-            timestamp=frames[0].timestamp,
+            frame_view=entry.frames[0].view,
+            takeover_info=entry.frames[0].takeover_info,
+            timestamp=entry.frames[0].timestamp,
             text=self.text,
             game_name=game_name,
             emoji=self.compiler.emoji,
         )
-        compiled = self.compiler.compile(view, resource_id=detail.id, prefix=P.R_NAV)
-        await interaction.response.send_message(view=compiled)
+        compiled = self.compiler.compile(view, resource_id=entry.detail.id, prefix=P.R_NAV)
+        if interaction.response.is_done():
+            await interaction.followup.send(view=compiled, ephemeral=True)
+        else:
+            await interaction.response.send_message(view=compiled, ephemeral=True)
 
     async def render_frame(
         self,
@@ -101,24 +136,23 @@ class ReplayService:
         *,
         owner_id: int,
     ) -> None:
-        detail = await self.matches.get(match_id)
-        if detail is None:
+        entry = await self._load_entry(match_id)
+        if entry is None:
             await self.user_errors.send(interaction, "common.match_not_found")
             return
-        frames = await self._frames(match_id)
-        if not frames:
+        if not entry.frames:
             await self.user_errors.send(interaction, "common.replay_unavailable")
             return
-        frame = max(0, min(frame, len(frames) - 1))
-        game_name = self.game_registry.metadata(detail.game_key).name
+        frame = max(0, min(frame, len(entry.frames) - 1))
+        game_name = self.game_registry.metadata(entry.detail.game_key).name
         view = build_replay_view(
-            detail,
+            entry.detail,
             frame,
-            len(frames),
+            len(entry.frames),
             owner_id=owner_id,
-            frame_view=frames[frame].view,
-            takeover_info=frames[frame].takeover_info,
-            timestamp=frames[frame].timestamp,
+            frame_view=entry.frames[frame].view,
+            takeover_info=entry.frames[frame].takeover_info,
+            timestamp=entry.frames[frame].timestamp,
             text=self.text,
             game_name=game_name,
             emoji=self.compiler.emoji,

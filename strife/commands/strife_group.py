@@ -101,7 +101,7 @@ def register_strife_group(
     async def replay_autocomplete(
         interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        matches = await replay.matches.list_for_user(interaction.user.id, None, limit=25)
+        matches = await replay.autocomplete_matches(interaction.user.id, limit=25)
         choices: list[app_commands.Choice[str]] = []
         for match in matches:
             if match.status != "completed":

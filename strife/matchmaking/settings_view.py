@@ -15,6 +15,7 @@ from strife.presentation.components import (
     SelectChoice,
     TextDisplay,
     TextSize,
+    UserSelect,
 )
 from strife.presentation.emoji import EmojiResolver, get_game_emoji
 from strife.routing import prefixes as P
@@ -141,27 +142,16 @@ def build_settings_view(
             )
 
             # Whitelist Add Selector
-            wl_add_candidates = [m for m in candidates if m.id not in lobby.whitelist]
-            if wl_add_candidates:
-                container.add_action_row(
-                    ActionRow().add_select(
-                        Select(
-                            source="add_whitelist",
-                            placeholder=text.get("lobby.add_whitelist_placeholder"),
-                            choices=[
-                                SelectChoice(
-                                    label=m.display_name,
-                                    value=str(m.id),
-                                    description=text.get("lobby.allow_join_desc", name=m.display_name),
-                                    emoji="success",
-                                )
-                                for m in wl_add_candidates[:25]
-                            ],
-                            route_prefix=P.LOBBY_ADD_WHITELIST,
-                            resource_id=lobby.thread_id,
-                        )
+            container.add_action_row(
+                ActionRow().add_user_select(
+                    UserSelect(
+                        source="add_whitelist",
+                        placeholder=text.get("lobby.add_whitelist_placeholder"),
+                        route_prefix=P.LOBBY_ADD_WHITELIST,
+                        resource_id=lobby.thread_id,
                     )
                 )
+            )
 
             # Whitelist Remove Selector
             if lobby.whitelist:
@@ -198,27 +188,16 @@ def build_settings_view(
             )
 
             # Blacklist Add Selector
-            bl_add_candidates = [m for m in candidates if m.id not in lobby.blacklist]
-            if bl_add_candidates:
-                container.add_action_row(
-                    ActionRow().add_select(
-                        Select(
-                            source="add_blacklist",
-                            placeholder=text.get("lobby.add_blacklist_placeholder"),
-                            choices=[
-                                SelectChoice(
-                                    label=m.display_name,
-                                    value=str(m.id),
-                                    description=text.get("lobby.prevent_join_desc", name=m.display_name),
-                                    emoji="error",
-                                )
-                                for m in bl_add_candidates[:25]
-                            ],
-                            route_prefix=P.LOBBY_ADD_BLACKLIST,
-                            resource_id=lobby.thread_id,
-                        )
+            container.add_action_row(
+                ActionRow().add_user_select(
+                    UserSelect(
+                        source="add_blacklist",
+                        placeholder=text.get("lobby.add_blacklist_placeholder"),
+                        route_prefix=P.LOBBY_ADD_BLACKLIST,
+                        resource_id=lobby.thread_id,
                     )
                 )
+            )
 
             # Blacklist Remove Selector
             if lobby.blacklist:
@@ -266,7 +245,7 @@ def build_settings_view(
             )
         )
 
-        for option in meta.settings:
+        for option in meta.settings[:6]:
             opt_emoji = get_option_emoji(emoji, option.key)
             container.add_text(
                 TextDisplay(

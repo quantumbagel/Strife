@@ -38,6 +38,7 @@ class GameContext(Protocol):
         actors: set[int],
         sources: set[str] | None = None,
         until: Literal["all", "any"] = "all",
+        per_seat_sources: dict[int, set[str]] | None = None,
     ) -> dict[int, Move]: ...
 
     async def send_private(self, seat: int, view: LayoutView) -> None: ...
@@ -91,9 +92,14 @@ class LiveContext:
         actors: set[int],
         sources: set[str] | None = None,
         until: Literal["all", "any"] = "all",
+        per_seat_sources: dict[int, set[str]] | None = None,
     ) -> dict[int, Move]:
         return await self._session._request_inputs(  # type: ignore[attr-defined]
-            view, actors=actors, sources=sources, until=until
+            view,
+            actors=actors,
+            sources=sources,
+            until=until,
+            per_seat_sources=per_seat_sources,
         )
 
     async def send_private(self, seat: int, view: LayoutView) -> None:

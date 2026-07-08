@@ -11,17 +11,20 @@ class PayloadCache(Protocol):
 
 
 class InMemoryPayloadCache:
+    _SWEEP_INTERVAL = 30.0
+
     def __init__(self) -> None:
         self._store: dict[str, tuple[bytes, float]] = {}
+        self._last_sweep = 0.0
 
     def put(self, value: bytes, *, ttl: float = 3600) -> str:
-        self._sweep()
-        token = secrets.token_urlsafe(6)[:8]
+        self._sweep_if_due()
+        token = secrets.token_urlsafe(16)[:16]
         self._store[token] = (value, time.monotonic() + ttl)
         return token
 
     def get(self, token: str) -> bytes | None:
-        self._sweep()
+        self._sweep_if_due()
         entry = self._store.get(token)
         if entry is None:
             return None
@@ -31,8 +34,11 @@ class InMemoryPayloadCache:
             return None
         return value
 
-    def _sweep(self) -> None:
+    def _sweep_if_due(self) -> None:
         now = time.monotonic()
+        if now - self._last_sweep < self._SWEEP_INTERVAL:
+            return
+        self._last_sweep = now
         expired = [token for token, (_, exp) in self._store.items() if exp < now]
         for token in expired:
             self._store.pop(token, None)

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import copy
-
 import discord
 from discord import ui
 
@@ -18,6 +16,7 @@ from strife.presentation.components import (
     Separator,
     TextDisplay,
     TextSize,
+    UserSelect,
     disable_all,
 )
 from strife.presentation.emoji import EmojiResolver
@@ -42,6 +41,7 @@ class Compiler:
         self._emoji = emoji
         self._encoder = encoder
         self._component_count = 0
+        self._text_chars = 0
 
     @property
     def emoji(self) -> EmojiResolver:
@@ -49,11 +49,14 @@ class Compiler:
 
     def compile(self, view: LayoutView, *, resource_id: int, prefix: str) -> ui.LayoutView:
         self._component_count = 0
+        self._text_chars = 0
         layout = ui.LayoutView(timeout=None)
         for child in view.children:
             layout.add_item(self._compile_top(child, resource_id=resource_id, prefix=prefix))
         if self._component_count > 40:
             raise LayoutError("Layout exceeds 40 components")
+        if self._text_chars > 4000:
+            raise LayoutError("Layout exceeds 4000 total text characters")
         return layout
 
     def _count(self) -> None:
@@ -67,6 +70,7 @@ class Compiler:
             content = f"### {content}"
         if len(content) > 4000:
             raise LayoutError("TextDisplay exceeds 4000 characters")
+        self._text_chars += len(content)
         return content
 
     def _resolve_emoji(self, name: str | None) -> str | discord.PartialEmoji | None:
@@ -184,20 +188,41 @@ class Compiler:
             disabled=channel_select.disabled,
         )
 
+    def _compile_user_select(
+        self, user_select: UserSelect, *, resource_id: int, prefix: str
+    ) -> ui.UserSelect:
+        self._count()
+        custom_id = self._encoder.encode(
+            user_select.route_prefix or prefix,
+            user_select.resource_id if user_select.resource_id is not None else resource_id,
+            user_select.source,
+            user_select.payload,
+        )
+        if len(custom_id) > 100:
+            raise LayoutError("custom_id exceeds 100 characters")
+        return ui.UserSelect(
+            custom_id=custom_id,
+            placeholder=user_select.placeholder,
+            min_values=user_select.min_values,
+            max_values=user_select.max_values,
+            disabled=user_select.disabled,
+        )
+
     def _compile_action_row(self, row: ActionRow, *, resource_id: int, prefix: str) -> ui.ActionRow:
         buttons = [item for item in row.items if isinstance(item, Button)]
         selects = [item for item in row.items if isinstance(item, Select)]
         channel_selects = [item for item in row.items if isinstance(item, ChannelSelect)]
-        interactive = buttons + selects + channel_selects
+        user_selects = [item for item in row.items if isinstance(item, UserSelect)]
+        interactive = buttons + selects + channel_selects + user_selects
         if len(interactive) != len(row.items):
             raise LayoutError("ActionRow contains unsupported items")
-        if len(buttons) > 0 and (len(selects) > 0 or len(channel_selects) > 0):
+        if len(buttons) > 0 and (len(selects) > 0 or len(channel_selects) > 0 or len(user_selects) > 0):
             raise LayoutError("ActionRow cannot mix buttons and selects")
         if len(buttons) > 5:
             raise LayoutError("ActionRow cannot have more than 5 buttons")
-        if len(selects) > 1 or len(channel_selects) > 1:
+        if len(selects) > 1 or len(channel_selects) > 1 or len(user_selects) > 1:
             raise LayoutError("ActionRow cannot have more than 1 select")
-        if len(selects) > 0 and len(channel_selects) > 0:
+        if sum(bool(x) for x in (selects, channel_selects, user_selects)) > 1:
             raise LayoutError("ActionRow cannot mix select types")
         compiled = ui.ActionRow()
         for item in row.items:
@@ -206,6 +231,10 @@ class Compiler:
             elif isinstance(item, ChannelSelect):
                 compiled.add_item(
                     self._compile_channel_select(item, resource_id=resource_id, prefix=prefix)
+                )
+            elif isinstance(item, UserSelect):
+                compiled.add_item(
+                    self._compile_user_select(item, resource_id=resource_id, prefix=prefix)
                 )
             else:
                 compiled.add_item(self._compile_select(item, resource_id=resource_id, prefix=prefix))
@@ -271,6 +300,5 @@ class Compiler:
 
 
 def clone_and_disable(view: LayoutView) -> LayoutView:
-    cloned = copy.deepcopy(view)
-    disable_all(cloned)
-    return cloned
+    disable_all(view)
+    return view

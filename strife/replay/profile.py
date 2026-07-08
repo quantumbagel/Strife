@@ -120,7 +120,8 @@ class ProfileService:
                 
                 # Format exact start time (UTC)
                 start_time = m.started_at or m.created_at
-                started_str = f" @ {start_time:%Y-%m-%d %H:%M:%S UTC}"
+                ts = int(start_time.timestamp())
+                started_str = f" <t:{ts}:R>"
                 
                 # Format length/duration
                 duration_str = ""
@@ -161,7 +162,7 @@ class ProfileService:
                 style=ButtonStyle.SECONDARY,
                 emoji="previous",
                 route_prefix=P.PROF_NAV,
-                payload={"game": game, "page": max(0, page - 1)},
+                payload={"game": game, "page": max(0, page - 1), "user": user.id},
                 disabled=page <= 0,
             )
         )
@@ -171,7 +172,7 @@ class ProfileService:
                 label=self.text.get("catalog.page", page=page + 1, pages=pages),
                 style=ButtonStyle.SECONDARY,
                 route_prefix=P.PROF_NAV,
-                payload={"game": game, "jump": True, "pages": pages, "page": page},
+                payload={"game": game, "jump": True, "pages": pages, "page": page, "user": user.id},
             )
         )
         nav.add_button(
@@ -181,7 +182,7 @@ class ProfileService:
                 style=ButtonStyle.SECONDARY,
                 emoji="next",
                 route_prefix=P.PROF_NAV,
-                payload={"game": game, "page": page + 1},
+                payload={"game": game, "page": page + 1, "user": user.id},
                 disabled=page + 1 >= pages,
             )
         )
@@ -199,10 +200,11 @@ class ProfileService:
         edit: bool = False,
     ) -> None:
         stats = await self.users.get_stats(user.id, game)
+        total_matches = await self.matches.count_for_user(user.id, game)
         match_list = await self.matches.list_for_user(
             user.id, game, limit=self._page_size, offset=page * self._page_size
         )
-        pages = max(1, math.ceil(stats.played / self._page_size)) if stats.played else 1
+        pages = max(1, math.ceil(total_matches / self._page_size)) if total_matches else 1
         rate = round((stats.wins / stats.played) * 100) if stats.played else 0
         view = self._build_view(
             user,
@@ -226,17 +228,30 @@ class ProfileService:
     async def navigate(self, interaction: discord.Interaction, route: Route) -> None:
         page = int(route.payload.get("page", 0))
         game = route.payload.get("game")
-        user = interaction.user
+        user_id = route.payload.get("user")
+        if user_id is not None:
+            user = interaction.client.get_user(int(user_id))
+            if user is None:
+                user = await interaction.client.fetch_user(int(user_id))
+        else:
+            user = interaction.user
         await self.show(interaction, user, game, page, edit=True)
 
     async def open_jump_modal(self, interaction: discord.Interaction, route: Route) -> None:
         pages = int(route.payload.get("pages", 1))
         page = int(route.payload.get("page", 0))
         game = route.payload.get("game")
+        user_id = route.payload.get("user")
 
         async def on_submit(modal_interaction: discord.Interaction, new_page: int) -> None:
             await modal_interaction.response.defer(ephemeral=True)
-            await self.show(modal_interaction, modal_interaction.user, game, new_page, edit=True)
+            if user_id is not None:
+                user = modal_interaction.client.get_user(int(user_id))
+                if user is None:
+                    user = await modal_interaction.client.fetch_user(int(user_id))
+            else:
+                user = modal_interaction.user
+            await self.show(modal_interaction, user, game, new_page, edit=True)
 
         modal = PageJumpModal(
             title=self.text.get("profile.title", name=interaction.user.display_name),
@@ -245,5 +260,6 @@ class ProfileService:
             current=page + 1,
             total=pages,
             on_submit_cb=on_submit,
+            error_message=self.text.get("common.invalid_page"),
         )
         await interaction.response.send_modal(modal)

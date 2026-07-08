@@ -55,7 +55,7 @@ class SessionFinalizer:
     async def persist_and_release(
         self, finished: FinishedMatch, outcome
     ) -> tuple[int, str]:
-        match_id = await self.matches.create_finished(finished)
+        match_id, code = await self.matches.create_finished(finished)
         results = [
             PlayerResult(
                 user_id=p.user_id,
@@ -67,8 +67,6 @@ class SessionFinalizer:
         ]
         if results:
             await self.users.apply_results(results, finished.game_key)
-        detail = await self.matches.get(match_id)
-        code = detail.code if detail else str(match_id)
         return match_id, code
 
     async def session_complete(self, session: GameSession) -> None:
@@ -145,7 +143,10 @@ class LobbyService:
         )
 
     def _meta(self, game_key: str) -> GameMetadata:
-        return self.registry.metadata(game_key)
+        try:
+            return self.registry.metadata(game_key)
+        except KeyError:
+            raise RuntimeError("unknown_game") from None
 
     def _default_settings(self, meta: GameMetadata) -> dict:
         settings = {}
@@ -157,6 +158,9 @@ class LobbyService:
     async def create_lobby(
         self, interaction: discord.Interaction, game_key: str, private: bool
     ) -> None:
+        if game_key not in self.registry._games:  # noqa: SLF001
+            await self._error(interaction, "errors.unknown_game")
+            return
         game_cfg = self.config.games.for_game(game_key)
         if not game_cfg.enabled:
             await self._error(interaction, "errors.game_disabled")
@@ -171,30 +175,34 @@ class LobbyService:
             )
             return
 
-        meta = self._meta(game_key)
-        guild_repo = GuildRepository(self.finalizer.matches._pool)  # noqa: SLF001
-        await guild_repo.upsert(interaction.guild_id)
-        lobby_id = secrets.randbits(63)
-        lobby = Lobby(
-            thread_id=lobby_id,
-            guild_id=interaction.guild_id,
-            channel_id=interaction.channel_id or interaction.channel.id,
-            game_key=game_key,
-            creator_id=interaction.user.id,
-            private=private,
-            members=[LobbyMember(interaction.user.id, interaction.user.display_name)],
-            settings=self._default_settings(meta),
-        )
-        surface = ViewSurface(self.compiler, prefix=P.LOBBY_JOIN, resource_id=lobby_id)
-        surface.set_prefix(P.LOBBY_JOIN)
-        lobby.surface = surface
-        self.registries.user_location[interaction.user.id] = UserLocation(
-            "lobby", lobby_id, interaction.guild_id
-        )
-        self.registries.add_lobby(lobby)
-        view = build_lobby_view(lobby, meta, self.emoji, self.text)
-        await surface.send(interaction, view)
-        lobby.message_id = surface.message_id
+        try:
+            meta = self._meta(game_key)
+            guild_repo = GuildRepository(self.finalizer.matches._pool)  # noqa: SLF001
+            await guild_repo.upsert(interaction.guild_id)
+            lobby_id = secrets.randbits(63)
+            lobby = Lobby(
+                thread_id=lobby_id,
+                guild_id=interaction.guild_id,
+                channel_id=interaction.channel_id or interaction.channel.id,
+                game_key=game_key,
+                creator_id=interaction.user.id,
+                private=private,
+                members=[LobbyMember(interaction.user.id, interaction.user.display_name)],
+                settings=self._default_settings(meta),
+            )
+            surface = ViewSurface(self.compiler, prefix=P.LOBBY_JOIN, resource_id=lobby_id)
+            surface.set_prefix(P.LOBBY_JOIN)
+            lobby.surface = surface
+            self.registries.user_location[interaction.user.id] = UserLocation(
+                "lobby", lobby_id, interaction.guild_id
+            )
+            self.registries.add_lobby(lobby)
+            view = build_lobby_view(lobby, meta, self.emoji, self.text)
+            await surface.send(interaction, view)
+            lobby.message_id = surface.message_id
+        except Exception:
+            await self.registries.release_user(interaction.user.id)
+            raise
 
     async def handle(self, route: Route, interaction: discord.Interaction) -> None:
         lobby = self.registries.get_lobby(route.resource_id)
@@ -202,6 +210,9 @@ class LobbyService:
             await self._disable_and_report_closed(interaction, "lobby.already_dead")
             return
         async with lobby.lock:
+            if self.registries.get_lobby(route.resource_id) is not lobby:
+                await self._disable_and_report_closed(interaction, "lobby.already_dead")
+                return
             handler = {
                 P.LOBBY_JOIN: self._join,
                 P.LOBBY_LEAVE: self._leave,
@@ -226,11 +237,27 @@ class LobbyService:
 
     async def _refresh(self, lobby: Lobby, interaction: discord.Interaction) -> None:
         meta = self._meta(lobby.game_key)
-        view = build_lobby_view(lobby, meta, self.emoji, self.text)
+        try:
+            view = build_lobby_view(lobby, meta, self.emoji, self.text)
+        except Exception as exc:
+            from strife.presentation.compiler import LayoutError
+
+            if isinstance(exc, LayoutError):
+                await self._error(interaction, "common.error", lobby=lobby)
+                return
+            raise
         if not interaction.response.is_done():
             await interaction.response.defer()
         if lobby.surface:
-            await lobby.surface.update(view)
+            try:
+                await lobby.surface.update(view)
+            except Exception as exc:
+                from strife.presentation.compiler import LayoutError
+
+                if isinstance(exc, LayoutError):
+                    await self._error(interaction, "common.error", lobby=lobby)
+                    return
+                raise
 
     async def _join(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
@@ -325,6 +352,8 @@ class LobbyService:
             lobby.ready.add(interaction.user.id)
             ok_start, _, _ = lobby.can_start(meta, self.text)
             if ok_start:
+                if not interaction.response.is_done():
+                    await interaction.response.defer()
                 await self._start(lobby, route, interaction)
             else:
                 await self._refresh(lobby, interaction)
@@ -351,9 +380,21 @@ class LobbyService:
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
         player_id = int(route.payload.get("player_id", interaction.user.id))
+        if player_id != interaction.user.id:
+            await self._error(interaction, "errors.not_a_player", lobby=lobby)
+            return
+        if not any(m.user_id == player_id for m in lobby.members):
+            await self._error(interaction, "errors.not_a_player", lobby=lobby)
+            return
         values = interaction.data.get("values") if interaction.data else []
         if values:
-            lobby.role_selection[player_id] = values[0]
+            meta = self._meta(lobby.game_key)
+            role_key = values[0]
+            valid_roles = {r.key for r in meta.roles}
+            if role_key not in valid_roles:
+                await self._error(interaction, "errors.invalid_roles", lobby=lobby)
+                return
+            lobby.role_selection[player_id] = role_key
         await self._refresh(lobby, interaction)
 
     async def _privacy(
@@ -400,12 +441,27 @@ class LobbyService:
         opt_type = route.payload.get("option_type")
         values = interaction.data.get("values") if interaction.data else []
         if key and values:
+            meta = self._meta(lobby.game_key)
+            option = next((o for o in meta.settings if o.key == key), None)
+            if option is None:
+                await self._error(interaction, "common.error", lobby=lobby)
+                return
             raw = values[0]
             if opt_type == OptionType.BOOL.value:
                 lobby.settings[key] = raw == "true"
             elif opt_type == OptionType.INT.value:
-                lobby.settings[key] = int(raw)
+                try:
+                    value = int(raw)
+                except ValueError:
+                    await self._error(interaction, "common.error", lobby=lobby)
+                    return
+                minimum = option.minimum if option.minimum is not None else int(option.default)
+                maximum = option.maximum if option.maximum is not None else minimum + 5
+                lobby.settings[key] = max(minimum, min(maximum, value))
             else:
+                if option.type == OptionType.CHOICE and option.choices and raw not in option.choices:
+                    await self._error(interaction, "common.error", lobby=lobby)
+                    return
                 lobby.settings[key] = raw
         await interaction.response.defer(ephemeral=True)
         meta = self._meta(lobby.game_key)
@@ -525,6 +581,8 @@ class LobbyService:
     async def _start(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
+        if lobby.starting:
+            return
         meta = self._meta(lobby.game_key)
         ok, reason_key, reason_kwargs = lobby.can_start(meta, self.text)
         if not ok:
@@ -536,165 +594,169 @@ class LobbyService:
                 reason_kwargs=reason_kwargs,
             )
             return
-        seed = secrets.randbits(63)
-        rng = random.Random(seed)
-        players: list[Player] = []
-        for member in lobby.members:
-            players.append(
-                Player(
-                    seat=0,
-                    user_id=member.user_id,
-                    display_name=member.display_name,
+        lobby.starting = True
+        reserved_members = list(lobby.members)
+        try:
+            seed = secrets.randbits(63)
+            rng = random.Random(seed)
+            players: list[Player] = []
+            for member in lobby.members:
+                players.append(
+                    Player(
+                        seat=0,
+                        user_id=member.user_id,
+                        display_name=member.display_name,
+                    )
+                )
+            for idx, bot in enumerate(lobby.bots):
+                players.append(
+                    Player(
+                        seat=0,
+                        user_id=None,
+                        display_name=bot.name,
+                        is_bot=True,
+                        bot_difficulty=bot.difficulty,
+                    )
+                )
+            players = order_players(
+                players, meta.player_order.value, rng, creator_id=lobby.creator_id
+            )
+            game = self.registry.create(
+                lobby.game_key,
+                players,
+                lobby.settings,
+                seed,
+                lobby_selection=lobby.role_selection,
+            )
+            if lobby.surface is None:
+                await self._error(interaction, "common.error", lobby=lobby)
+                return
+
+            match_code = generate_match_code(random.Random())
+
+            channel = (
+                interaction.guild.get_channel(lobby.channel_id)
+                if lobby.channel_id
+                else interaction.channel
+            )
+            if channel is None:
+                channel = interaction.channel
+            thread_name = f"{meta.name} (#{match_code})"
+            thread = await channel.create_thread(
+                name=thread_name, auto_archive_duration=1440
+            )
+
+            human_players = [p for p in players if p.user_id and not p.is_bot]
+            if human_players:
+                mentions = " ".join(f"<@{p.user_id}>" for p in human_players)
+                try:
+                    await thread.send(mentions)
+                except discord.HTTPException:
+                    log.warning("Failed to mention players in game thread %s", thread.id)
+
+            ended_view = LayoutView()
+            brand = self.emoji.get("logo")
+            container = Container()
+            container.add_text(
+                TextDisplay(
+                    markdown_content=f"### {brand} {self.text.get('lobby.title', game_name=meta.name)}",
+                    size_style=TextSize.HEADER,
                 )
             )
-        for idx, bot in enumerate(lobby.bots):
-            players.append(
-                Player(
-                    seat=0,
-                    user_id=None,
-                    display_name=bot.name,
-                    is_bot=True,
-                    bot_difficulty=bot.difficulty,
+            container.add_text(
+                TextDisplay(
+                    markdown_content=self.text.get(
+                        "lobby.game_started", mention=thread.mention
+                    ),
+                    size_style=TextSize.BODY,
                 )
             )
-        players = order_players(
-            players, meta.player_order.value, rng, creator_id=lobby.creator_id
-        )
-        game = self.registry.create(
-            lobby.game_key,
-            players,
-            lobby.settings,
-            seed,
-            lobby_selection=lobby.role_selection,
-        )
-        if lobby.surface is None:
+            ended_view.add_container(container)
+            await lobby.surface.update(ended_view)
+
+            header_surface = ViewSurface(
+                self.compiler, prefix=P.REPLAY_NOOP, resource_id=thread.id
+            )
+            game_surface = ViewSurface(
+                self.compiler, prefix=P.G_MOVE, resource_id=thread.id
+            )
+            game_emoji = self.emoji.get_game_emoji(meta.key)
+            forward = self.emoji.get("forward")
+            starting_view = LayoutView()
+            start_container = Container()
+            start_container.add_text(
+                TextDisplay(
+                    markdown_content=f"### {game_emoji} {meta.name} {forward} Match Start",
+                    size_style=TextSize.HEADER,
+                )
+            )
+            start_container.add_separator()
+
+            settings = get_settings()
+            roster_lines = [
+                member_line(
+                    self.emoji,
+                    user_id=p.user_id,
+                    display_name=p.display_name,
+                    is_bot=p.is_bot,
+                    bot_difficulty=p.bot_difficulty,
+                    owner_ids=frozenset(settings.owner_ids),
+                )
+                for p in players
+            ]
+            start_container.add_text(
+                TextDisplay(
+                    markdown_content=f"{self.text.get('lobby.players_title')}\n" + "\n".join(roster_lines),
+                    size_style=TextSize.BODY,
+                )
+            )
+            start_container.add_separator(Separator(visible=False))
+            start_container.add_text(
+                TextDisplay(
+                    markdown_content=f"-# {self.emoji.get('loading')} {self.text.get('lobby.starting_game', game_name=meta.name)}",
+                    size_style=TextSize.BODY,
+                )
+            )
+            starting_view.add_container(start_container)
+            await header_surface.send_to_thread(thread, starting_view)
+
+            async def finalize_cb(finished: FinishedMatch, outcome):
+                match_id, code = await self.finalizer.persist_and_release(finished, outcome)
+                if self.lifecycle:
+                    self.lifecycle.register_session_end(
+                        thread.id, match_id, outcome, players
+                    )
+                return match_id, code
+
+            finalize_cb.session_complete = self.finalizer.session_complete  # type: ignore[attr-defined]
+
+            session = GameSession(
+                thread_id=thread.id,
+                guild_id=lobby.guild_id,
+                game=game,
+                players=players,
+                settings=dict(lobby.settings),
+                seed=seed,
+                surface=game_surface,
+                text=self.text,
+                finalize_cb=finalize_cb,
+                game_key=lobby.game_key,
+                header_surface=header_surface,
+            )
+            session._match_code = match_code
+            session.lobby_surface = lobby.surface
+            session.set_bot(self.bot)
+            self.registries.promote(lobby.thread_id, session)
+            await session.start()
+        except Exception:
+            lobby.starting = False
+            lobby.ready.clear()
+            for member in reserved_members:
+                await self.registries.release_user(member.user_id)
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True)
             await self._error(interaction, "common.error", lobby=lobby)
             return
-
-        # Generate match code
-        match_code = generate_match_code(random.Random())
-
-        # Create thread for the game
-        channel = (
-            interaction.guild.get_channel(lobby.channel_id)
-            if lobby.channel_id
-            else interaction.channel
-        )
-        if channel is None:
-            channel = interaction.channel
-        thread_name = f"{meta.name} (#{match_code})"
-        thread = await channel.create_thread(
-            name=thread_name, auto_archive_duration=1440
-        )
-
-        # Invite players to thread
-        for p in players:
-            if p.user_id and not p.is_bot:
-                member = interaction.guild.get_member(p.user_id)
-                if member:
-                    try:
-                        await thread.add_user(member)
-                    except discord.HTTPException:
-                        pass
-
-        # Update lobby message in channel to say game started
-        ended_view = LayoutView()
-        brand = self.emoji.get("logo")
-        container = Container()
-        container.add_text(
-            TextDisplay(
-                markdown_content=f"### {brand} {self.text.get('lobby.title', game_name=meta.name)}",
-                size_style=TextSize.HEADER,
-            )
-        )
-        container.add_text(
-            TextDisplay(
-                markdown_content=self.text.get(
-                    "lobby.game_started", mention=thread.mention
-                ),
-                size_style=TextSize.BODY,
-            )
-        )
-        ended_view.add_container(container)
-        await lobby.surface.update(ended_view)
-
-        # Create game surface and send first message to thread
-        header_surface = ViewSurface(
-            self.compiler, prefix=P.REPLAY_NOOP, resource_id=thread.id
-        )
-        game_surface = ViewSurface(
-            self.compiler, prefix=P.G_MOVE, resource_id=thread.id
-        )
-        game_emoji = self.emoji.get_game_emoji(meta.key)
-        forward = self.emoji.get("forward")
-        starting_view = LayoutView()
-        start_container = Container()
-        start_container.add_text(
-            TextDisplay(
-                markdown_content=f"### {game_emoji} {meta.name} {forward} Match Start",
-                size_style=TextSize.HEADER,
-            )
-        )
-        start_container.add_separator()
-
-        settings = get_settings()
-        roster_lines = [
-            member_line(
-                self.emoji,
-                user_id=p.user_id,
-                display_name=p.display_name,
-                is_bot=p.is_bot,
-                bot_difficulty=p.bot_difficulty,
-                owner_ids=frozenset(settings.owner_ids),
-            )
-            for p in players
-        ]
-        start_container.add_text(
-            TextDisplay(
-                markdown_content=f"{self.text.get('lobby.players_title')}\n" + "\n".join(roster_lines),
-                size_style=TextSize.BODY,
-            )
-        )
-        start_container.add_separator(Separator(visible=False))
-        start_container.add_text(
-            TextDisplay(
-                markdown_content=f"-# {self.emoji.get('loading')} {self.text.get('lobby.starting_game', game_name=meta.name)}",
-                size_style=TextSize.BODY,
-            )
-        )
-        starting_view.add_container(start_container)
-        await header_surface.send_to_thread(thread, starting_view)
-
-        async def finalize_cb(finished: FinishedMatch, outcome):
-            match_id, code = await self.finalizer.persist_and_release(finished, outcome)
-            if self.lifecycle:
-                self.lifecycle.register_session_end(
-                    thread.id, match_id, outcome, players
-                )
-            return match_id, code
-
-        finalize_cb.session_complete = self.finalizer.session_complete  # type: ignore[attr-defined]
-
-        session = GameSession(
-            thread_id=thread.id,
-            guild_id=lobby.guild_id,
-            game=game,
-            players=players,
-            settings=dict(lobby.settings),
-            seed=seed,
-            surface=game_surface,
-            text=self.text,
-            finalize_cb=finalize_cb,
-            game_key=lobby.game_key,
-            header_surface=header_surface,
-        )
-        session._match_code = match_code
-        session.lobby_surface = lobby.surface
-        session.set_bot(self.bot)
-        self.registries.promote(lobby.thread_id, session)
-        if not interaction.response.is_done():
-            await interaction.response.defer()
-        await session.start()
 
     async def _teardown(self, lobby: Lobby, interaction: discord.Interaction) -> None:
         for member in lobby.members:

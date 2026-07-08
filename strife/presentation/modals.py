@@ -16,10 +16,12 @@ class PageJumpModal(ui.Modal):
         current: int,
         total: int,
         on_submit_cb: Callable[[discord.Interaction, int], Awaitable[None]],
+        error_message: str = "Enter a valid page number.",
     ) -> None:
         super().__init__(title=title)
         self._on_submit_cb = on_submit_cb
         self._total = max(1, total)
+        self._error_message = error_message
         self.page_input = ui.TextInput(
             label=label,
             placeholder=placeholder,
@@ -35,7 +37,7 @@ class PageJumpModal(ui.Modal):
         try:
             page = int(raw)
         except ValueError:
-            await interaction.response.send_message("Enter a valid page number.", ephemeral=True)
+            await interaction.response.send_message(self._error_message, ephemeral=True)
             return
         page = max(1, min(page, self._total))
         await self._on_submit_cb(interaction, page - 1)

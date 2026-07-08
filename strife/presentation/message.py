@@ -109,29 +109,9 @@ class ViewSurface:
             self._message = None
 
 
-async def send_ephemeral_error(
-    interaction: discord.Interaction,
-    content: str,
-    *,
-    timeout: float = 5.0,
-) -> None:
-    """Sends a short ephemeral toast (success/info). Do not use for user-facing errors."""
-    if interaction.response.is_done():
-        msg = await interaction.followup.send(content, ephemeral=True)
-        if msg:
-            async def delete_after_delay() -> None:
-                await asyncio.sleep(timeout)
-                try:
-                    await msg.delete()
-                except Exception:
-                    pass
-            asyncio.create_task(delete_after_delay())
-    else:
-        await interaction.response.send_message(content, ephemeral=True)
-        async def delete_after_delay() -> None:
-            await asyncio.sleep(timeout)
-            try:
-                await interaction.delete_original_response()
-            except Exception:
-                pass
-        asyncio.create_task(delete_after_delay())
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+
+def _track_task(task: asyncio.Task) -> None:
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
