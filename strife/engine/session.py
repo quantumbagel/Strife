@@ -132,6 +132,14 @@ class GameSession:
                 pending.future.set_result(move)
             self.pending.pop(seat, None)
 
+    async def handle_query(self, source: str, interaction: discord.Interaction) -> bool:
+        seat = self._seat_for_user(interaction.user.id)
+        if seat is None:
+            await interaction.response.send_message("You are not a player in this game.", ephemeral=True)
+            return True
+
+        return await self.game.handle_query(seat, source, interaction, self.ctx, self.surface)
+
     async def force_move(self, seat: int, move: Move) -> None:
         async with self.lock:
             pending = self.pending.get(seat)

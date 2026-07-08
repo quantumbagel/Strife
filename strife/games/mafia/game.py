@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import discord
+    from strife.presentation.message import ViewSurface
 from collections import Counter
 
 from strife.engine.context import GameContext, ReplayFrame
@@ -738,18 +743,28 @@ class Mafia(Game):
         source, args = await asyncio.to_thread(choose_mafia_move, self, difficulty, seat)
         return Move(actor_seat=seat, source=source, args=args)
 
-    def peek_info(self, seat: int, ctx: GameContext) -> str:
-        role = self.role.get(seat, "unknown")
-        role_emoji = self._role_emoji(ctx, role)
-        instructions = next((r.instructions for r in self.metadata.roles if r.key == role), "")
-        
-        text = f"{role_emoji} **Your Role: {role.title()}**\n{instructions}"
-        if role == "mafia":
-            teammates = [
-                self._name(p.seat)
-                for p in self.players
-                if self.role.get(p.seat) == "mafia" and p.seat != seat
-            ]
-            if teammates:
-                text += f"\n\n**Mafia teammates:** {', '.join(teammates)}"
-        return text
+    async def handle_query(
+        self,
+        seat: int,
+        source: str,
+        interaction: discord.Interaction,
+        ctx: GameContext,
+        surface: ViewSurface,
+    ) -> bool:
+        if source == "peek":
+            role = self.role.get(seat, "unknown")
+            role_emoji = self._role_emoji(ctx, role)
+            instructions = next((r.instructions for r in self.metadata.roles if r.key == role), "")
+            
+            text = f"{role_emoji} **Your Role: {role.title()}**\n{instructions}"
+            if role == "mafia":
+                teammates = [
+                    self._name(p.seat)
+                    for p in self.players
+                    if self.role.get(p.seat) == "mafia" and p.seat != seat
+                ]
+                if teammates:
+                    text += f"\n\n**Mafia teammates:** {', '.join(teammates)}"
+            await interaction.response.send_message(text, ephemeral=True)
+            return True
+        return await super().handle_query(seat, source, interaction, ctx, surface)

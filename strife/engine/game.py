@@ -3,8 +3,11 @@ from __future__ import annotations
 import random
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from typing import Any, ClassVar
+from typing import Any, ClassVar, TYPE_CHECKING
 
+if TYPE_CHECKING:
+    import discord
+    from strife.presentation.message import ViewSurface
 from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.metadata import GameMetadata
 from strife.engine.players import GameOutcome, Move, Player
@@ -38,6 +41,14 @@ class Game(ABC):
     async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
         return None
 
-    def peek_info(self, seat: int, ctx: GameContext) -> str:
-        return "This game does not contain any secret roles or hidden information."
+    async def handle_query(
+        self,
+        seat: int,
+        source: str,
+        interaction: discord.Interaction,
+        ctx: GameContext,
+        surface: ViewSurface,
+    ) -> bool:
+        return False
+
 

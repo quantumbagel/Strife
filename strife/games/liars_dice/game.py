@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import discord
+    from strife.presentation.message import ViewSurface
 
 from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
@@ -437,8 +442,21 @@ class LiarsDice(Game):
     async def bot_move(self, difficulty: str, seat: int) -> Move:
         return await asyncio.to_thread(choose_move, self, difficulty, seat)
 
-    def peek_info(self, seat: int, ctx: GameContext) -> str:
-        hand = self.hands.get(seat, [])
-        if not hand:
-            return "You have no dice left in this round."
-        return f"🎲 **Your Secret Dice Hand:** {self._format_hand(ctx, hand)}"
+    async def handle_query(
+        self,
+        seat: int,
+        source: str,
+        interaction: discord.Interaction,
+        ctx: GameContext,
+        surface: ViewSurface,
+    ) -> bool:
+        if source == "peek":
+            hand = self.hands.get(seat, [])
+            peek_text = (
+                "You have no dice left in this round."
+                if not hand
+                else f"🎲 **Your Secret Dice Hand:** {self._format_hand(ctx, hand)}"
+            )
+            await interaction.response.send_message(peek_text, ephemeral=True)
+            return True
+        return await super().handle_query(seat, source, interaction, ctx, surface)

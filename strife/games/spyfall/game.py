@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import discord
+    from strife.presentation.message import ViewSurface
 
 from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
@@ -509,7 +514,20 @@ class Spyfall(Game):
             return Move(actor_seat=seat, source=source, args=move.args)
         return move
 
-    def peek_info(self, seat: int, ctx: GameContext) -> str:
-        if seat == self.spy:
-            return "🕵️ **You are the SPY!** Try to blend in and guess the location."
-        return f"📍 **Secret Location: {self.location}**"
+    async def handle_query(
+        self,
+        seat: int,
+        source: str,
+        interaction: discord.Interaction,
+        ctx: GameContext,
+        surface: ViewSurface,
+    ) -> bool:
+        if source == "peek":
+            peek_text = (
+                "🕵️ **You are the SPY!** Try to blend in and guess the location."
+                if seat == self.spy
+                else f"📍 **Secret Location: {self.location}**"
+            )
+            await interaction.response.send_message(peek_text, ephemeral=True)
+            return True
+        return await super().handle_query(seat, source, interaction, ctx, surface)
