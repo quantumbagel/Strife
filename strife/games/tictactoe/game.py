@@ -4,7 +4,7 @@ import asyncio
 
 from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
-from strife.engine.players import GameOutcome, Move, Player
+from strife.engine.players import GameOutcome, Move
 from strife.persistence.repositories import MoveRecord
 from strife.games.tictactoe.bot import choose_move
 from strife.presentation.components import (
@@ -243,6 +243,7 @@ class TicTacToe(Game):
             title=title,
             status=status,
             status_emoji=status_emoji,
+            is_replay=ctx.is_replay,
         )
         for row in range(3):
             action = ActionRow()

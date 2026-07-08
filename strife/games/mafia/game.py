@@ -64,7 +64,7 @@ class Mafia(Game):
             )
             for s in seats
         ]
-        return f"**Alive**\n" + ("\n".join(lines) if lines else "_None_")
+        return "**Alive**\n" + ("\n".join(lines) if lines else "_None_")
 
     def _history_block(self, ctx: GameContext, history: list[str] | None = None) -> str | None:
         entries = (history if history is not None else self.history)[-5:]
@@ -85,6 +85,7 @@ class Mafia(Game):
             title="Game Over",
             status=f"{winner.title()} wins!",
             status_emoji="success",
+            is_replay=ctx.is_replay,
         )
         forward = ctx.emoji.get("forward")
         lines = []
@@ -154,6 +155,7 @@ class Mafia(Game):
                 game_name=self.metadata.name,
                 title=f"Your Role: {role.title()}",
                 status=instructions,
+                is_replay=ctx.is_replay,
             )
             if role == "mafia":
                 teammates = [
@@ -207,6 +209,7 @@ class Mafia(Game):
                 title=f"Night {self.day} Action",
                 status=f"Choose a target as **{role.title()}**",
                 status_emoji="loading",
+                is_replay=ctx.is_replay,
             )
             row = ActionRow()
             source = source_map[role]
@@ -278,6 +281,7 @@ class Mafia(Game):
                     title="Investigation Result",
                     status=f"{self._name(target)} is **{alignment.upper()}**",
                     status_emoji="enable_detective",
+                    is_replay=ctx.is_replay,
                 )
                 reveal.add_container(container)
                 await ctx.send_private(seat, reveal)
@@ -370,6 +374,7 @@ class Mafia(Game):
                     title="Roles Assigned",
                     status="The game is about to begin.",
                     status_emoji="user",
+                    is_replay=ctx.is_replay,
                 )
                 forward = ctx.emoji.get("forward")
                 role_lines = []
@@ -430,6 +435,7 @@ class Mafia(Game):
                     title=f"Night Action: {role.title()}",
                     status=f"{_get_name(actor_seat) if actor_seat is not None else 'Unknown'} chose to **{move.source}** {target_str}",
                     status_emoji=self._ROLE_EMOJI.get(role, "user"),
+                    is_replay=ctx.is_replay,
                 )
                 view.add_container(container)
 
@@ -459,6 +465,7 @@ class Mafia(Game):
                     title="Investigation Result",
                     status=f"{_get_name(detective_seat)} found {_get_name(target_seat)} is **{alignment.upper()}**",
                     status_emoji="enable_detective",
+                    is_replay=ctx.is_replay,
                 )
                 view.add_container(container)
 
@@ -494,6 +501,7 @@ class Mafia(Game):
                     title="Morning Results",
                     status=status,
                     status_emoji="success" if victim is None else "error",
+                    is_replay=ctx.is_replay,
                 )
                 container.add_separator()
                 container.add_text(TextDisplay(markdown_content=self._alive_roster(ctx, alive)))
@@ -533,6 +541,7 @@ class Mafia(Game):
                     title="Day Voting Results",
                     status=status,
                     status_emoji=status_emoji,
+                    is_replay=ctx.is_replay,
                 )
 
                 vote_lines = []
@@ -598,6 +607,7 @@ class Mafia(Game):
             title=title,
             status=status,
             status_emoji=status_emoji,
+            is_replay=ctx.is_replay,
         )
         container.add_text(TextDisplay(markdown_content=self._alive_roster(ctx, alive)))
         history_block = self._history_block(ctx, history)
@@ -618,6 +628,7 @@ class Mafia(Game):
             title=f"Day {self.day}",
             status="Discussion and vote — cast your ballot below.",
             status_emoji="loading",
+            is_replay=ctx.is_replay,
         )
         container.add_text(TextDisplay(markdown_content=self._alive_roster(ctx)))
         history_block = self._history_block(ctx)
