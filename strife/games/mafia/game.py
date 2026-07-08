@@ -124,19 +124,22 @@ class Mafia(Game):
         winner = summary.get("winning_faction", "unknown")
         return self._game_over_view(ctx, winner)
 
-    def _normalize_target(self, move: Move) -> str | None:
+    def _normalize_target(self, move: Move) -> str | int | None:
         target = move.args.get("target")
         if target is None and move.args.get("value") is not None:
             target = move.args["value"]
             move.args["target"] = target
         return target
 
-    def _parse_alive_target(self, raw: str | None) -> int | None:
+    def _parse_alive_target(self, raw: str | int | None) -> int | None:
         if raw is None or raw == "skip":
             return None
-        if not isinstance(raw, str) or not raw.isdigit():
+        if isinstance(raw, int):
+            seat = raw
+        elif isinstance(raw, str) and raw.isdigit():
+            seat = int(raw)
+        else:
             return None
-        seat = int(raw)
         if seat not in self.alive:
             return None
         return seat
@@ -331,15 +334,15 @@ class Mafia(Game):
         history: list[str] = []
         frames: list[ReplayFrame] = []
         from strife.presentation.compiler import clone_and_disable
+        pending_takeover_info = None
 
         for move in moves:
-            takeover_info = None
             if move.arguments.get("replaced_by_bot"):
                 for p in self.players:
                     if p.seat == move.actor_seat:
                         p.is_bot = True
                         p.bot_difficulty = "hard"
-                        takeover_info = {
+                        pending_takeover_info = {
                             "user_id": p.user_id,
                             "display_name": p.display_name,
                             "is_bot": p.is_bot,
@@ -349,7 +352,7 @@ class Mafia(Game):
             elif move.source == "forfeit":
                 for p in self.players:
                     if p.seat == move.actor_seat:
-                        takeover_info = {
+                        pending_takeover_info = {
                             "user_id": p.user_id,
                             "display_name": p.display_name,
                             "is_bot": p.is_bot,
@@ -393,10 +396,11 @@ class Mafia(Game):
                         turn_label="Setup",
                         actor_seat=None,
                         view=clone_and_disable(view),
-                        takeover_info=takeover_info,
+                        takeover_info=pending_takeover_info,
                         timestamp=move.created_at,
                     )
                 )
+                pending_takeover_info = None
 
             elif move.source == "night_start":
                 day_num = move.arguments["day"]
@@ -414,15 +418,17 @@ class Mafia(Game):
                         turn_label=f"Night {day_num}",
                         actor_seat=None,
                         view=clone_and_disable(view),
-                        takeover_info=takeover_info,
+                        takeover_info=pending_takeover_info,
                         timestamp=move.created_at,
                     )
                 )
+                pending_takeover_info = None
 
             elif move.source in ("kill", "protect", "investigate"):
                 actor_seat = move.actor_seat
                 role = roles.get(actor_seat, "unknown") if actor_seat is not None else "unknown"
-                target_seat = int(move.arguments.get("target")) if move.arguments.get("target") is not None else None
+                target_val = move.arguments.get("target")
+                target_seat = int(target_val) if (target_val is not None and target_val != "skip") else None
                 target_str = _get_name(target_seat) if target_seat is not None else "no one"
 
                 view = LayoutView()
@@ -445,14 +451,15 @@ class Mafia(Game):
                         turn_label="Night Action",
                         actor_seat=actor_seat,
                         view=clone_and_disable(view),
-                        takeover_info=takeover_info,
+                        takeover_info=pending_takeover_info,
                         timestamp=move.created_at,
                     )
                 )
+                pending_takeover_info = None
 
             elif move.source == "detective_reveal":
-                detective_seat = move.arguments["detective"]
-                target_seat = move.arguments["target"]
+                detective_seat = int(move.arguments["detective"])
+                target_seat = int(move.arguments["target"])
                 alignment = move.arguments["alignment"]
 
                 view = LayoutView()
@@ -475,10 +482,11 @@ class Mafia(Game):
                         turn_label="Investigation",
                         actor_seat=detective_seat,
                         view=clone_and_disable(view),
-                        takeover_info=takeover_info,
+                        takeover_info=pending_takeover_info,
                         timestamp=move.created_at,
                     )
                 )
+                pending_takeover_info = None
 
             elif move.source == "night_outcome":
                 victim = move.arguments.get("victim")
@@ -513,10 +521,11 @@ class Mafia(Game):
                         turn_label="Morning",
                         actor_seat=None,
                         view=clone_and_disable(view),
-                        takeover_info=takeover_info,
+                        takeover_info=pending_takeover_info,
                         timestamp=move.created_at,
                     )
                 )
+                pending_takeover_info = None
 
             elif move.source == "day_outcome":
                 lynched = move.arguments.get("lynched")
@@ -547,7 +556,7 @@ class Mafia(Game):
                 vote_lines = []
                 for voter_str, target_str in votes_cast.items():
                     voter_seat = int(voter_str)
-                    target_seat = int(target_str) if target_str != "skip" else None
+                    target_seat = int(target_str) if (target_str is not None and target_str != "skip") else None
                     target_display = _get_name(target_seat) if target_seat is not None else "Skip"
                     vote_lines.append(
                         f"{ctx.emoji.get('bullet')} {_get_name(voter_seat)} voted for **{target_display}**"
@@ -565,10 +574,11 @@ class Mafia(Game):
                         turn_label="Lynch Vote",
                         actor_seat=None,
                         view=clone_and_disable(view),
-                        takeover_info=takeover_info,
+                        takeover_info=pending_takeover_info,
                         timestamp=move.created_at,
                     )
                 )
+                pending_takeover_info = None
 
             elif move.source == "game_end":
                 winning_faction = move.arguments.get("winning_faction", "unknown")
@@ -580,10 +590,11 @@ class Mafia(Game):
                         turn_label="Game Over",
                         actor_seat=None,
                         view=clone_and_disable(view),
-                        takeover_info=takeover_info,
+                        takeover_info=pending_takeover_info,
                         timestamp=move.created_at,
                     )
                 )
+                pending_takeover_info = None
 
         return frames
 
