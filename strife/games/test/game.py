@@ -58,11 +58,11 @@ class TestGame(Game):
             else:
                 results[player.seat] = "loss"
                 player_descriptions[player.seat] = "Removed from play"
-        forfeiter_name = self.players[forfeiter_seat].display_name
+        forfeiter_mention = str(self.players[forfeiter_seat])
         return GameOutcome(
             results=results,
             summary={"reason": "forfeit", "forfeiter": forfeiter_seat},
-            description=f"{forfeiter_name} forfeited",
+            description=f"{forfeiter_mention} forfeited",
             player_descriptions=player_descriptions,
         )
 
@@ -451,7 +451,9 @@ class TestGame(Game):
                         p.is_bot = True
                         p.bot_difficulty = "hard"
                         takeover_info = {
+                            "user_id": p.user_id,
                             "display_name": p.display_name,
+                            "is_bot": p.is_bot,
                             "type": "bot_takeover",
                             "reason": move.arguments.get("replace_reason", "timeout"),
                         }
@@ -460,7 +462,9 @@ class TestGame(Game):
                     for p in self.players:
                         if p.seat == move.actor_seat:
                             takeover_info = {
+                                "user_id": p.user_id,
                                 "display_name": p.display_name,
+                                "is_bot": p.is_bot,
                                 "type": "removal",
                                 "reason": move.arguments.get("reason", "forfeit"),
                             }

@@ -159,9 +159,9 @@ class GameSession:
             opponents = [p.seat for p in self.players if p.seat != forfeiter_seat]
             if len(opponents) == 1:
                 summary["winner"] = opponents[0]
-            forfeiter_name = self.players[forfeiter_seat].display_name
+            forfeiter_mention = str(self.players[forfeiter_seat])
             action_str = "timed out" if reason == "timeout" else "forfeited"
-            description = f"{forfeiter_name} {action_str}"
+            description = f"{forfeiter_mention} {action_str}"
         else:
             description = reason.capitalize()
             for player in self.players:

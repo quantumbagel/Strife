@@ -336,7 +336,9 @@ class Mafia(Game):
                         p.is_bot = True
                         p.bot_difficulty = "hard"
                         takeover_info = {
+                            "user_id": p.user_id,
                             "display_name": p.display_name,
+                            "is_bot": p.is_bot,
                             "type": "bot_takeover",
                             "reason": move.arguments.get("replace_reason", "timeout"),
                         }
@@ -344,7 +346,9 @@ class Mafia(Game):
                 for p in self.players:
                     if p.seat == move.actor_seat:
                         takeover_info = {
+                            "user_id": p.user_id,
                             "display_name": p.display_name,
+                            "is_bot": p.is_bot,
                             "type": "removal",
                             "reason": move.arguments.get("reason", "forfeit"),
                         }
@@ -649,9 +653,9 @@ class Mafia(Game):
                 results[player.seat] = "win" if winner == "town" else "loss"
         role_map = {player.seat: self.role[player.seat] for player in self.players}
 
-        mafia_names = [p.display_name for p in self.players if self.role[p.seat] == "mafia"]
+        mafia_mentions = [str(p) for p in self.players if self.role[p.seat] == "mafia"]
         if winner == "mafia":
-            description = f"Mafia won (parity reached) ({', '.join(mafia_names)})"
+            description = f"Mafia won (parity reached) ({', '.join(mafia_mentions)})"
         else:
             description = "Town won (all Mafia eliminated)"
 

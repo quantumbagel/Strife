@@ -153,6 +153,17 @@ def build_replay_view(
         display_name = takeover_info.get("display_name")
         reason = takeover_info.get("reason", "timeout")
         info_type = takeover_info.get("type", "bot_takeover")
+        user_id = takeover_info.get("user_id")
+        is_bot = takeover_info.get("is_bot", False)
+        if user_id is not None:
+            name_label = player_mention(
+                user_id=user_id,
+                display_name=display_name,
+                is_bot=is_bot,
+            )
+        else:
+            name_label = display_name
+
         if info_type == "bot_takeover":
             reason_str = (
                 text.get("replay.reason_inactivity") if reason == "timeout" else reason
@@ -160,7 +171,7 @@ def build_replay_view(
             notice = text.get(
                 "replay.notice_bot_takeover",
                 error_emoji=emoji.get("error"),
-                name=display_name,
+                name=name_label,
                 reason=reason_str,
             )
         else:  # removal
@@ -172,7 +183,7 @@ def build_replay_view(
             notice = text.get(
                 "replay.notice_removal",
                 error_emoji=emoji.get("error"),
-                name=display_name,
+                name=name_label,
                 action=action_str,
             )
         container.add_text(

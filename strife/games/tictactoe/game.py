@@ -80,11 +80,11 @@ class TicTacToe(Game):
             self.board[self._idx(col, row)] = seat
             line = self._winning_line(seat)
             if line is not None:
-                winner_name = self.players[seat].display_name
+                winner_mention = str(self.players[seat])
                 return GameOutcome(
                     results={seat: "win", 1 - seat: "loss"},
                     summary={"winner": seat, "line": line},
-                    description=f"{winner_name} won",
+                    description=f"{winner_mention} won",
                     player_descriptions={seat: "Won", 1 - seat: "Lost"},
                 )
             if all(v is not None for v in self.board):
@@ -132,7 +132,9 @@ class TicTacToe(Game):
                         p.is_bot = True
                         p.bot_difficulty = "hard"
                         takeover_info = {
+                            "user_id": p.user_id,
                             "display_name": p.display_name,
+                            "is_bot": p.is_bot,
                             "type": "bot_takeover",
                             "reason": move.arguments.get("replace_reason", "timeout"),
                         }
@@ -141,7 +143,9 @@ class TicTacToe(Game):
                     for p in self.players:
                         if p.seat == actor:
                             takeover_info = {
+                                "user_id": p.user_id,
                                 "display_name": p.display_name,
+                                "is_bot": p.is_bot,
                                 "type": "removal",
                                 "reason": move.arguments.get("reason", "forfeit"),
                             }
