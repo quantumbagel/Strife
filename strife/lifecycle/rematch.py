@@ -51,8 +51,8 @@ class RematchManager:
             offer = self._offers.get(thread_id)
             if offer is None or now <= offer.expires:
                 continue
-            await self._disable_offer(thread_id, offer)
-            self._offers.pop(thread_id, None)
+            if self._offers.pop(thread_id, None) is not None:
+                await self._disable_offer(thread_id, offer)
 
     async def _disable_offer(self, thread_id: int, offer: RematchOffer) -> None:
         session = offer.session
@@ -85,12 +85,13 @@ class RematchManager:
         if user_id not in offer.eligible:
             raise RuntimeError("rematch_not_eligible")
         if time.monotonic() > offer.expires:
-            await self._disable_offer(thread_id, offer)
-            self._offers.pop(thread_id, None)
+            if self._offers.pop(thread_id, None) is not None:
+                await self._disable_offer(thread_id, offer)
             raise RuntimeError("rematch_expired")
         offer.votes.add(user_id)
         if offer.votes >= offer.eligible:
-            await self._reset_to_lobby(thread_id, offer)
+            if self._offers.pop(thread_id, None) is not None:
+                await self._reset_to_lobby(thread_id, offer)
         else:
             session = offer.session
             if session and hasattr(session, "lobby_surface") and session.lobby_surface is not None:
