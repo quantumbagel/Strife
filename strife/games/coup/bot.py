@@ -39,34 +39,28 @@ def choose_move(game: Coup, difficulty: str, seat: int) -> Move:
         return Move(actor_seat=seat, source="exchange_keep", args={})
 
     if game.state_phase in ("challenge_window", "block_window", "block_challenge_window"):
-        # Reaction moves: "challenge", "block", "pass"
-        # If someone targeted us with Steal, block claiming Captain/Ambassador
-        # If someone targeted us with Assassinate, block claiming Contessa
         action_type = game.current_action
         target = game.current_target
-        
-        if game.state_phase == "block_window":
-            if action_type == "steal" and target == seat:
-                # Block claiming captain/ambassador
-                claim = "captain" if "captain" in my_cards else "ambassador"
-                return Move(actor_seat=seat, source="block", args={"claim": claim})
-            if action_type == "assassinate" and target == seat:
-                return Move(actor_seat=seat, source="block", args={"claim": "contessa"})
-            if action_type == "foreign_aid" and seat != game.current_actor:
-                # Duke block foreign aid
-                if "duke" in my_cards or game.rng.random() < 0.2:
-                    return Move(actor_seat=seat, source="block", args={"claim": "duke"})
-            return Move(actor_seat=seat, source="pass", args={})
 
         if game.state_phase == "challenge_window":
-            # 10% chance to challenge character claims generally
+            if action_type == "assassinate" and target == seat:
+                if "contessa" in my_cards or game.rng.random() < 0.7:
+                    return Move(actor_seat=seat, source="block_contessa", args={})
             if game.rng.random() < 0.1 and game.current_actor != seat:
                 return Move(actor_seat=seat, source="challenge", args={})
             return Move(actor_seat=seat, source="pass", args={})
 
+        if game.state_phase == "block_window":
+            if action_type == "steal" and target == seat:
+                claim = "captain" if "captain" in my_cards else "ambassador"
+                return Move(actor_seat=seat, source="block", args={"claim": claim})
+            if action_type == "foreign_aid" and seat != game.current_actor:
+                if "duke" in my_cards or game.rng.random() < 0.2:
+                    return Move(actor_seat=seat, source="block", args={"claim": "duke"})
+            return Move(actor_seat=seat, source="pass", args={})
+
         if game.state_phase == "block_challenge_window":
-            # Challenge a block if we are the active player and we think they lied
-            if game.current_actor == seat and game.rng.random() < 0.2:
+            if game.rng.random() < 0.2:
                 return Move(actor_seat=seat, source="challenge", args={})
             return Move(actor_seat=seat, source="pass", args={})
 

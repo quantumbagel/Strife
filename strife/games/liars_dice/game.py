@@ -38,6 +38,44 @@ class LiarsDice(Game):
         self.current = self.rng.randint(0, len(players) - 1)
         self.alive: set[int] = {p.seat for p in players}
         self.history: list[str] = []
+        self.pending_quantity: int | None = None
+        self.pending_value: int | None = None
+
+    def _total_alive_dice(self) -> int:
+        return sum(self.dice_counts[s] for s in self.alive)
+
+    def _legal_face_values(self) -> list[int]:
+        val_start = 1 if not self.settings.get("wild_ones", True) else 2
+        return list(range(val_start, 7))
+
+    def _is_max_bid(self) -> bool:
+        if self.current_bid is None:
+            return False
+        total_dice = self._total_alive_dice()
+        curr_q, curr_v = self.current_bid
+        return curr_q == total_dice and curr_v == 6
+
+    def _validate_bid(self, quantity: int, value: int) -> tuple[bool, str | None]:
+        total_dice = self._total_alive_dice()
+        legal_faces = self._legal_face_values()
+        if quantity < 1 or quantity > total_dice:
+            return False, f"Quantity must be between 1 and {total_dice}."
+        if value not in legal_faces:
+            return False, f"Die value must be one of: {', '.join(map(str, legal_faces))}."
+        if self.current_bid is not None:
+            curr_q, curr_v = self.current_bid
+            if quantity < curr_q or (quantity == curr_q and value <= curr_v):
+                return False, "Bid must be higher than the current bid."
+        return True, None
+
+    def _count_matching_dice(self, bid_v: int) -> int:
+        wilds = self.settings.get("wild_ones", True)
+        return sum(
+            self.hands[seat].count(bid_v)
+            + (self.hands[seat].count(1) if wilds and bid_v != 1 else 0)
+            for seat in self.alive
+            if seat in self.hands
+        )
 
     def _next_player(self, current: int) -> int:
         n = len(self.players)
@@ -82,6 +120,8 @@ class LiarsDice(Game):
 
             self.current_bid = None
             self.last_bidder = None
+            self.pending_quantity = None
+            self.pending_value = None
 
             # 2. Bidding loop
             while True:
@@ -92,8 +132,20 @@ class LiarsDice(Game):
                     prefix_emoji="loading",
                 )
 
-                sources = {"bid", "challenge"}
-                move = await ctx.request_input(view, actor=seat, sources=sources)
+                sources = {"quantity_select", "value_select", "bid", "challenge"}
+                move = await ctx.request_input(view, actor=seat, sources=sources, record=False)
+
+                if move.source == "quantity_select":
+                    val = move.args.get("value")
+                    if val is not None:
+                        self.pending_quantity = int(val)
+                    continue
+
+                if move.source == "value_select":
+                    val = move.args.get("value")
+                    if val is not None:
+                        self.pending_value = int(val)
+                    continue
 
                 if move.source == "challenge":
                     # Challenge the last bid!
@@ -104,12 +156,7 @@ class LiarsDice(Game):
                     bidder = self.last_bidder
                     bid_q, bid_v = self.current_bid
 
-                    # Count total matching dice on the table
-                    wilds = self.settings.get("wild_ones", True)
-                    actual_count = sum(
-                        hand.count(bid_v) + (hand.count(1) if wilds and bid_v != 1 else 0)
-                        for hand in self.hands.values()
-                    )
+                    actual_count = self._count_matching_dice(bid_v)
 
                     # Determine loser
                     is_liar = actual_count < bid_q
@@ -119,6 +166,8 @@ class LiarsDice(Game):
                     self.dice_counts[loser] -= 1
                     loser_name = self.players[loser].mention
                     winner_name = self.players[winner].mention
+                    challenger_name = self.players[challenger].mention
+                    bidder_name = self.players[bidder].mention
 
                     # Build outcome message
                     reveal_text = f"**The Bid was {bid_q} Fives (⚄) or similar.**\n"
@@ -132,12 +181,16 @@ class LiarsDice(Game):
                     verdict = f"{winner_name} was correct! {loser_name} loses 1 die."
                     if self.dice_counts[loser] == 0:
                         self.alive.remove(loser)
+                        self.hands.pop(loser, None)
                         verdict += f" {loser_name} is eliminated from the game!"
                         self.history.append(f"{loser_name} was eliminated.")
                     else:
                         self.history.append(f"{loser_name} lost 1 die (remaining: {self.dice_counts[loser]}).")
 
-                    self.history.append(f"Round challenge: {winner_name} challenged {loser_name}'s bid of {bid_q}x{bid_v}. Actual: {actual_count}.")
+                    self.history.append(
+                        f"{challenger_name} called liar on {bidder_name}'s bid of "
+                        f"{bid_q}x{bid_v}. Actual: {actual_count}."
+                    )
 
                     await ctx.record_event("challenge_resolve", {
                         "challenger": challenger,
@@ -170,24 +223,29 @@ class LiarsDice(Game):
                     break
 
                 elif move.source == "bid":
-                    # Parse and record new bid
-                    quantity = int(move.args.get("quantity", 0))
-                    value = int(move.args.get("value", 0))
+                    if self._is_max_bid():
+                        continue
 
-                    # Validate bid is higher
-                    is_valid = True
-                    if self.current_bid is not None:
-                        curr_q, curr_v = self.current_bid
-                        if quantity < curr_q or (quantity == curr_q and value <= curr_v):
-                            is_valid = False
+                    quantity = self.pending_quantity
+                    value = self.pending_value
+                    if quantity is None:
+                        quantity = move.args.get("quantity")
+                    if value is None:
+                        value = move.args.get("value")
+                    if quantity is None or value is None:
+                        continue
+                    quantity = int(quantity)
+                    value = int(value)
 
+                    is_valid, _reason = self._validate_bid(quantity, value)
                     if not is_valid:
-                        # Resend turn without changing state
                         continue
 
                     self.current_bid = (quantity, value)
                     self.last_bidder = seat
                     self.current = self._next_player(seat)
+                    self.pending_quantity = None
+                    self.pending_value = None
                     await ctx.record_event("bid", {
                         "player": seat,
                         "quantity": quantity,
@@ -237,21 +295,48 @@ class LiarsDice(Game):
         container.add_text(TextDisplay(table_text))
 
         if not ctx.is_replay:
-            total_dice = sum(self.dice_counts.values())
+            total_dice = self._total_alive_dice()
             min_q = 1
             if self.current_bid is not None:
                 min_q = self.current_bid[0]
 
+            max_q = total_dice
+            low_q = min_q
+            if max_q - low_q + 1 > 25:
+                low_q = max(min_q, max_q - 24)
+
             quantity_choices = [
-                SelectChoice(label=str(q), value=str(q))
-                for q in range(min_q, total_dice + 1)
-            ][:25]
+                SelectChoice(
+                    label=str(q),
+                    value=str(q),
+                    default=(self.pending_quantity == q),
+                )
+                for q in range(low_q, max_q + 1)
+            ]
 
             val_start = 1 if not self.settings.get("wild_ones", True) else 2
             value_choices = [
-                SelectChoice(label=f"Value {v}", value=str(v), emoji=f"die_{v}")
+                SelectChoice(
+                    label=f"Value {v}",
+                    value=str(v),
+                    emoji=f"die_{v}",
+                    default=(self.pending_value == v),
+                )
                 for v in range(val_start, 7)
             ]
+
+            at_max_bid = self._is_max_bid()
+            pending_text = ""
+            if self.pending_quantity is not None and self.pending_value is not None:
+                pending_text = (
+                    f"\n**Pending bid:** {self.pending_quantity} × "
+                    f"{self._die_emoji(ctx, self.pending_value)}"
+                )
+            elif self.pending_quantity is not None or self.pending_value is not None:
+                pending_text = "\n**Pending bid:** choose both quantity and value."
+
+            if pending_text:
+                container.add_text(TextDisplay(pending_text))
 
             row1 = ActionRow()
             row1.add_select(
@@ -279,6 +364,7 @@ class LiarsDice(Game):
                     source="bid",
                     label="Submit Bid",
                     style=ButtonStyle.PRIMARY,
+                    disabled=at_max_bid,
                 )
             )
             row3.add_button(
@@ -390,7 +476,11 @@ class LiarsDice(Game):
         return frames
 
     async def bot_move(self, difficulty: str, seat: int) -> Move:
-        return await asyncio.to_thread(choose_move, self, difficulty, seat)
+        move = await asyncio.to_thread(choose_move, self, difficulty, seat)
+        if move.source == "bid":
+            self.pending_quantity = move.args.get("quantity")
+            self.pending_value = move.args.get("value")
+        return move
 
     async def handle_query(
         self,

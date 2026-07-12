@@ -90,6 +90,15 @@ class ConnectFour(TurnBasedGame):
 
         return None
 
+    def _check_win_at(self, idx: int, seat: int) -> list[int] | None:
+        self.board[idx] = seat
+        line = self._winning_line(seat)
+        self.board[idx] = None
+        return line
+
+    def _check_win_for_player(self, seat: int) -> list[int] | None:
+        return self._winning_line(seat)
+
     def apply_move(self, move: MoveRecord) -> None:
         if move.source.startswith("col_") and move.actor_seat is not None:
             col = int(move.source.split("_")[1])
@@ -166,8 +175,23 @@ class ConnectFour(TurnBasedGame):
             controls=False,
         )
 
-    def render(self, ctx: GameContext) -> LayoutView:
-        return self._board_view(ctx)
+    def render(
+        self,
+        ctx: GameContext,
+        *,
+        lead: str | None = None,
+        status: str | None = None,
+        status_emoji: str | None = None,
+        title: str | None = None,
+    ) -> LayoutView:
+        if lead is None:
+            if status is not None:
+                lead = status
+            elif title is not None:
+                lead = title
+            elif not ctx.is_replay:
+                lead = self._action_status(ctx, self.current)
+        return self._board_view(ctx, lead=lead, prefix_emoji=status_emoji)
 
     def _board_view(
         self,
@@ -188,7 +212,14 @@ class ConnectFour(TurnBasedGame):
             for c in range(7):
                 idx = r * 7 + c
                 occupant = self.board[idx]
-                if occupant == 0:
+                if highlight and idx in highlight:
+                    if occupant == 0:
+                        row_emojis.append(ctx.emoji.get("connect_four_red"))
+                    elif occupant == 1:
+                        row_emojis.append(ctx.emoji.get("connect_four_yellow"))
+                    else:
+                        row_emojis.append(ctx.emoji.get("connect_four_empty"))
+                elif occupant == 0:
                     row_emojis.append(ctx.emoji.get("connect_four_red"))
                 elif occupant == 1:
                     row_emojis.append(ctx.emoji.get("connect_four_yellow"))

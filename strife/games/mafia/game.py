@@ -17,6 +17,8 @@ from strife.games.mafia.bot import choose_mafia_move
 from strife.games.mafia.roles import compose_roles
 from strife.presentation.components import (
     ActionRow,
+    Button,
+    ButtonStyle,
     Container,
     LayoutView,
     Select,
@@ -220,6 +222,7 @@ class Mafia(Game):
             sources=None,
             per_seat_sources=per_seat_sources,
             until="all",
+            record=False,
         )
         for move in moves.values():
             self._normalize_target(move)
@@ -239,9 +242,8 @@ class Mafia(Game):
             if seat_target is not None
         ]
         victim = None
-        if kills:
-            counts = Counter(kills)
-            victim, _ = counts.most_common(1)[0]
+        if kills and len(set(kills)) == 1:
+            victim = kills[0]
             if protects and victim in protects:
                 victim = None
         if victim is not None and victim in self.alive:

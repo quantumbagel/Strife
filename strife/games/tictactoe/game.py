@@ -62,12 +62,15 @@ from strife.presentation.game_ui import message_lead
 class TicTacToe(TurnBasedGame):
     def __init__(self, players, settings, rng):
         super().__init__(players, settings, rng)
-        self.marks = {0: "tictactoe_x", 1: "tictactoe_o"}
+        self.marks: dict[int, str] = {}
         self.reset()
 
     def reset(self) -> None:
         self.board: list[int | None] = [None] * 9
-        self.current = self._starting_seat()
+        first_mover = self._starting_seat()
+        self.current = first_mover
+        other = 1 - first_mover
+        self.marks = {first_mover: "tictactoe_x", other: "tictactoe_o"}
 
     def _idx(self, col: int, row: int) -> int:
         return row * 3 + col
@@ -75,6 +78,11 @@ class TicTacToe(TurnBasedGame):
     def _starting_seat(self) -> int:
         mode = self.setting("first_move", "random")
         if mode == "creator":
+            creator_id = self.settings.get("creator_id")
+            if creator_id is not None:
+                for player in self.players:
+                    if player.user_id == creator_id:
+                        return player.seat
             return 0
         return self.rng.randint(0, 1)
 
@@ -148,6 +156,7 @@ class TicTacToe(TurnBasedGame):
             lead=status,
             prefix_emoji=status_emoji,
             highlight=winning_line,
+            controls=False,
         )
 
     async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
@@ -163,6 +172,7 @@ class TicTacToe(TurnBasedGame):
             lead=status,
             prefix_emoji=status_emoji,
             highlight=highlight,
+            controls=False,
         )
 
     def render(
@@ -194,6 +204,7 @@ class TicTacToe(TurnBasedGame):
         lead: str | None = None,
         prefix_emoji: str | None = None,
         highlight: list[int] | None = None,
+        controls: bool = True,
     ) -> LayoutView:
         view = LayoutView()
         container = Container()
@@ -223,6 +234,7 @@ class TicTacToe(TurnBasedGame):
                                 source=f"tile_{col}{row}",
                                 label="\u200b",
                                 style=ButtonStyle.SECONDARY,
+                                disabled=not controls,
                             )
                         )
                     else:

@@ -975,10 +975,12 @@ class LobbyService:
             players = order_players(
                 players, meta.player_order.value, rng, creator_id=lobby.creator_id
             )
+            game_settings = dict(lobby.settings)
+            game_settings["creator_id"] = lobby.creator_id
             game = self.registry.create(
                 lobby.game_key,
                 players,
-                lobby.settings,
+                game_settings,
                 seed,
                 lobby_selection=lobby.role_selection,
             )

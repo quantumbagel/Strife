@@ -53,6 +53,8 @@ class Spyfall(Game):
         self.history: list[str] = []
         self.turn = 1
         self.max_turns = 5
+        self.pending_accuse: dict[int, int] = {}
+        self.pending_guess: dict[int, str] = {}
 
     def _name(self, seat: int) -> str:
         return self.players[seat].mention
@@ -99,12 +101,31 @@ class Spyfall(Game):
             moves = await ctx.request_inputs(
                 view,
                 actors=set(self.alive),
-                sources={"accuse", "guess_location", "pass"},
+                sources={"accuse_select", "location_select", "accuse", "guess_location", "pass"},
                 until="any",
+                record=False,
             )
 
-            # Get the first move that occurred
+            if not moves:
+                continue
+
             actor_seat, move = next(iter(moves.items()))
+
+            if move.source == "accuse_select":
+                val = move.args.get("value")
+                if val is not None:
+                    target = int(val)
+                    if target in self.alive and target != actor_seat:
+                        self.pending_accuse[actor_seat] = target
+                continue
+
+            if move.source == "location_select":
+                if actor_seat != self.spy:
+                    continue
+                val = move.args.get("value")
+                if val is not None:
+                    self.pending_guess[actor_seat] = str(val)
+                continue
 
             if move.source == "pass":
                 # A simple pass move from a bot or timer.
@@ -113,12 +134,13 @@ class Spyfall(Game):
                 continue
 
             elif move.source == "guess_location":
-                # Only the spy can guess location
                 if actor_seat != self.spy:
-                    # Non-spy trying to guess - ignore or penalize
+                    self.turn += 1
                     continue
 
-                guess = move.args.get("location")
+                guess = self.pending_guess.get(actor_seat)
+                if not guess:
+                    continue
                 if guess == self.location:
                     winner_faction = "spy"
                     self.history.append(f"Spy guessed the location correctly: {guess}!")
@@ -135,13 +157,16 @@ class Spyfall(Game):
                 break
 
             elif move.source == "accuse":
-                target = int(move.args.get("target", -1))
+                target = self.pending_accuse.get(actor_seat)
+                if target is None:
+                    continue
                 if target not in self.alive or target == actor_seat:
                     continue
 
                 self.accused_player = target
                 self.accuser = actor_seat
                 self.votes = {}
+                self.pending_accuse.pop(actor_seat, None)
 
                 await ctx.record_event("accusation_start", {
                     "accuser": actor_seat,
@@ -282,7 +307,7 @@ class Spyfall(Game):
             row3.add_button(
                 Button(
                     source="guess_location",
-                    label="Guess Location",
+                    label="Guess Location (Spy only)",
                     style=ButtonStyle.SUCCESS,
                 )
             )
@@ -404,7 +429,7 @@ class Spyfall(Game):
                 ))
 
             elif move.source == "accusation_start":
-                self.accuser = move.actor_seat
+                self.accuser = move.arguments.get("accuser", move.actor_seat)
                 self.accused_player = move.arguments["accused"]
                 self.votes = {}
                 view = self._voting_view(ctx)

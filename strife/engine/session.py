@@ -298,13 +298,16 @@ class GameSession:
     ) -> dict[int, Move]:
         results: dict[int, Move] = {}
         humans = {seat for seat in actors if not self.players[seat].is_bot}
-        for seat in actors:
-            if self.players[seat].is_bot:
-                difficulty = self.players[seat].bot_difficulty or "medium"
-                move = await self.game.bot_move(difficulty, seat)
-                results[seat] = move
-                if record:
-                    self._record_move(move)
+        bots = actors - humans
+
+        if until == "any" and not humans:
+            # All actors are bots: pick one at random and return only that move.
+            bot_seat = self.game.rng.choice(sorted(bots))
+            difficulty = self.players[bot_seat].bot_difficulty or "medium"
+            move = await self.game.bot_move(difficulty, bot_seat)
+            if record:
+                self._record_move(move)
+            return {bot_seat: move}
 
         loop = asyncio.get_running_loop()
         futures: dict[int, asyncio.Future[Move]] = {}
@@ -346,6 +349,14 @@ class GameSession:
                 self.pending.pop(seat, None)
             await self.refresh_header()
             return results
+
+        # until == "all": collect bot moves alongside human futures.
+        for seat in bots:
+            difficulty = self.players[seat].bot_difficulty or "medium"
+            move = await self.game.bot_move(difficulty, seat)
+            results[seat] = move
+            if record:
+                self._record_move(move)
 
         for seat, future in futures.items():
             move = await future
