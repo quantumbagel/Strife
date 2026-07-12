@@ -3,15 +3,15 @@ from __future__ import annotations
 from strife.presentation.emoji import EmojiResolver
 
 
-def player_mention(*, user_id: int | None, display_name: str, is_bot: bool) -> str:
+def player_mention(*, user_id: int | None, display_name: str, is_bot: bool, bot_difficulty: str | None = None) -> str:
     from strife.engine.players import Player
-    p = Player(
+    return Player(
         seat=-1,
         user_id=user_id,
         display_name=display_name,
         is_bot=is_bot,
-    )
-    return str(p)
+        bot_difficulty=bot_difficulty,
+    ).mention
 
 
 def member_line(

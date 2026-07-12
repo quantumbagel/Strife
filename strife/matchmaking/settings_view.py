@@ -3,17 +3,18 @@ from __future__ import annotations
 import discord
 
 from strife.config.text import TextConfig
-from strife.engine.metadata import GameMetadata, OptionType
+from strife.engine.metadata import GameMetadata, OptionType, SettingOption, choice_emoji_for
 from strife.matchmaking.lobby import Lobby
 from strife.presentation.components import (
     ActionRow,
     Button,
     ButtonStyle,
     Container,
+    DescribedSelect,
     LayoutView,
     Select,
     SelectChoice,
-    TextDisplay,
+    Separator, TextDisplay,
     TextSize,
     UserSelect,
 )
@@ -21,9 +22,11 @@ from strife.presentation.emoji import EmojiResolver, get_game_emoji
 from strife.routing import prefixes as P
 
 
-def get_option_emoji(resolver: EmojiResolver, key: str) -> str:
-    if key in resolver.config.entries:
-        return resolver.get(key)
+def get_option_emoji(resolver: EmojiResolver, option: SettingOption) -> str:
+    if option.emoji:
+        return resolver.get(option.emoji)
+    if option.key in resolver.config.entries:
+        return resolver.get(option.key)
     return resolver.get("settings")
 
 
@@ -54,60 +57,117 @@ def build_settings_view(
         )
     )
 
-    # Privacy Status display
-    privacy_status = (
-        text.get("lobby.private_status_body", private_emoji=emoji.get("private"))
-        if lobby.private
-        else text.get("lobby.public_status_body", public_emoji=emoji.get("public"))
-    )
+    container.add_separator()
+
+
     container.add_text(
         TextDisplay(
-            markdown_content=text.get("lobby.privacy_status", status=privacy_status),
-            size_style=TextSize.BODY,
+            markdown_content=text.get("lobby.privacy_title", private_emoji=emoji.get("private")),
+            size_style=TextSize.SUBHEADER,
         )
     )
 
     # Privacy configuration selector
-    priv_row = ActionRow()
-    priv_row.add_select(
-        Select(
-            source="priv",
-            placeholder=text.get("lobby.privacy_placeholder"),
-            choices=[
-                SelectChoice(
-                    label=text.get("lobby.public_label"),
-                    value="public",
-                    default=not lobby.private,
-                    description=text.get("lobby.public_desc"),
-                    emoji="public",
-                ),
-                SelectChoice(
-                    label=text.get("lobby.private_label"),
-                    value="private",
-                    default=lobby.private,
-                    description=text.get("lobby.private_desc"),
-                    emoji="private",
-                ),
-            ],
-            route_prefix=P.LOBBY_PRIV,
-            resource_id=lobby.thread_id,
+    container.add_described_select(
+        DescribedSelect(
+            description=text.get("lobby.privacy_select_desc"),
+            select=Select(
+                source="priv",
+                placeholder=text.get("lobby.privacy_placeholder"),
+                choices=[
+                    SelectChoice(
+                        label=text.get("lobby.public_label"),
+                        value="public",
+                        default=not lobby.private,
+                        description=text.get("lobby.public_desc"),
+                        emoji="public",
+                    ),
+                    SelectChoice(
+                        label=text.get("lobby.private_label"),
+                        value="private",
+                        default=lobby.private,
+                        description=text.get("lobby.private_desc"),
+                        emoji="private",
+                    ),
+                ],
+                route_prefix=P.LOBBY_PRIV,
+                resource_id=lobby.thread_id,
+            ),
         )
     )
-    container.add_action_row(priv_row)
 
-    # Reset Privacy action row
-    reset_priv = ActionRow()
-    reset_priv.add_button(
-        Button(
-            source="reset_priv",
-            label=text.get("lobby.reset_privacy_label"),
-            style=ButtonStyle.SECONDARY,
-            emoji="previous",
-            route_prefix=P.LOBBY_RESET_PRIV,
-            resource_id=lobby.thread_id,
+    if meta.supports_bots:
+        container.add_separator()
+        bot_emoji = emoji.get("bot")
+        bot_lines = [
+            f"• **{bot.name}** ({bot.difficulty})"
+            for bot in lobby.bots
+        ]
+        roster_body = "\n".join(bot_lines) if bot_lines else ""
+        container.add_text(
+            TextDisplay(
+                markdown_content=(
+                    f"{text.get('lobby.bots_title', bot_emoji=bot_emoji)}\n"
+                    f"{text.get('lobby.bots_summary') + "\n" if len(lobby.bots) else "\n"}"
+                    f"{text.get('lobby.bots_roster', roster=roster_body)}"
+                ),
+                size_style=TextSize.SUBHEADER,
+            )
         )
-    )
-    container.add_action_row(reset_priv)
+
+        can_add_bot = not lobby.is_full(meta)
+        if can_add_bot:
+            container.add_described_select(
+                DescribedSelect(
+                    description=text.get("lobby.add_bot_select_desc"),
+                    select=Select(
+                        source="bot_add",
+                        placeholder=text.get("lobby.add_bot_placeholder"),
+                        choices=[
+                            SelectChoice(
+                                label=spec.display_label(),
+                                value=spec.difficulty,
+                                emoji="bot",
+                            )
+                            for spec in meta.bots
+                        ],
+                        route_prefix=P.LOBBY_BOT_ADD,
+                        resource_id=lobby.thread_id,
+                    ),
+                )
+            )
+        else:
+            container.add_text(
+                TextDisplay(
+                    markdown_content=text.get("lobby.bots_full_hint"),
+                    size_style=TextSize.BODY,
+                )
+            )
+
+        if lobby.bots:
+            container.add_described_select(
+                DescribedSelect(
+                    description=text.get("lobby.remove_bot_select_desc"),
+                    select=Select(
+                        source="bot_remove",
+                        placeholder=text.get("lobby.remove_bot_placeholder"),
+                        choices=[
+                            SelectChoice(
+                                label=bot.name,
+                                value=bot.name,
+                                description=text.get(
+                                    "lobby.remove_bot_desc",
+                                    name=bot.name,
+                                ),
+                                emoji="leave",
+                            )
+                            for bot in lobby.bots
+                        ],
+                        route_prefix=P.LOBBY_BOT_REMOVE,
+                        resource_id=lobby.thread_id,
+                    ),
+                )
+            )
 
     # Access Lists (Blacklist) Management
     if interaction and interaction.guild:
@@ -142,26 +202,28 @@ def build_settings_view(
             )
         )
 
-        container.add_action_row(
-            ActionRow().add_user_select(
-                UserSelect(
+        container.add_described_select(
+            DescribedSelect(
+                description=text.get("lobby.add_blacklist_select_desc"),
+                select=UserSelect(
                     source="add_blacklist",
-                    placeholder=text.get("lobby.add_blacklist_placeholder", ban_emoji=emoji.get("ban")),
+                    placeholder=text.get("lobby.add_blacklist_placeholder"),
                     route_prefix=P.LOBBY_ADD_BLACKLIST,
                     resource_id=lobby.thread_id,
-                )
+                ),
             )
         )
 
         if lobby.blacklist:
-            container.add_action_row(
-                ActionRow().add_user_select(
-                    UserSelect(
+            container.add_described_select(
+                DescribedSelect(
+                    description=text.get("lobby.remove_blacklist_select_desc"),
+                    select=UserSelect(
                         source="remove_blacklist",
-                        placeholder=text.get("lobby.remove_blacklist_placeholder", unlock_emoji=emoji.get("unlock")),
+                        placeholder=text.get("lobby.remove_blacklist_placeholder"),
                         route_prefix=P.LOBBY_REMOVE_BLACKLIST,
                         resource_id=lobby.thread_id,
-                    )
+                    ),
                 )
             )
     else:
@@ -193,14 +255,7 @@ def build_settings_view(
         )
 
         for option in meta.settings[:6]:
-            opt_emoji = get_option_emoji(emoji, option.key)
-            container.add_text(
-                TextDisplay(
-                    markdown_content=f"**{opt_emoji} {option.title}**",
-                    size_style=TextSize.BODY,
-                )
-            )
-
+            opt_emoji = get_option_emoji(emoji, option)
             if option.type == OptionType.BOOL:
                 current = bool(lobby.settings.get(option.key, option.default))
                 choices = [
@@ -227,7 +282,7 @@ def build_settings_view(
                         value=value,
                         default=value == current,
                         description=text.get("lobby.set_choice_option_desc", title=option.title.lower(), value=value),
-                        emoji="pointing",
+                        emoji=choice_emoji_for(option, value),
                     )
                     for value in (option.choices or ())
                 ]
@@ -246,29 +301,34 @@ def build_settings_view(
                     for v in range(minimum, min(maximum, minimum + 10) + 1)
                 ]
 
-            opt_row = ActionRow()
-            opt_row.add_select(
-                Select(
-                    source="opt",
-                    placeholder=text.get("lobby.configure_option_placeholder", title=option.title),
-                    choices=choices,
-                    payload={"option_key": option.key, "option_type": option.type.value},
-                    route_prefix=P.LOBBY_OPT,
-                    resource_id=lobby.thread_id,
-                )
-            )
-            container.add_action_row(opt_row)
-
-            container.add_text(
-                TextDisplay(
-                    markdown_content=f"-# {option.description}",
-                    size_style=TextSize.BODY,
+            container.add_described_select(
+                DescribedSelect(
+                    label=f"**{opt_emoji} {option.title}**",
+                    description=option.description,
+                    select=Select(
+                        source="opt",
+                        placeholder=text.get("lobby.configure_option_placeholder", title=option.title),
+                        choices=choices,
+                        payload={"option_key": option.key, "option_type": option.type.value},
+                        route_prefix=P.LOBBY_OPT,
+                        resource_id=lobby.thread_id,
+                    ),
                 )
             )
 
     # General / Admin Reset & Teardown Buttons
     container.add_separator()
     rules = ActionRow()
+    rules.add_button(
+        Button(
+            source="reset_priv",
+            label=text.get("lobby.reset_privacy_label"),
+            style=ButtonStyle.SECONDARY,
+            emoji="previous",
+            route_prefix=P.LOBBY_RESET_PRIV,
+            resource_id=lobby.thread_id,
+        )
+    )
     rules.add_button(
         Button(
             source="reset_rules",

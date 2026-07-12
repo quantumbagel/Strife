@@ -6,9 +6,9 @@ from strife.config.text import TextConfig
 from strife.persistence.repositories import GuildRepository
 from strife.presentation.compiler import Compiler
 from strife.presentation.components import (
-    ActionRow,
     ChannelSelect,
     Container,
+    DescribedSelect,
     LayoutView,
     Separator,
     TextDisplay,
@@ -70,18 +70,19 @@ class ServerSettingsService:
         )
         container.add_separator()
 
-        row = ActionRow()
-        row.add_channel_select(
-            ChannelSelect(
-                source="channel",
-                placeholder=self.text.get("server.channel_placeholder"),
-                channel_types=("text",),
-                default_id=channel_id,
-                route_prefix=P.SERVER_CHANNEL,
-                resource_id=guild_id,
+        container.add_described_select(
+            DescribedSelect(
+                description=self.text.get("server.channel_select_desc"),
+                select=ChannelSelect(
+                    source="channel",
+                    placeholder=self.text.get("server.channel_placeholder"),
+                    channel_types=("text",),
+                    default_id=channel_id,
+                    route_prefix=P.SERVER_CHANNEL,
+                    resource_id=guild_id,
+                ),
             )
         )
-        container.add_action_row(row)
         view.add_container(container)
         return view
 

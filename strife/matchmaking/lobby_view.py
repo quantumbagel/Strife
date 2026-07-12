@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from strife.config.text import TextConfig
-from strife.engine.metadata import GameMetadata
+from strife.engine.metadata import GameMetadata, format_settings_rules
 from strife.matchmaking.lobby import Lobby
 from strife.presentation.components import (
     ActionRow,
     Button,
     ButtonStyle,
     Container,
+    DescribedSelect,
     LayoutView,
     Section,
     Select,
@@ -57,6 +58,7 @@ def build_lobby_view(
         )
 
     max_players = meta.player_count.max_players
+    lobby_full = lobby.is_full(meta)
     if max_players is not None and lobby.total_players > max_players:
         required_to_leave = lobby.total_players - max_players
         waiting_content = text.get("lobby.waiting_to_leave", count=required_to_leave)
@@ -139,19 +141,36 @@ def build_lobby_view(
 
     container.add_separator()
 
+    if meta.settings:
+        rule_lines = format_settings_rules(
+            meta.settings,
+            lobby.settings,
+            on_label=text.get("lobby.on_label"),
+            off_label=text.get("lobby.off_label"),
+        )
+        container.add_text(
+            TextDisplay(
+                markdown_content=f"{text.get('lobby.rules_title')}\n" + "\n".join(rule_lines),
+                size_style=TextSize.BODY,
+            )
+        )
+
+    container.add_separator()
+
     can_r, _, _ = lobby.can_ready(meta, text)
     join_style = ButtonStyle.SECONDARY if can_r else ButtonStyle.SUCCESS
     ready_style = ButtonStyle.SUCCESS if can_r else ButtonStyle.PRIMARY
 
     controls = ActionRow()
-    join_label = (
-        text.get("lobby.request_join_button")
-        if lobby.private
-        else text.get("lobby.join_button")
-    )
-    controls.add_button(
-        Button(source="join", label=join_label, style=join_style, emoji="join", route_prefix=P.LOBBY_JOIN)
-    )
+    if not lobby_full:
+        join_label = (
+            text.get("lobby.request_join_button")
+            if lobby.private
+            else text.get("lobby.join_button")
+        )
+        controls.add_button(
+            Button(source="join", label=join_label, style=join_style, emoji="join", route_prefix=P.LOBBY_JOIN)
+        )
     controls.add_button(
         Button(source="leave", label=text.get("lobby.leave_button"), style=ButtonStyle.SECONDARY, emoji="leave", route_prefix=P.LOBBY_LEAVE)
     )
@@ -197,44 +216,47 @@ def build_lobby_view(
             )
         )
         pending_items = list(lobby.pending_requests.items())[:25]
-        approve_row = ActionRow()
-        approve_row.add_select(
-            Select(
-                source="approve",
-                placeholder=text.get("lobby.approve_request_placeholder"),
-                choices=[
-                    SelectChoice(
-                        label=name,
-                        value=str(uid),
-                        description=text.get("lobby.approve_request_desc"),
-                        emoji="success",
-                    )
-                    for uid, name in pending_items
-                ],
-                route_prefix=P.LOBBY_APPROVE,
-                resource_id=lobby.thread_id,
+        if not lobby_full:
+            container.add_described_select(
+                DescribedSelect(
+                    description=text.get("lobby.approve_request_select_desc"),
+                    select=Select(
+                        source="approve",
+                        placeholder=text.get("lobby.approve_request_placeholder"),
+                        choices=[
+                            SelectChoice(
+                                label=name,
+                                value=str(uid),
+                                description=text.get("lobby.approve_request_desc"),
+                                emoji="success",
+                            )
+                            for uid, name in pending_items
+                        ],
+                        route_prefix=P.LOBBY_APPROVE,
+                        resource_id=lobby.thread_id,
+                    ),
+                )
+            )
+        container.add_described_select(
+            DescribedSelect(
+                description=text.get("lobby.deny_request_select_desc"),
+                select=Select(
+                    source="deny",
+                    placeholder=text.get("lobby.deny_request_placeholder"),
+                    choices=[
+                        SelectChoice(
+                            label=name,
+                            value=str(uid),
+                            description=text.get("lobby.deny_request_desc"),
+                            emoji="error",
+                        )
+                        for uid, name in pending_items
+                    ],
+                    route_prefix=P.LOBBY_DENY,
+                    resource_id=lobby.thread_id,
+                ),
             )
         )
-        container.add_action_row(approve_row)
-        deny_row = ActionRow()
-        deny_row.add_select(
-            Select(
-                source="deny",
-                placeholder=text.get("lobby.deny_request_placeholder"),
-                choices=[
-                    SelectChoice(
-                        label=name,
-                        value=str(uid),
-                        description=text.get("lobby.deny_request_desc"),
-                        emoji="error",
-                    )
-                    for uid, name in pending_items
-                ],
-                route_prefix=P.LOBBY_DENY,
-                resource_id=lobby.thread_id,
-            )
-        )
-        container.add_action_row(deny_row)
 
     if meta.role_flow.value == "selectable":
         role_members = lobby.members[:8]
@@ -246,7 +268,6 @@ def build_lobby_view(
                 )
             )
         for member in role_members:
-            row = ActionRow()
             choices = [
                 SelectChoice(
                     label=role.name,
@@ -255,16 +276,18 @@ def build_lobby_view(
                 )
                 for role in meta.roles
             ]
-            row.add_select(
-                Select(
-                    source="role",
-                    placeholder=text.get("lobby.role_placeholder", name=member.display_name),
-                    choices=choices,
-                    payload={"player_id": member.user_id},
-                    route_prefix=P.LOBBY_ROLE,
+            container.add_described_select(
+                DescribedSelect(
+                    description=text.get("lobby.role_select_desc", name=member.display_name),
+                    select=Select(
+                        source="role",
+                        placeholder=text.get("lobby.role_placeholder", name=member.display_name),
+                        choices=choices,
+                        payload={"player_id": member.user_id},
+                        route_prefix=P.LOBBY_ROLE,
+                    ),
                 )
             )
-            container.add_action_row(row)
 
     # Finally, add the fully populated container to the view
     view.add_container(container)

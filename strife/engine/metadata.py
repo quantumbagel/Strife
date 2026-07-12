@@ -100,6 +100,51 @@ class SettingOption:
     maximum: int | None = None
     choices: tuple[str, ...] | None = None
     emoji: str | None = None
+    choice_emojis: tuple[tuple[str, str], ...] | None = None
+
+
+def choice_emoji_for(option: SettingOption, value: str, *, default: str = "pointing") -> str:
+    if option.choice_emojis:
+        for choice_value, emoji_key in option.choice_emojis:
+            if choice_value == value:
+                return emoji_key
+    if option.emoji:
+        return option.emoji
+    return default
+
+
+def format_setting_display(
+    option: SettingOption,
+    value: Any,
+    *,
+    on_label: str = "On",
+    off_label: str = "Off",
+) -> str:
+    if option.type == OptionType.BOOL:
+        display_value = on_label if bool(value) else off_label
+    elif option.type == OptionType.CHOICE:
+        display_value = str(value).capitalize()
+    else:
+        display_value = str(value)
+    return f"{option.title}: {display_value}"
+
+
+def format_settings_rules(
+    options: tuple[SettingOption, ...],
+    settings: dict[str, Any],
+    *,
+    on_label: str,
+    off_label: str,
+) -> list[str]:
+    return [
+        format_setting_display(
+            option,
+            settings.get(option.key, option.default),
+            on_label=on_label,
+            off_label=off_label,
+        )
+        for option in options
+    ]
 
 
 @dataclass(frozen=True)
@@ -131,6 +176,9 @@ class BotSpec:
     difficulty: str
     description: str
 
+    def display_label(self) -> str:
+        return f"{self.difficulty.capitalize()} ({self.description})"
+
 
 @dataclass(frozen=True)
 class GameMetadata:
@@ -154,8 +202,26 @@ class GameMetadata:
     role_flow: RoleFlow = RoleFlow.NONE
     roles: tuple[RoleSpec, ...] = ()
     supports_player_removal: bool = False
+    supports_replay: bool = True
     how_to_play_link: str | None = None
 
     @property
     def supports_bots(self) -> bool:
         return bool(self.bots)
+
+
+def game_metadata(meta: GameMetadata) -> Callable[[type], type]:
+    """Attach ``GameMetadata`` to a ``Game`` subclass at definition time."""
+
+    def decorator(cls: type) -> type:
+        cls.metadata = meta  # type: ignore[attr-defined]
+        return cls
+
+    return decorator
+
+
+def game_metadata_from(**kwargs: Any) -> Callable[[type], type]:
+    """Build metadata from keyword arguments and attach it to a ``Game`` subclass."""
+
+    meta = GameMetadata(**kwargs)
+    return game_metadata(meta)

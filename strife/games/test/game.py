@@ -9,6 +9,8 @@ from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
 from strife.engine.players import GameOutcome, Move, Player
 from strife.persistence.repositories import MoveRecord
+from strife.engine.outcomes import forfeit_outcome
+from strife.engine.replay import system_replay_info
 from strife.presentation.compiler import clone_and_disable
 from strife.presentation.components import (
     ActionRow,
@@ -17,6 +19,7 @@ from strife.presentation.components import (
     ButtonStyle,
     ChannelSelect,
     Container,
+    DescribedSelect,
     LayoutView,
     MediaGallery,
     MediaGalleryItem,
@@ -45,36 +48,15 @@ class TestGame(Game):
         self.alive.discard(seat)
         self.removed_players.add(seat)
 
-    def _forfeit_outcome(self, forfeiter_seat: int) -> GameOutcome:
-        results: dict[int, str] = {}
-        player_descriptions: dict[int, str] = {}
-        for player in self.players:
-            if player.seat == forfeiter_seat:
-                results[player.seat] = "loss"
-                player_descriptions[player.seat] = "Forfeited"
-            elif player.seat in self.alive:
-                results[player.seat] = "win"
-                player_descriptions[player.seat] = "Opponent forfeited"
-            else:
-                results[player.seat] = "loss"
-                player_descriptions[player.seat] = "Removed from play"
-        forfeiter_mention = str(self.players[forfeiter_seat])
-        return GameOutcome(
-            results=results,
-            summary={"reason": "forfeit", "forfeiter": forfeiter_seat},
-            description=f"{forfeiter_mention} forfeited",
-            player_descriptions=player_descriptions,
+    def _forfeit_result(self, forfeiter_seat: int) -> GameOutcome:
+        outcome = forfeit_outcome(
+            self.players,
+            forfeiter_seat,
+            alive_seats=self.alive,
+            min_players=self.metadata.player_count.min_players,
         )
-
-    def _should_end_after_forfeit(self) -> bool:
-        if not self.alive:
-            return True
-        alive_humans = [
-            player for player in self.players if player.seat in self.alive and not player.is_bot
-        ]
-        if not alive_humans:
-            return True
-        return len(self.alive) < self.metadata.player_count.min_players
+        assert outcome is not None
+        return outcome
 
     def validate_roles(self, assignment: dict[int, str]) -> tuple[bool, str | None]:
         for role in assignment.values():
@@ -127,38 +109,44 @@ class TestGame(Game):
         container.add_action_row(btn_row)
 
         # Test Select component
-        sel_row = ActionRow()
-        sel_row.add_select(
-            Select(
-                source="sel_choices",
-                placeholder="Choose options (min 1, max 2)...",
-                min_values=1,
-                max_values=2,
-                choices=[
-                    SelectChoice(
-                        label="Choice 1",
-                        value="choice_1",
-                        description="Description 1",
-                        emoji="hmm",
-                    ),
-                    SelectChoice(
-                        label="Choice 2",
-                        value="choice_2",
-                        description="Description 2",
-                        default=True,
-                    ),
-                    SelectChoice(label="Choice 3", value="choice_3"),
-                ],
+        container.add_described_select(
+            DescribedSelect(
+                description="Multi-select menu with up to two choices.",
+                select=Select(
+                    source="sel_choices",
+                    placeholder="Choose options (min 1, max 2)...",
+                    min_values=1,
+                    max_values=2,
+                    choices=[
+                        SelectChoice(
+                            label="Choice 1",
+                            value="choice_1",
+                            description="Description 1",
+                            emoji="hmm",
+                        ),
+                        SelectChoice(
+                            label="Choice 2",
+                            value="choice_2",
+                            description="Description 2",
+                            default=True,
+                        ),
+                        SelectChoice(label="Choice 3", value="choice_3"),
+                    ],
+                ),
             )
         )
-        container.add_action_row(sel_row)
 
         # Test ChannelSelect component
-        chan_row = ActionRow()
-        chan_row.add_channel_select(
-            ChannelSelect(source="sel_channel", placeholder="Pick a text channel", channel_types=("text",))
+        container.add_described_select(
+            DescribedSelect(
+                description="Pick a text channel from this server.",
+                select=ChannelSelect(
+                    source="sel_channel",
+                    placeholder="Pick a text channel",
+                    channel_types=("text",),
+                ),
+            )
         )
-        container.add_action_row(chan_row)
 
         # Test MediaGallery component
         gallery = MediaGallery()
@@ -201,21 +189,22 @@ class TestGame(Game):
         for p in self.players:
             if p.seat in self.alive:
                 vote_status = self.phase2_votes.get(p.seat, "Pending...")
-                container.add_text(TextDisplay(f"• {p.display_name}: **{vote_status}**"))
+                container.add_text(TextDisplay(f"• {p.mention}: **{vote_status}**"))
 
-        row = ActionRow()
-        row.add_select(
-            Select(
-                source="vote_input",
-                placeholder="Cast your vote!",
-                choices=[
-                    SelectChoice(label="Agree", value="agree"),
-                    SelectChoice(label="Disagree", value="disagree"),
-                    SelectChoice(label="Abstain", value="abstain"),
-                ],
+        container.add_described_select(
+            DescribedSelect(
+                description="Cast your vote for this round.",
+                select=Select(
+                    source="vote_input",
+                    placeholder="Cast your vote!",
+                    choices=[
+                        SelectChoice(label="Agree", value="agree"),
+                        SelectChoice(label="Disagree", value="disagree"),
+                        SelectChoice(label="Abstain", value="abstain"),
+                    ],
+                ),
             )
         )
-        container.add_action_row(row)
 
         view.add_container(container)
         return view
@@ -235,7 +224,7 @@ class TestGame(Game):
         for p in self.players:
             if p.seat in self.alive:
                 status = "Confirmed ✅" if p.seat in self.phase3_confirmed else "Waiting ⏳"
-                container.add_text(TextDisplay(f"• {p.display_name}: **{status}**"))
+                container.add_text(TextDisplay(f"• {p.mention}: **{status}**"))
 
         row = ActionRow()
         row.add_button(Button(source="btn_confirm_secret", label="I read my secret!", style=ButtonStyle.SUCCESS))
@@ -273,7 +262,7 @@ class TestGame(Game):
             role_assigned = p.role_key or "None"
             container.add_text(
                 TextDisplay(
-                    f"• Seat {p.seat}: {p.display_name} (Bot: {is_bot_status}, Status: {alive_status}, Role: {role_assigned})"
+                    f"• Seat {p.seat}: {p.mention} (Bot: {is_bot_status}, Status: {alive_status}, Role: {role_assigned})"
                 )
             )
 
@@ -289,7 +278,7 @@ class TestGame(Game):
         self.phase = 1
         while True:
             if not self.alive:
-                return self._forfeit_outcome(next(iter(self.removed_players)))
+                return self._forfeit_result(next(iter(self.removed_players)))
             view = self._phase1_view(ctx)
             actor = sorted(self.alive)[0]
             move = await ctx.request_input(
@@ -306,9 +295,15 @@ class TestGame(Game):
                     "btn_next_1",
                 },
             )
-            await ctx.record_action(move.source, move.args)
-            if move.source == "forfeit" and self._should_end_after_forfeit():
-                return self._forfeit_outcome(move.actor_seat)
+            if move.source == "forfeit":
+                outcome = forfeit_outcome(
+                    self.players,
+                    move.actor_seat,
+                    alive_seats=self.alive,
+                    min_players=self.metadata.player_count.min_players,
+                )
+                if outcome:
+                    return outcome
             if move.source == "btn_next_1":
                 break
 
@@ -321,13 +316,15 @@ class TestGame(Game):
         await ctx.update(view)
 
         actors = set(self.alive)
-        moves = await ctx.request_inputs(view, actors=actors, sources={"vote_input"}, until="all")
+        moves = await ctx.request_inputs(view, actors=actors, sources={"vote_input"}, until="all", record=False)
+        votes: dict[int, str] = {}
         for seat, move in moves.items():
             val = move.args.get("value") or (
                 move.args.get("values")[0] if move.args.get("values") else "unknown"
             )
+            votes[seat] = val
             self.phase2_votes[seat] = val
-            await ctx.record_action("cast_vote", {"seat": seat, "vote": val})
+        await ctx.record_event("vote_resolve", {"votes": votes})
 
         await ctx.update(self._phase2_view(ctx))
 
@@ -343,7 +340,7 @@ class TestGame(Game):
                 priv_view.header("user", "Top Secret Information", emoji_resolver=ctx.emoji)
                 priv_container = Container()
                 priv_container.add_text(
-                    TextDisplay(f"Hello **{p.display_name}**! Your secret code word is:")
+                    TextDisplay(f"Hello {p.mention}! Your secret code word is:")
                 )
                 priv_container.add_text(TextDisplay(f"## {secret}", size_style=TextSize.HEADER))
                 priv_container.add_text(
@@ -355,7 +352,7 @@ class TestGame(Game):
                 priv_view.add_container(priv_container)
 
                 await ctx.send_private(p.seat, priv_view)
-                await ctx.record_action("send_private_secret", {"seat": p.seat, "secret": secret})
+                await ctx.record_event("send_private_secret", {"seat": p.seat, "secret": secret})
 
         while len(self.phase3_confirmed) < len(self.alive):
             pub_view = self._phase3_public_view(ctx)
@@ -366,16 +363,14 @@ class TestGame(Game):
             for seat, move in moves.items():
                 if move.source == "btn_confirm_secret":
                     self.phase3_confirmed.add(seat)
-                    await ctx.record_action("confirm_secret", {"seat": seat})
 
         # Phase 4: Settings & Properties Check
         self.phase = 4
         view = self._phase4_view(ctx)
         if not self.alive:
-            return self._forfeit_outcome(next(iter(self.removed_players)))
+            return self._forfeit_result(next(iter(self.removed_players)))
         actor = sorted(self.alive)[0]
         move = await ctx.request_input(view, actor=actor, sources={"btn_finish"})
-        await ctx.record_action(move.source, move.args)
 
         results = {}
         player_descriptions = {}
@@ -436,7 +431,7 @@ class TestGame(Game):
         frames.append(
             ReplayFrame(
                 index=len(frames),
-                turn_label="Game Start",
+                turn_label="Start",
                 actor_seat=None,
                 view=clone_and_disable(initial_view),
                 timestamp=ctx.started_at,
@@ -444,33 +439,13 @@ class TestGame(Game):
         )
 
         for move in moves:
-            takeover_info = None
-            if move.arguments.get("replaced_by_bot"):
-                for p in self.players:
-                    if p.seat == move.actor_seat:
-                        p.is_bot = True
-                        p.bot_difficulty = "hard"
-                        takeover_info = {
-                            "user_id": p.user_id,
-                            "display_name": p.display_name,
-                            "is_bot": p.is_bot,
-                            "type": "bot_takeover",
-                            "reason": move.arguments.get("replace_reason", "timeout"),
-                        }
-            elif move.source in ("forfeit", "game_end"):
-                if move.source == "forfeit":
-                    for p in self.players:
-                        if p.seat == move.actor_seat:
-                            takeover_info = {
-                                "user_id": p.user_id,
-                                "display_name": p.display_name,
-                                "is_bot": p.is_bot,
-                                "type": "removal",
-                                "reason": move.arguments.get("reason", "forfeit"),
-                            }
+            takeover_info = system_replay_info(self.players, move)
 
             # Replicate state transitions based on move source
             if move.source == "btn_next_1":
+                self.phase = 2
+            elif move.source == "vote_resolve":
+                self.phase2_votes = {int(k): v for k, v in move.arguments.get("votes", {}).items()}
                 self.phase = 2
             elif move.source == "cast_vote":
                 seat = move.arguments.get("seat")
@@ -506,7 +481,7 @@ class TestGame(Game):
             frames.append(
                 ReplayFrame(
                     index=len(frames),
-                    turn_label=f"Turn {move.turn_index + 1}",
+                    turn_label=f"Action {move.turn_index + 1}",
                     actor_seat=move.actor_seat,
                     view=clone_and_disable(view),
                     takeover_info=takeover_info,

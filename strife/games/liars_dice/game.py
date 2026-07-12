@@ -11,6 +11,7 @@ from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
 from strife.engine.players import GameOutcome, Move
 from strife.persistence.repositories import MoveRecord
+from strife.engine.replay import system_replay_info
 from strife.games.liars_dice.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -22,8 +23,7 @@ from strife.presentation.components import (
     SelectChoice,
     TextDisplay,
 )
-from strife.presentation.game_frame import add_game_header
-from strife.presentation.roster import player_mention
+from strife.presentation.game_ui import message_lead
 
 
 class LiarsDice(Game):
@@ -53,14 +53,9 @@ class LiarsDice(Game):
     def _format_hand(self, ctx: GameContext, hand: list[int]) -> str:
         return " ".join(self._die_emoji(ctx, v) for v in sorted(hand))
 
-    def _turn_status(self, ctx: GameContext, seat: int) -> str:
+    def _action_status(self, ctx: GameContext, seat: int) -> str:
         player = self.players[seat]
-        turn_label = player_mention(
-            user_id=player.user_id,
-            display_name=player.display_name,
-            is_bot=player.is_bot,
-        )
-        return f"{turn_label}'s turn to bid or challenge"
+        return f"{player.mention} to bid or challenge"
 
     async def play(self, ctx: GameContext) -> GameOutcome:
         while len(self.alive) > 1:
@@ -68,7 +63,7 @@ class LiarsDice(Game):
             for seat in self.alive:
                 self.hands[seat] = sorted(self.rng.randint(1, 6) for _ in range(self.dice_counts[seat]))
 
-            await ctx.record_action("round_start", {
+            await ctx.record_event("round_start", {
                 "hands": {seat: list(hand) for seat, hand in self.hands.items()},
                 "dice_counts": dict(self.dice_counts),
             })
@@ -77,14 +72,10 @@ class LiarsDice(Game):
             for seat in self.alive:
                 priv_view = LayoutView()
                 priv_container = Container()
-                add_game_header(
+                message_lead(
                     priv_container,
-                    ctx.emoji,
-                    game_key=self.metadata.key,
-                    game_name=self.metadata.name,
-                    title="Your Secret Dice Hand",
-                    status=f"Your rolled hand: {self._format_hand(ctx, self.hands[seat])}",
-                    is_replay=ctx.is_replay,
+                    f"Your rolled hand: {self._format_hand(ctx, self.hands[seat])}",
+                    emoji=ctx.emoji,
                 )
                 priv_view.add_container(priv_container)
                 await ctx.send_private(seat, priv_view)
@@ -97,9 +88,8 @@ class LiarsDice(Game):
                 seat = self.current
                 view = self._round_view(
                     ctx,
-                    title=f"Liar's Dice - {sum(self.dice_counts.values())} Total Dice",
-                    status=self._turn_status(ctx, seat),
-                    status_emoji="loading",
+                    lead=self._action_status(ctx, seat),
+                    prefix_emoji="loading",
                 )
 
                 sources = {"bid", "challenge"}
@@ -127,8 +117,8 @@ class LiarsDice(Game):
                     winner = challenger if is_liar else bidder
 
                     self.dice_counts[loser] -= 1
-                    loser_name = self.players[loser].display_name
-                    winner_name = self.players[winner].display_name
+                    loser_name = self.players[loser].mention
+                    winner_name = self.players[winner].mention
 
                     # Build outcome message
                     reveal_text = f"**The Bid was {bid_q} Fives (⚄) or similar.**\n"
@@ -137,7 +127,7 @@ class LiarsDice(Game):
                     
                     reveal_text += "**All Dice Revealed:**\n"
                     for s in sorted(self.alive):
-                        reveal_text += f"• {self.players[s].display_name}: {self._format_hand(ctx, self.hands[s])}\n"
+                        reveal_text += f"• {self.players[s].mention}: {self._format_hand(ctx, self.hands[s])}\n"
 
                     verdict = f"{winner_name} was correct! {loser_name} loses 1 die."
                     if self.dice_counts[loser] == 0:
@@ -149,7 +139,7 @@ class LiarsDice(Game):
 
                     self.history.append(f"Round challenge: {winner_name} challenged {loser_name}'s bid of {bid_q}x{bid_v}. Actual: {actual_count}.")
 
-                    await ctx.record_action("challenge_resolve", {
+                    await ctx.record_event("challenge_resolve", {
                         "challenger": challenger,
                         "bidder": bidder,
                         "bid": [bid_q, bid_v],
@@ -162,15 +152,11 @@ class LiarsDice(Game):
                     # Show challenge outcome screen
                     outcome_view = LayoutView()
                     outcome_container = Container()
-                    add_game_header(
+                    message_lead(
                         outcome_container,
-                        ctx.emoji,
-                        game_key=self.metadata.key,
-                        game_name=self.metadata.name,
-                        title="Challenge Result!",
-                        status=verdict,
-                        status_emoji="success" if loser == bidder else "error",
-                        is_replay=ctx.is_replay,
+                        verdict,
+                        emoji=ctx.emoji,
+                        prefix_emoji="success" if loser == bidder else "error",
                     )
                     outcome_container.add_text(TextDisplay(reveal_text))
                     outcome_view.add_container(outcome_container)
@@ -202,7 +188,7 @@ class LiarsDice(Game):
                     self.current_bid = (quantity, value)
                     self.last_bidder = seat
                     self.current = self._next_player(seat)
-                    await ctx.record_action("bid", {
+                    await ctx.record_event("bid", {
                         "player": seat,
                         "quantity": quantity,
                         "value": value,
@@ -228,105 +214,90 @@ class LiarsDice(Game):
         self,
         ctx: GameContext,
         *,
-        title: str,
-        status: str | None = None,
-        status_emoji: str | None = None,
+        lead: str | None = None,
+        prefix_emoji: str | None = None,
     ) -> LayoutView:
         view = LayoutView()
         container = Container()
-        add_game_header(
-            container,
-            ctx.emoji,
-            game_key=self.metadata.key,
-            game_name=self.metadata.name,
-            title=title,
-            status=status,
-            status_emoji=status_emoji,
-            is_replay=ctx.is_replay,
-        )
+        message_lead(container, lead, emoji=ctx.emoji, prefix_emoji=prefix_emoji)
 
         # Build table status text
         table_text = "**Roster and Dice Counts:**\n"
         for p in self.players:
             alive_status = "🎲" * self.dice_counts[p.seat] if p.seat in self.alive else "☠️ (Out)"
-            table_text += f"• {p.display_name}: {alive_status}\n"
+            table_text += f"• {p.mention}: {alive_status}\n"
 
         if self.current_bid is not None:
             bid_q, bid_v = self.current_bid
-            bidder_name = self.players[self.last_bidder].display_name if self.last_bidder is not None else "?"
+            bidder_name = self.players[self.last_bidder].mention if self.last_bidder is not None else "?"
             table_text += f"\n👉 **Current Bid**: {bid_q} × {self._die_emoji(ctx, bid_v)} (by {bidder_name})"
         else:
             table_text += "\n👉 **Current Bid**: None (Opening bid)"
 
         container.add_text(TextDisplay(table_text))
 
-        # Turn inputs
-        total_dice = sum(self.dice_counts.values())
-        min_q = 1
-        if self.current_bid is not None:
-            min_q = self.current_bid[0]
+        if not ctx.is_replay:
+            total_dice = sum(self.dice_counts.values())
+            min_q = 1
+            if self.current_bid is not None:
+                min_q = self.current_bid[0]
 
-        # Quantity Choices (from min_q to total_dice)
-        quantity_choices = [
-            SelectChoice(label=str(q), value=str(q))
-            for q in range(min_q, total_dice + 1)
-        ][:25] # Discord limits select choices to 25
+            quantity_choices = [
+                SelectChoice(label=str(q), value=str(q))
+                for q in range(min_q, total_dice + 1)
+            ][:25]
 
-        # Value Choices (2 to 6, and 1 if wilds are disabled)
-        val_start = 1 if not self.settings.get("wild_ones", True) else 2
-        value_choices = [
-            SelectChoice(label=f"Value {v}", value=str(v), emoji=f"die_{v}")
-            for v in range(val_start, 7)
-        ]
+            val_start = 1 if not self.settings.get("wild_ones", True) else 2
+            value_choices = [
+                SelectChoice(label=f"Value {v}", value=str(v), emoji=f"die_{v}")
+                for v in range(val_start, 7)
+            ]
 
-        # Controls ActionRow
-        row1 = ActionRow()
-        row1.add_select(
-            Select(
-                source="quantity_select",
-                placeholder="Choose quantity",
-                choices=quantity_choices,
+            row1 = ActionRow()
+            row1.add_select(
+                Select(
+                    source="quantity_select",
+                    placeholder="Choose quantity",
+                    choices=quantity_choices,
+                )
             )
-        )
-        container.add_action_row(row1)
+            container.add_action_row(row1)
 
-        row2 = ActionRow()
-        row2.add_select(
-            Select(
-                source="value_select",
-                placeholder="Choose die value",
-                choices=value_choices,
+            row2 = ActionRow()
+            row2.add_select(
+                Select(
+                    source="value_select",
+                    placeholder="Choose die value",
+                    choices=value_choices,
+                )
             )
-        )
-        container.add_action_row(row2)
+            container.add_action_row(row2)
 
-        row3 = ActionRow()
-        row3.add_button(
-            Button(
-                source="bid",
-                label="Submit Bid",
-                style=ButtonStyle.PRIMARY,
-                disabled=ctx.is_replay,
+            row3 = ActionRow()
+            row3.add_button(
+                Button(
+                    source="bid",
+                    label="Submit Bid",
+                    style=ButtonStyle.PRIMARY,
+                )
             )
-        )
-        row3.add_button(
-            Button(
-                source="challenge",
-                label="Call Liar!",
-                style=ButtonStyle.DANGER,
-                disabled=self.last_bidder is None or ctx.is_replay,
+            row3.add_button(
+                Button(
+                    source="challenge",
+                    label="Call Liar!",
+                    style=ButtonStyle.DANGER,
+                    disabled=self.last_bidder is None,
+                )
             )
-        )
-        row3.add_button(
-            Button(
-                source="peek",
-                label="Peek Hand",
-                emoji="peek",
-                style=ButtonStyle.SECONDARY,
-                disabled=ctx.is_replay,
+            row3.add_button(
+                Button(
+                    source="peek",
+                    label="Peek Hand",
+                    emoji="peek",
+                    style=ButtonStyle.SECONDARY,
+                )
             )
-        )
-        container.add_action_row(row3)
+            container.add_action_row(row3)
 
         view.add_container(container)
         return view
@@ -336,16 +307,12 @@ class LiarsDice(Game):
         winner_seat = summary.get("winner")
         view = LayoutView()
         container = Container()
-        winner_name = self.players[winner_seat].display_name if winner_seat is not None else "Unknown"
-        add_game_header(
+        winner_name = self.players[winner_seat].mention if winner_seat is not None else "Unknown"
+        message_lead(
             container,
-            ctx.emoji,
-            game_key=self.metadata.key,
-            game_name=self.metadata.name,
-            title="Game Over!",
-            status=f"{winner_name} wins the match!",
-            status_emoji="success",
-            is_replay=ctx.is_replay,
+            f"{winner_name} wins the match!",
+            emoji=ctx.emoji,
+            prefix_emoji="success",
         )
 
         history_text = "**Match History:**\n" + "\n".join(f"• {item}" for item in self.history[-10:])
@@ -365,29 +332,17 @@ class LiarsDice(Game):
         from strife.presentation.compiler import clone_and_disable
 
         for i, move in enumerate(moves):
-            takeover_info = None
-            if move.arguments.get("replaced_by_bot"):
-                for p in self.players:
-                    if p.seat == move.actor_seat:
-                        p.is_bot = True
-                        p.bot_difficulty = "hard"
-                        takeover_info = {
-                            "user_id": p.user_id,
-                            "display_name": p.display_name,
-                            "is_bot": p.is_bot,
-                            "type": "bot_takeover",
-                            "reason": move.arguments.get("replace_reason", "timeout"),
-                        }
+            takeover_info = system_replay_info(self.players, move)
 
             if move.source == "round_start":
                 self.hands = {int(k): v for k, v in move.arguments["hands"].items()}
                 self.dice_counts = {int(k): v for k, v in move.arguments["dice_counts"].items()}
                 self.current_bid = None
                 self.last_bidder = None
-                view = self._round_view(ctx, title="Round Start", status="Dice rolled!")
+                view = self._round_view(ctx, lead="Dice rolled!")
                 frames.append(ReplayFrame(
                     index=len(frames),
-                    turn_label=f"Round Start (Turn {len(frames)+1})",
+                    turn_label="Round Start",
                     actor_seat=None,
                     view=clone_and_disable(view),
                     takeover_info=takeover_info,
@@ -397,10 +352,13 @@ class LiarsDice(Game):
             elif move.source == "bid":
                 self.current_bid = (move.arguments["quantity"], move.arguments["value"])
                 self.last_bidder = move.actor_seat
-                view = self._round_view(ctx, title="Bid Placed", status=f"Bid submitted by {self.players[move.actor_seat].display_name}")
+                view = self._round_view(
+                    ctx,
+                    lead=f"Bid submitted by {self.players[move.actor_seat].mention}",
+                )
                 frames.append(ReplayFrame(
                     index=len(frames),
-                    turn_label=f"Bid (Turn {len(frames)+1})",
+                    turn_label="Bid",
                     actor_seat=move.actor_seat,
                     view=clone_and_disable(view),
                     takeover_info=takeover_info,
@@ -418,19 +376,11 @@ class LiarsDice(Game):
                 verdict = move.arguments["verdict"]
                 view = LayoutView()
                 container = Container()
-                add_game_header(
-                    container,
-                    ctx.emoji,
-                    game_key=self.metadata.key,
-                    game_name=self.metadata.name,
-                    title="Challenge Result!",
-                    status=verdict,
-                    is_replay=ctx.is_replay,
-                )
+                message_lead(container, verdict, emoji=ctx.emoji)
                 view.add_container(container)
                 frames.append(ReplayFrame(
                     index=len(frames),
-                    turn_label=f"Challenge (Turn {len(frames)+1})",
+                    turn_label="Challenge",
                     actor_seat=move.actor_seat,
                     view=clone_and_disable(view),
                     takeover_info=takeover_info,

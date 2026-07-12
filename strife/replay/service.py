@@ -58,9 +58,6 @@ class ReplayService:
             self._autocomplete_cache.pop(oldest, None)
         return matches
 
-    def _participant_ids(self, detail: MatchDetail) -> set[int]:
-        return {p.user_id for p in detail.players if p.user_id is not None}
-
     async def _load_entry(self, match_id: int) -> _ReplayCacheEntry | None:
         if match_id in self._cache:
             self._cache.move_to_end(match_id)
@@ -101,9 +98,6 @@ class ReplayService:
         detail = await self.matches.get(match)
         if detail is None:
             await self.user_errors.send(interaction, "common.match_not_found")
-            return
-        if interaction.user.id not in self._participant_ids(detail):
-            await self.user_errors.send(interaction, "common.replay_owner_only")
             return
         entry = await self._load_entry(detail.id)
         if entry is None or not entry.frames:

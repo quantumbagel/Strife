@@ -47,6 +47,12 @@ class Lobby:
     def total_players(self) -> int:
         return len(self.members) + len(self.bots)
 
+    def is_full(self, meta: GameMetadata) -> bool:
+        max_players = meta.player_count.max_players
+        if max_players is None:
+            return False
+        return self.total_players >= max_players
+
     def can_ready(
         self, meta: GameMetadata, text: TextConfig, game: Game | None = None
     ) -> tuple[bool, str | None, dict | None]:

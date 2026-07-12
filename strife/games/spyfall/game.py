@@ -11,6 +11,7 @@ from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
 from strife.engine.players import GameOutcome, Move
 from strife.persistence.repositories import MoveRecord
+from strife.engine.replay import system_replay_info
 from strife.games.spyfall.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -22,8 +23,7 @@ from strife.presentation.components import (
     SelectChoice,
     TextDisplay,
 )
-from strife.presentation.game_frame import add_game_header
-from strife.presentation.roster import player_mention
+from strife.presentation.game_ui import message_lead
 
 
 class Spyfall(Game):
@@ -55,9 +55,9 @@ class Spyfall(Game):
         self.max_turns = 5
 
     def _name(self, seat: int) -> str:
-        return self.players[seat].display_name
+        return self.players[seat].mention
 
-    def _turn_status(self, ctx: GameContext) -> str:
+    def _phase_status(self, ctx: GameContext) -> str:
         if self.accused_player is not None:
             accused_name = self._name(self.accused_player)
             accuser_name = self._name(self.accuser) if self.accuser is not None else "System"
@@ -66,7 +66,7 @@ class Spyfall(Game):
 
     async def play(self, ctx: GameContext) -> GameOutcome:
         # 1. Setup secret PMs
-        await ctx.record_action("setup", {
+        await ctx.record_event("setup", {
             "location": self.location,
             "spy": self.spy,
         })
@@ -75,24 +75,16 @@ class Spyfall(Game):
             priv_view = LayoutView()
             priv_container = Container()
             if p.seat == self.spy:
-                add_game_header(
+                message_lead(
                     priv_container,
-                    ctx.emoji,
-                    game_key=self.metadata.key,
-                    game_name=self.metadata.name,
-                    title="Your Role",
-                    status="🕵️ You are the SPY! Try to blend in and guess the location.",
-                    is_replay=ctx.is_replay,
+                    "🕵️ You are the SPY! Try to blend in and guess the location.",
+                    emoji=ctx.emoji,
                 )
             else:
-                add_game_header(
+                message_lead(
                     priv_container,
-                    ctx.emoji,
-                    game_key=self.metadata.key,
-                    game_name=self.metadata.name,
-                    title="Your Role",
-                    status=f"📍 Secret Location: **{self.location}**",
-                    is_replay=ctx.is_replay,
+                    f"📍 Secret Location: **{self.location}**",
+                    emoji=ctx.emoji,
                 )
             priv_view.add_container(priv_container)
             await ctx.send_private(p.seat, priv_view)
@@ -134,7 +126,7 @@ class Spyfall(Game):
                     winner_faction = "villagers"
                     self.history.append(f"Spy guessed the wrong location: {guess}! The location was {self.location}.")
                 
-                await ctx.record_action("spy_guess", {
+                await ctx.record_event("spy_guess", {
                     "spy": actor_seat,
                     "location": guess,
                     "correct": (guess == self.location),
@@ -151,7 +143,7 @@ class Spyfall(Game):
                 self.accuser = actor_seat
                 self.votes = {}
 
-                await ctx.record_action("accusation_start", {
+                await ctx.record_event("accusation_start", {
                     "accuser": actor_seat,
                     "accused": target,
                 })
@@ -164,13 +156,14 @@ class Spyfall(Game):
                 vote_moves = await ctx.request_inputs(
                     voting_view,
                     actors=voters,
-                    sources={"vote"},
+                    sources={"vote_guilty", "vote_innocent"},
                     until="all",
+                    record=False,
                 )
 
                 guilty_count = 0
                 for v_seat, v_move in vote_moves.items():
-                    val = v_move.args.get("value", "innocent")
+                    val = "guilty" if v_move.source == "vote_guilty" else "innocent"
                     self.votes[v_seat] = val
                     if val == "guilty":
                         guilty_count += 1
@@ -185,7 +178,7 @@ class Spyfall(Game):
                         winner_faction = "spy"
                         self.history.append(f"{self._name(target)} was unanimously accused but was innocent! The real spy was {self._name(self.spy)}.")
                     
-                    await ctx.record_action("accusation_resolve", {
+                    await ctx.record_event("accusation_resolve", {
                         "accused": target,
                         "unanimous": True,
                         "votes": dict(self.votes),
@@ -194,7 +187,7 @@ class Spyfall(Game):
                     break
                 else:
                     self.history.append(f"Accusation of {self._name(target)} failed ({guilty_count}/{len(voters)} guilty votes).")
-                    await ctx.record_action("accusation_resolve", {
+                    await ctx.record_event("accusation_resolve", {
                         "accused": target,
                         "unanimous": False,
                         "votes": dict(self.votes),
@@ -208,7 +201,7 @@ class Spyfall(Game):
         if winner_faction is None:
             winner_faction = "spy"
             self.history.append(f"Timer/turn limit reached! The villagers failed to find the Spy. The Spy was {self._name(self.spy)}.")
-            await ctx.record_action("limit_reached", {
+            await ctx.record_event("limit_reached", {
                 "history": list(self.history),
             })
 
@@ -234,21 +227,12 @@ class Spyfall(Game):
     def _discussion_view(self, ctx: GameContext) -> LayoutView:
         view = LayoutView()
         container = Container()
-        add_game_header(
-            container,
-            ctx.emoji,
-            game_key=self.metadata.key,
-            game_name=self.metadata.name,
-            title=f"Turn {self.turn}/{self.max_turns} - Discussion Phase",
-            status=self._turn_status(ctx),
-            status_emoji="timer",
-            is_replay=ctx.is_replay,
-        )
+        message_lead(container, self._phase_status(ctx), emoji=ctx.emoji, prefix_emoji="timer")
 
         # Show players list
         roster_text = "**Active Players:**\n"
         for p in self.players:
-            roster_text += f"• {p.display_name}\n"
+            roster_text += f"• {p.mention}\n"
 
         # Show possible locations list
         loc_text = "\n**Possible Locations:**\n"
@@ -257,74 +241,67 @@ class Spyfall(Game):
 
         container.add_text(TextDisplay(roster_text + loc_text))
 
-        # Inputs
-        # 1. Accuse Player Select Menu
-        other_choices = [
-            SelectChoice(label=p.display_name, value=str(p.seat))
-            for p in self.players
-            if p.seat in self.alive
-        ]
-        row1 = ActionRow()
-        row1.add_select(
-            Select(
-                source="accuse_select",
-                placeholder="Accuse a player of being the spy",
-                choices=other_choices,
+        if not ctx.is_replay:
+            other_choices = [
+                SelectChoice(label=p.display_name, value=str(p.seat))
+                for p in self.players
+                if p.seat in self.alive
+            ]
+            row1 = ActionRow()
+            row1.add_select(
+                Select(
+                    source="accuse_select",
+                    placeholder="Accuse a player of being the spy",
+                    choices=other_choices,
+                )
             )
-        )
-        container.add_action_row(row1)
+            container.add_action_row(row1)
 
-        # 2. Guess Location Select Menu (used by spy)
-        loc_choices = [
-            SelectChoice(label=loc, value=loc)
-            for loc in self.LOCATIONS
-        ]
-        row2 = ActionRow()
-        row2.add_select(
-            Select(
-                source="location_select",
-                placeholder="Guess location (Spy only)",
-                choices=loc_choices,
+            loc_choices = [
+                SelectChoice(label=loc, value=loc)
+                for loc in self.LOCATIONS
+            ]
+            row2 = ActionRow()
+            row2.add_select(
+                Select(
+                    source="location_select",
+                    placeholder="Guess location (Spy only)",
+                    choices=loc_choices,
+                )
             )
-        )
-        container.add_action_row(row2)
+            container.add_action_row(row2)
 
-        # 3. Action Buttons
-        row3 = ActionRow()
-        row3.add_button(
-            Button(
-                source="accuse",
-                label="Submit Accusation",
-                style=ButtonStyle.DANGER,
-                disabled=ctx.is_replay,
+            row3 = ActionRow()
+            row3.add_button(
+                Button(
+                    source="accuse",
+                    label="Submit Accusation",
+                    style=ButtonStyle.DANGER,
+                )
             )
-        )
-        row3.add_button(
-            Button(
-                source="guess_location",
-                label="Guess Location",
-                style=ButtonStyle.SUCCESS,
-                disabled=ctx.is_replay,
+            row3.add_button(
+                Button(
+                    source="guess_location",
+                    label="Guess Location",
+                    style=ButtonStyle.SUCCESS,
+                )
             )
-        )
-        row3.add_button(
-            Button(
-                source="pass",
-                label="Pass / End Turn",
-                style=ButtonStyle.SECONDARY,
-                disabled=ctx.is_replay,
+            row3.add_button(
+                Button(
+                    source="pass",
+                    label="Pass",
+                    style=ButtonStyle.SECONDARY,
+                )
             )
-        )
-        row3.add_button(
-            Button(
-                source="peek",
-                label="Peek Info",
-                emoji="peek",
-                style=ButtonStyle.SECONDARY,
-                disabled=ctx.is_replay,
+            row3.add_button(
+                Button(
+                    source="peek",
+                    label="Peek Info",
+                    emoji="peek",
+                    style=ButtonStyle.SECONDARY,
+                )
             )
-        )
-        container.add_action_row(row3)
+            container.add_action_row(row3)
 
         view.add_container(container)
         return view
@@ -333,15 +310,11 @@ class Spyfall(Game):
         view = LayoutView()
         container = Container()
         accused_name = self._name(self.accused_player)
-        add_game_header(
+        message_lead(
             container,
-            ctx.emoji,
-            game_key=self.metadata.key,
-            game_name=self.metadata.name,
-            title="Accusation Voting",
-            status=f"Is **{accused_name}** the Spy? (Unanimous vote required)",
-            status_emoji="ban",
-            is_replay=ctx.is_replay,
+            f"Is **{accused_name}** the Spy? (Unanimous vote required)",
+            emoji=ctx.emoji,
+            prefix_emoji="ban",
         )
 
         votes_text = "**Votes Cast:**\n"
@@ -349,40 +322,38 @@ class Spyfall(Game):
             if p.seat == self.accused_player:
                 continue
             v_status = self.votes.get(p.seat, "Pending...")
-            votes_text += f"• {p.display_name}: **{v_status.upper()}**\n"
+            votes_text += f"• {p.mention}: **{v_status.upper()}**\n"
 
         container.add_text(TextDisplay(votes_text))
 
-        row = ActionRow()
-        row.add_button(
-            Button(
-                source="vote_guilty",
-                label="Guilty",
-                style=ButtonStyle.DANGER,
-                disabled=ctx.is_replay,
+        if not ctx.is_replay:
+            row = ActionRow()
+            row.add_button(
+                Button(
+                    source="vote_guilty",
+                    label="Guilty",
+                    style=ButtonStyle.DANGER,
+                )
             )
-        )
-        row.add_button(
-            Button(
-                source="vote_innocent",
-                label="Innocent",
-                style=ButtonStyle.SUCCESS,
-                disabled=ctx.is_replay,
+            row.add_button(
+                Button(
+                    source="vote_innocent",
+                    label="Innocent",
+                    style=ButtonStyle.SUCCESS,
+                )
             )
-        )
-        container.add_action_row(row)
+            container.add_action_row(row)
 
-        row2 = ActionRow()
-        row2.add_button(
-            Button(
-                source="peek",
-                label="Peek Info",
-                emoji="peek",
-                style=ButtonStyle.SECONDARY,
-                disabled=ctx.is_replay,
+            row2 = ActionRow()
+            row2.add_button(
+                Button(
+                    source="peek",
+                    label="Peek Info",
+                    emoji="peek",
+                    style=ButtonStyle.SECONDARY,
+                )
             )
-        )
-        container.add_action_row(row2)
+            container.add_action_row(row2)
 
         view.add_container(container)
         return view
@@ -393,15 +364,11 @@ class Spyfall(Game):
         spy_name = self._name(summary.get("spy", 0))
         view = LayoutView()
         container = Container()
-        add_game_header(
+        message_lead(
             container,
-            ctx.emoji,
-            game_key=self.metadata.key,
-            game_name=self.metadata.name,
-            title="Game Over!",
-            status=f"The {winner.upper()} won! The Spy was **{spy_name}**.",
-            status_emoji="success",
-            is_replay=ctx.is_replay,
+            f"The {winner.upper()} won! The Spy was **{spy_name}**.",
+            emoji=ctx.emoji,
+            prefix_emoji="success",
         )
 
         history_text = "**Log of Events:**\n" + "\n".join(f"• {item}" for item in self.history)
@@ -421,19 +388,7 @@ class Spyfall(Game):
         from strife.presentation.compiler import clone_and_disable
 
         for move in moves:
-            takeover_info = None
-            if move.arguments.get("replaced_by_bot"):
-                for p in self.players:
-                    if p.seat == move.actor_seat:
-                        p.is_bot = True
-                        p.bot_difficulty = "hard"
-                        takeover_info = {
-                            "user_id": p.user_id,
-                            "display_name": p.display_name,
-                            "is_bot": p.is_bot,
-                            "type": "bot_takeover",
-                            "reason": move.arguments.get("replace_reason", "timeout"),
-                        }
+            takeover_info = system_replay_info(self.players, move)
 
             if move.source == "setup":
                 self.location = move.arguments["location"]
@@ -441,7 +396,7 @@ class Spyfall(Game):
                 view = self._discussion_view(ctx)
                 frames.append(ReplayFrame(
                     index=len(frames),
-                    turn_label=f"Setup (Turn {len(frames)+1})",
+                    turn_label="Setup",
                     actor_seat=None,
                     view=clone_and_disable(view),
                     takeover_info=takeover_info,
@@ -455,7 +410,7 @@ class Spyfall(Game):
                 view = self._voting_view(ctx)
                 frames.append(ReplayFrame(
                     index=len(frames),
-                    turn_label=f"Accusation (Turn {len(frames)+1})",
+                    turn_label="Accusation",
                     actor_seat=move.actor_seat,
                     view=clone_and_disable(view),
                     takeover_info=takeover_info,
@@ -471,7 +426,7 @@ class Spyfall(Game):
                 view = self._discussion_view(ctx)
                 frames.append(ReplayFrame(
                     index=len(frames),
-                    turn_label=f"Accusation Resolved (Turn {len(frames)+1})",
+                    turn_label="Accusation Resolved",
                     actor_seat=None,
                     view=clone_and_disable(view),
                     takeover_info=takeover_info,
@@ -482,19 +437,15 @@ class Spyfall(Game):
                 self.history = move.arguments.get("history", [])
                 view = LayoutView()
                 container = Container()
-                add_game_header(
+                message_lead(
                     container,
-                    ctx.emoji,
-                    game_key=self.metadata.key,
-                    game_name=self.metadata.name,
-                    title="Spy Guessed Location",
-                    status=f"Guess: {move.arguments['location']}",
-                    is_replay=ctx.is_replay,
+                    f"Guess: {move.arguments['location']}",
+                    emoji=ctx.emoji,
                 )
                 view.add_container(container)
                 frames.append(ReplayFrame(
                     index=len(frames),
-                    turn_label=f"Spy Guess (Turn {len(frames)+1})",
+                    turn_label="Spy Guess",
                     actor_seat=move.actor_seat,
                     view=clone_and_disable(view),
                     takeover_info=takeover_info,

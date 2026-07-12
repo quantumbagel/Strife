@@ -12,6 +12,7 @@ from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
 from strife.engine.players import GameOutcome, Move, Player
 from strife.persistence.repositories import MoveRecord
+from strife.engine.replay import system_replay_info
 from strife.games.mafia.bot import choose_mafia_move
 from strife.games.mafia.roles import compose_roles
 from strife.presentation.components import (
@@ -22,8 +23,8 @@ from strife.presentation.components import (
     SelectChoice,
     TextDisplay,
 )
-from strife.presentation.game_frame import add_game_header
-from strife.presentation.roster import member_line, player_mention
+from strife.presentation.game_ui import message_lead
+from strife.presentation.roster import member_line
 
 
 class Mafia(Game):
@@ -47,12 +48,7 @@ class Mafia(Game):
         self.death_reason: dict[int, str] = {}
 
     def _name(self, seat: int) -> str:
-        player = self.players[seat]
-        return player_mention(
-            user_id=player.user_id,
-            display_name=player.display_name,
-            is_bot=player.is_bot,
-        )
+        return self.players[seat].mention
 
     def _role_emoji(self, ctx: GameContext, role: str) -> str:
         return ctx.emoji.get(self._ROLE_EMOJI.get(role, "user"))
@@ -82,15 +78,11 @@ class Mafia(Game):
         role_map = roles if roles is not None else self.role
         view = LayoutView()
         container = Container()
-        add_game_header(
+        message_lead(
             container,
-            ctx.emoji,
-            game_key=self.metadata.key,
-            game_name=self.metadata.name,
-            title="Game Over",
-            status=f"{winner.title()} wins!",
-            status_emoji="success",
-            is_replay=ctx.is_replay,
+            f"{winner.title()} wins!",
+            emoji=ctx.emoji,
+            prefix_emoji="success",
         )
         forward = ctx.emoji.get("forward")
         lines = []
@@ -110,7 +102,7 @@ class Mafia(Game):
         return view
 
     async def play(self, ctx: GameContext) -> GameOutcome:
-        await ctx.record_action("roles_assigned", {"roles": self.role})
+        await ctx.record_event("roles_assigned", {"roles": self.role})
         await self._send_role_dms(ctx)
         winner = None
         while winner is None:
@@ -121,7 +113,7 @@ class Mafia(Game):
                 break
             await self._day(ctx)
             winner = self._winner()
-        await ctx.record_action("game_end", {"winning_faction": winner, "roles": self.role})
+        await ctx.record_event("game_end", {"winning_faction": winner, "roles": self.role})
         return self._finish(winner)
 
     async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
@@ -156,15 +148,7 @@ class Mafia(Game):
             instructions = next((r.instructions for r in self.metadata.roles if r.key == role), "")
             view = LayoutView()
             container = Container()
-            add_game_header(
-                container,
-                ctx.emoji,
-                game_key=self.metadata.key,
-                game_name=self.metadata.name,
-                title=f"Your Role: {role.title()}",
-                status=instructions,
-                is_replay=ctx.is_replay,
-            )
+            message_lead(container, instructions or f"Your Role: {role.title()}", emoji=ctx.emoji)
             if role == "mafia":
                 teammates = [
                     self._name(p.seat)
@@ -191,12 +175,11 @@ class Mafia(Game):
         await ctx.update(
             self._public_view(
                 ctx,
-                title=f"Night {self.day}",
-                status="Night falls across the town...",
-                status_emoji="timer",
+                lead="Night falls across the town...",
+                prefix_emoji="timer",
             )
         )
-        await ctx.record_action("night_start", {"day": self.day})
+        await ctx.record_event("night_start", {"day": self.day})
         source_map = {"mafia": "kill", "doctor": "protect", "detective": "investigate"}
         private_views: dict[int, LayoutView] = {}
         per_seat_sources: dict[int, set[str]] = {}
@@ -209,15 +192,11 @@ class Mafia(Game):
             ]
             private = LayoutView()
             container = Container()
-            add_game_header(
+            message_lead(
                 container,
-                ctx.emoji,
-                game_key=self.metadata.key,
-                game_name=self.metadata.name,
-                title=f"Night {self.day} Action",
-                status=f"Choose a target as **{role.title()}**",
-                status_emoji="loading",
-                is_replay=ctx.is_replay,
+                f"Choose a target as **{role.title()}**",
+                emoji=ctx.emoji,
+                prefix_emoji="loading",
             )
             row = ActionRow()
             source = source_map[role]
@@ -232,9 +211,8 @@ class Mafia(Game):
         )
         public = self._public_view(
             ctx,
-            title=f"Night {self.day}",
-            status="Waiting for night actions...",
-            status_emoji="loading",
+            lead="Waiting for night actions...",
+            prefix_emoji="loading",
         )
         moves = await ctx.request_inputs(
             public,
@@ -270,7 +248,7 @@ class Mafia(Game):
             self.remove_player(victim)
             self.death_reason[victim] = "night"
             self.history.append(f"Night {self.day}: {self._name(victim)} was eliminated.")
-        await ctx.record_action("night_outcome", {
+        await ctx.record_event("night_outcome", {
             "victim": victim,
             "history": list(self.history)
         })
@@ -281,19 +259,15 @@ class Mafia(Game):
                 alignment = "mafia" if self.role.get(target) == "mafia" else "town"
                 reveal = LayoutView()
                 container = Container()
-                add_game_header(
+                message_lead(
                     container,
-                    ctx.emoji,
-                    game_key=self.metadata.key,
-                    game_name=self.metadata.name,
-                    title="Investigation Result",
-                    status=f"{self._name(target)} is **{alignment.upper()}**",
-                    status_emoji="enable_detective",
-                    is_replay=ctx.is_replay,
+                    f"{self._name(target)} is **{alignment.upper()}**",
+                    emoji=ctx.emoji,
+                    prefix_emoji="enable_detective",
                 )
                 reveal.add_container(container)
                 await ctx.send_private(seat, reveal)
-                await ctx.record_action("detective_reveal", {
+                await ctx.record_event("detective_reveal", {
                     "detective": seat,
                     "target": target,
                     "alignment": alignment
@@ -302,7 +276,7 @@ class Mafia(Game):
     async def _day(self, ctx: GameContext) -> None:
         self._phase = "day"
         day_view = self._day_view(ctx)
-        votes = await ctx.request_inputs(day_view, actors=set(self.alive), sources={"vote"}, until="all")
+        votes = await ctx.request_inputs(day_view, actors=set(self.alive), sources={"vote"}, until="all", record=False)
         tally: Counter[int] = Counter()
         for seat, move in votes.items():
             target = self._normalize_target(move)
@@ -319,7 +293,7 @@ class Mafia(Game):
                 self.remove_player(lynched)
                 self.death_reason[lynched] = "day"
                 self.history.append(f"Day {self.day}: {self._name(lynched)} was lynched.")
-        await ctx.record_action("day_outcome", {
+        await ctx.record_event("day_outcome", {
             "lynched": lynched,
             "history": list(self.history),
             "votes": {seat: m.args.get("target") for seat, m in votes.items()}
@@ -328,11 +302,7 @@ class Mafia(Game):
     async def parse_replay(self, moves: list[MoveRecord], ctx: GameContext) -> list[ReplayFrame]:
         def _get_name(seat: int) -> str:
             player = self.players[seat]
-            return player_mention(
-                user_id=player.user_id,
-                display_name=player.display_name,
-                is_bot=player.is_bot,
-            )
+            return self.players[seat].mention
 
         roles = {}
         alive = set(p.seat for p in self.players)
@@ -342,30 +312,11 @@ class Mafia(Game):
         pending_takeover_info = None
 
         for move in moves:
-            if move.arguments.get("replaced_by_bot"):
-                for p in self.players:
-                    if p.seat == move.actor_seat:
-                        p.is_bot = True
-                        p.bot_difficulty = "hard"
-                        pending_takeover_info = {
-                            "user_id": p.user_id,
-                            "display_name": p.display_name,
-                            "is_bot": p.is_bot,
-                            "type": "bot_takeover",
-                            "reason": move.arguments.get("replace_reason", "timeout"),
-                        }
-            elif move.source == "forfeit":
-                for p in self.players:
-                    if p.seat == move.actor_seat:
-                        pending_takeover_info = {
-                            "user_id": p.user_id,
-                            "display_name": p.display_name,
-                            "is_bot": p.is_bot,
-                            "type": "removal",
-                            "reason": move.arguments.get("reason", "forfeit"),
-                        }
-                if move.actor_seat is not None:
-                    alive.discard(move.actor_seat)
+            info = system_replay_info(self.players, move)
+            if info:
+                pending_takeover_info = info
+            if move.source == "forfeit" and move.actor_seat is not None:
+                alive.discard(move.actor_seat)
 
             if move.source == "roles_assigned":
                 roles = {int(k): v for k, v in move.arguments["roles"].items()}
@@ -374,15 +325,11 @@ class Mafia(Game):
 
                 view = LayoutView()
                 container = Container()
-                add_game_header(
+                message_lead(
                     container,
-                    ctx.emoji,
-                    game_key=self.metadata.key,
-                    game_name=self.metadata.name,
-                    title="Roles Assigned",
-                    status="The game is about to begin.",
-                    status_emoji="user",
-                    is_replay=ctx.is_replay,
+                    "The game is about to begin.",
+                    emoji=ctx.emoji,
+                    prefix_emoji="user",
                 )
                 forward = ctx.emoji.get("forward")
                 role_lines = []
@@ -411,9 +358,8 @@ class Mafia(Game):
                 day_num = move.arguments["day"]
                 view = self._public_view(
                     ctx,
-                    title=f"Night {day_num}",
-                    status="Night falls across the town...",
-                    status_emoji="timer",
+                    lead="Night falls across the town...",
+                    prefix_emoji="timer",
                     alive=alive,
                     history=history,
                 )
@@ -438,15 +384,11 @@ class Mafia(Game):
 
                 view = LayoutView()
                 container = Container()
-                add_game_header(
+                message_lead(
                     container,
-                    ctx.emoji,
-                    game_key=self.metadata.key,
-                    game_name=self.metadata.name,
-                    title=f"Night Action: {role.title()}",
-                    status=f"{_get_name(actor_seat) if actor_seat is not None else 'Unknown'} chose to **{move.source}** {target_str}",
-                    status_emoji=self._ROLE_EMOJI.get(role, "user"),
-                    is_replay=ctx.is_replay,
+                    f"{_get_name(actor_seat) if actor_seat is not None else 'Unknown'} chose to **{move.source}** {target_str}",
+                    emoji=ctx.emoji,
+                    prefix_emoji=self._ROLE_EMOJI.get(role, "user"),
                 )
                 view.add_container(container)
 
@@ -469,15 +411,11 @@ class Mafia(Game):
 
                 view = LayoutView()
                 container = Container()
-                add_game_header(
+                message_lead(
                     container,
-                    ctx.emoji,
-                    game_key=self.metadata.key,
-                    game_name=self.metadata.name,
-                    title="Investigation Result",
-                    status=f"{_get_name(detective_seat)} found {_get_name(target_seat)} is **{alignment.upper()}**",
-                    status_emoji="enable_detective",
-                    is_replay=ctx.is_replay,
+                    f"{_get_name(detective_seat)} found {_get_name(target_seat)} is **{alignment.upper()}**",
+                    emoji=ctx.emoji,
+                    prefix_emoji="enable_detective",
                 )
                 view.add_container(container)
 
@@ -506,15 +444,11 @@ class Mafia(Game):
 
                 view = LayoutView()
                 container = Container()
-                add_game_header(
+                message_lead(
                     container,
-                    ctx.emoji,
-                    game_key=self.metadata.key,
-                    game_name=self.metadata.name,
-                    title="Morning Results",
-                    status=status,
-                    status_emoji="success" if victim is None else "error",
-                    is_replay=ctx.is_replay,
+                    status,
+                    emoji=ctx.emoji,
+                    prefix_emoji="success" if victim is None else "error",
                 )
                 container.add_separator()
                 container.add_text(TextDisplay(markdown_content=self._alive_roster(ctx, alive)))
@@ -547,16 +481,7 @@ class Mafia(Game):
                 else:
                     status = "The vote was skipped or tied. No one was lynched."
                     status_emoji = "hmm"
-                add_game_header(
-                    container,
-                    ctx.emoji,
-                    game_key=self.metadata.key,
-                    game_name=self.metadata.name,
-                    title="Day Voting Results",
-                    status=status,
-                    status_emoji=status_emoji,
-                    is_replay=ctx.is_replay,
-                )
+                message_lead(container, status, emoji=ctx.emoji, prefix_emoji=status_emoji)
 
                 vote_lines = []
                 for voter_str, target_str in votes_cast.items():
@@ -607,67 +532,56 @@ class Mafia(Game):
         self,
         ctx: GameContext,
         *,
-        title: str,
-        status: str | None = None,
-        status_emoji: str | None = None,
+        lead: str | None = None,
+        prefix_emoji: str | None = None,
         alive: set[int] | None = None,
         history: list[str] | None = None,
     ) -> LayoutView:
         view = LayoutView()
         container = Container()
-        add_game_header(
-            container,
-            ctx.emoji,
-            game_key=self.metadata.key,
-            game_name=self.metadata.name,
-            title=title,
-            status=status,
-            status_emoji=status_emoji,
-            is_replay=ctx.is_replay,
-        )
+        message_lead(container, lead, emoji=ctx.emoji, prefix_emoji=prefix_emoji)
         container.add_text(TextDisplay(markdown_content=self._alive_roster(ctx, alive)))
         history_block = self._history_block(ctx, history)
         if history_block:
             container.add_separator()
             container.add_text(TextDisplay(markdown_content=history_block))
-        
-        row = ActionRow()
-        row.add_button(Button(source="peek", label="Peek Role", emoji="peek", style=ButtonStyle.SECONDARY))
-        container.add_action_row(row)
-        
+
+        if not ctx.is_replay:
+            row = ActionRow()
+            row.add_button(Button(source="peek", label="Peek Role", emoji="peek", style=ButtonStyle.SECONDARY))
+            container.add_action_row(row)
+
         view.add_container(container)
         return view
 
     def _day_view(self, ctx: GameContext) -> LayoutView:
         view = LayoutView()
         container = Container()
-        add_game_header(
+        message_lead(
             container,
-            ctx.emoji,
-            game_key=self.metadata.key,
-            game_name=self.metadata.name,
-            title=f"Day {self.day}",
-            status="Discussion and vote — cast your ballot below.",
-            status_emoji="loading",
-            is_replay=ctx.is_replay,
+            "Discussion and vote — cast your ballot below.",
+            emoji=ctx.emoji,
+            prefix_emoji="loading",
         )
         container.add_text(TextDisplay(markdown_content=self._alive_roster(ctx)))
         history_block = self._history_block(ctx)
         if history_block:
             container.add_separator()
             container.add_text(TextDisplay(markdown_content=history_block))
-        row = ActionRow()
-        choices = [
-            SelectChoice(label=self.players[s].display_name, value=str(s))
-            for s in sorted(self.alive)
-        ]
-        choices.append(SelectChoice(label="Skip", value="skip"))
-        row.add_select(Select(source="vote", placeholder="Cast your vote", choices=choices))
-        container.add_action_row(row)
 
-        row2 = ActionRow()
-        row2.add_button(Button(source="peek", label="Peek Role", emoji="peek", style=ButtonStyle.SECONDARY))
-        container.add_action_row(row2)
+        if not ctx.is_replay:
+            row = ActionRow()
+            choices = [
+                SelectChoice(label=self.players[s].display_name, value=str(s))
+                for s in sorted(self.alive)
+            ]
+            choices.append(SelectChoice(label="Skip", value="skip"))
+            row.add_select(Select(source="vote", placeholder="Cast your vote", choices=choices))
+            container.add_action_row(row)
+
+            row2 = ActionRow()
+            row2.add_button(Button(source="peek", label="Peek Role", emoji="peek", style=ButtonStyle.SECONDARY))
+            container.add_action_row(row2)
 
         view.add_container(container)
         return view

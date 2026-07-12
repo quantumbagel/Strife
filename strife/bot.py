@@ -14,13 +14,6 @@ from strife.commands.server_settings import ServerSettingsService
 from strife.commands.strife_group import register_strife_group
 from strife.config import load_app_config
 from strife.engine.registry import GameRegistry
-from strife.games.mafia.game import Mafia
-from strife.games.tictactoe.game import TicTacToe
-from strife.games.test.game import TestGame
-from strife.games.connectfour.game import ConnectFour
-from strife.games.liars_dice.game import LiarsDice
-from strife.games.spyfall.game import Spyfall
-from strife.games.coup.game import Coup
 from strife.lifecycle.service import LifecycleService
 from strife.logging import configure_logging, get_logger
 from strife.matchmaking.registries import SessionRegistries
@@ -69,13 +62,7 @@ class StrifeBot(commands.Bot):
             log.info("Applied migrations: %s", ", ".join(applied))
 
         self.game_registry = GameRegistry()
-        self.game_registry.register(TicTacToe)
-        self.game_registry.register(Mafia)
-        self.game_registry.register(TestGame)
-        self.game_registry.register(ConnectFour)
-        self.game_registry.register(LiarsDice)
-        self.game_registry.register(Spyfall)
-        self.game_registry.register(Coup)
+        self.game_registry.discover()
 
         self.emoji = EmojiResolver(self.config.emoji)
         await self.emoji.sync(self)

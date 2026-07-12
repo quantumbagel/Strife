@@ -39,7 +39,12 @@ META = GameMetadata(
             type=OptionType.CHOICE,
             default="all",
             choices=("all", "interactive", "static"),
-            emoji="first",
+            emoji="settings",
+            choice_emojis=(
+                ("all", "play"),
+                ("interactive", "pointing"),
+                ("static", "spectate"),
+            ),
         ),
         SettingOption(
             key="test_int",

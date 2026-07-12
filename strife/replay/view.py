@@ -120,15 +120,15 @@ def build_replay_view(
     else:
         result_emoji = emoji.get("hmm")
 
-    if turn_label and turn_label != f"Turn {frame_index + 1}":
+    if turn_label and turn_label != f"Action {frame_index + 1}":
         turn_info = text.get(
-            "replay.turn_label_detail",
+            "replay.action_label_detail",
             current=frame_index + 1,
             total=total,
             label=turn_label,
         )
     else:
-        turn_info = text.get("replay.turn_label", current=frame_index + 1, total=total)
+        turn_info = text.get("replay.action_label", current=frame_index + 1, total=total)
     if timestamp:
         ts_val = int(timestamp.timestamp())
         turn_info = f"{turn_info} • <t:{ts_val}:f> (<t:{ts_val}:R>)"
@@ -199,7 +199,7 @@ def build_replay_view(
     else:
         container.add_text(
             TextDisplay(
-                markdown_content=text.get("replay.turn_label", current=frame_index + 1, total=total)
+                markdown_content=text.get("replay.action_label", current=frame_index + 1, total=total)
             )
         )
 
@@ -229,7 +229,7 @@ def build_replay_view(
     nav.add_button(
         Button(
             source="jump",
-            label=text.get("replay.turn_label", current=frame_index + 1, total=total),
+            label=text.get("replay.action_label", current=frame_index + 1, total=total),
             style=ButtonStyle.SECONDARY,
             route_prefix=P.R_NAV,
             payload={"owner": owner_id, "jump": True, "total": total, "frame": frame_index},

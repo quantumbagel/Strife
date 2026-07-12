@@ -229,6 +229,8 @@ class LobbyService:
                 P.LOBBY_DENY: self._deny,
                 P.LOBBY_ADD_BLACKLIST: self._add_blacklist,
                 P.LOBBY_REMOVE_BLACKLIST: self._remove_blacklist,
+                P.LOBBY_BOT_ADD: self._bot_add,
+                P.LOBBY_BOT_REMOVE: self._bot_remove,
             }.get(route.prefix)
             if handler is None:
                 await self._error(interaction, "common.error")
@@ -283,6 +285,11 @@ class LobbyService:
             return
         if user.id in lobby.blacklist:
             await self._error(interaction, "errors.blacklisted", lobby=lobby)
+            return
+
+        meta = self._meta(lobby.game_key)
+        if lobby.is_full(meta):
+            await self._error(interaction, "errors.lobby_full", lobby=lobby)
             return
 
         if lobby.private and user.id not in lobby.approved:
@@ -531,6 +538,10 @@ class LobbyService:
             return
         values = interaction.data.get("values") if interaction.data else []
         if values:
+            meta = self._meta(lobby.game_key)
+            if lobby.is_full(meta):
+                await self._error(interaction, "errors.lobby_full", lobby=lobby)
+                return
             target_id = int(values[0])
             display_name = lobby.pending_requests.pop(target_id, f"User {target_id}")
             lobby.approved.add(target_id)
@@ -604,6 +615,59 @@ class LobbyService:
         )
         await interaction.edit_original_response(view=compiled)
 
+    async def _bot_add(
+        self, lobby: Lobby, route: Route, interaction: discord.Interaction
+    ) -> None:
+        if interaction.user.id != lobby.creator_id:
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
+            return
+        meta = self._meta(lobby.game_key)
+        values = interaction.data.get("values") if interaction.data else []
+        if values:
+            difficulty = values[0]
+            valid = {spec.difficulty for spec in meta.bots}
+            if difficulty not in valid:
+                await self._error(interaction, "common.error", lobby=lobby)
+                return
+            if lobby.is_full(meta):
+                await self._error(interaction, "errors.lobby_full", lobby=lobby)
+                return
+            lobby.bots.append(
+                QueuedBot(
+                    name=f"Bot-{difficulty}-{len(lobby.bots) + 1}",
+                    difficulty=difficulty,
+                )
+            )
+        await interaction.response.defer(ephemeral=True)
+        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
+        compiled = self.compiler.compile(
+            view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
+        )
+        await interaction.edit_original_response(view=compiled)
+        await self._refresh(lobby, interaction)
+
+    async def _bot_remove(
+        self, lobby: Lobby, route: Route, interaction: discord.Interaction
+    ) -> None:
+        if interaction.user.id != lobby.creator_id:
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
+            return
+        values = interaction.data.get("values") if interaction.data else []
+        if values:
+            name = values[0]
+            if not any(bot.name == name for bot in lobby.bots):
+                await self._error(interaction, "common.error", lobby=lobby)
+                return
+            lobby.bots = [bot for bot in lobby.bots if bot.name != name]
+        await interaction.response.defer(ephemeral=True)
+        meta = self._meta(lobby.game_key)
+        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
+        compiled = self.compiler.compile(
+            view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
+        )
+        await interaction.edit_original_response(view=compiled)
+        await self._refresh(lobby, interaction)
+
     async def _start(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
@@ -672,14 +736,6 @@ class LobbyService:
                 name=thread_name, auto_archive_duration=1440
             )
 
-            human_players = [p for p in players if p.user_id and not p.is_bot]
-            if human_players:
-                mentions = " ".join(f"<@{p.user_id}>" for p in human_players)
-                try:
-                    await thread.send(mentions)
-                except discord.HTTPException:
-                    log.warning("Failed to mention players in game thread %s", thread.id)
-
             ended_view = LayoutView()
             brand = self.emoji.get("logo")
             container = Container()
@@ -706,16 +762,8 @@ class LobbyService:
             game_surface = ViewSurface(
                 self.compiler, prefix=P.G_MOVE, resource_id=thread.id
             )
-            game_emoji = self.emoji.get_game_emoji(meta.key)
-            forward = self.emoji.get("forward")
             starting_view = LayoutView()
             start_container = Container()
-            start_container.add_text(
-                TextDisplay(
-                    markdown_content=f"### {game_emoji} {meta.name} {forward} Match Start",
-                    size_style=TextSize.HEADER,
-                )
-            )
             start_container.add_separator()
 
             settings = get_settings()
@@ -807,18 +855,25 @@ class LobbyService:
         if lobby.creator_id != interaction.user.id:
             await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
-        for i in range(number):
+        meta = self._meta(lobby.game_key)
+        added = 0
+        for _ in range(number):
+            if lobby.is_full(meta):
+                break
             lobby.bots.append(
                 QueuedBot(
                     name=f"Bot-{difficulty}-{len(lobby.bots) + 1}",
                     difficulty=difficulty,
                 )
             )
-        meta = self._meta(lobby.game_key)
+            added += 1
+        if added == 0:
+            await self._error(interaction, "errors.lobby_full", lobby=lobby)
+            return
         view = build_lobby_view(lobby, meta, self.emoji, self.text)
         if lobby.surface:
             await lobby.surface.update(view)
-        await self._success(interaction, "lobby.bot_added", count=number)
+        await self._success(interaction, "lobby.bot_added", count=added)
 
     async def remove_bot(self, interaction: discord.Interaction, name: str) -> None:
         loc = self.registries.location_of(interaction.user.id)

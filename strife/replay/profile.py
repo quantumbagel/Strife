@@ -13,6 +13,7 @@ from strife.presentation.components import (
     Button,
     ButtonStyle,
     Container,
+    DescribedSelect,
     LayoutView,
     Select,
     SelectChoice,
@@ -59,7 +60,7 @@ class ProfileService:
             mins, secs = divmod(seconds, 60)
             return f"{mins}m {secs}s"
         if m.total_turns:
-            return f"{m.total_turns} turns"
+            return f"{m.total_turns} actions"
         return None
 
     def _result_desc(self, m) -> tuple[str, str]:
@@ -207,16 +208,17 @@ class ProfileService:
             )
 
         if replay_choices:
-            replay_row = ActionRow()
-            replay_row.add_select(
-                Select(
-                    source="open",
-                    placeholder=text.get("profile.replay_select_placeholder"),
-                    choices=replay_choices,
-                    route_prefix=P.R_NAV,
+            container.add_described_select(
+                DescribedSelect(
+                    description=text.get("profile.replay_select_desc"),
+                    select=Select(
+                        source="open",
+                        placeholder=text.get("profile.replay_select_placeholder"),
+                        choices=replay_choices,
+                        route_prefix=P.R_NAV,
+                    ),
                 )
             )
-            container.add_action_row(replay_row)
 
         nav = ActionRow()
         nav.add_button(

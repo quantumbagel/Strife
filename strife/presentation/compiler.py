@@ -9,6 +9,7 @@ from strife.presentation.components import (
     ButtonStyle,
     ChannelSelect,
     Container,
+    DescribedSelect,
     LayoutView,
     MediaGallery,
     Section,
@@ -18,6 +19,7 @@ from strife.presentation.components import (
     TextSize,
     UserSelect,
     disable_all,
+    small_text,
 )
 from strife.presentation.emoji import EmojiResolver
 from strife.routing.custom_id import CustomIdEncoder
@@ -208,6 +210,32 @@ class Compiler:
             disabled=user_select.disabled,
         )
 
+    def _compile_described_select(
+        self, described: DescribedSelect, *, resource_id: int, prefix: str
+    ) -> list[ui.Item]:
+        self._count()
+        content = small_text(described.description)
+        if described.label:
+            content = f"{described.label}\n{content}"
+        text = ui.TextDisplay(
+            content=self._prefix_text(
+                TextDisplay(
+                    markdown_content=content,
+                    size_style=TextSize.BODY,
+                )
+            )
+        )
+        self._count()
+        separator = ui.Separator(visible=False)
+        row = ActionRow()
+        if isinstance(described.select, ChannelSelect):
+            row.add_channel_select(described.select)
+        elif isinstance(described.select, UserSelect):
+            row.add_user_select(described.select)
+        else:
+            row.add_select(described.select)
+        return [text, separator, self._compile_action_row(row, resource_id=resource_id, prefix=prefix)]
+
     def _compile_action_row(self, row: ActionRow, *, resource_id: int, prefix: str) -> ui.ActionRow:
         buttons = [item for item in row.items if isinstance(item, Button)]
         selects = [item for item in row.items if isinstance(item, Select)]
@@ -271,6 +299,9 @@ class Compiler:
                 compiled.add_item(gallery)
             elif isinstance(child, ActionRow):
                 compiled.add_item(self._compile_action_row(child, resource_id=resource_id, prefix=prefix))
+            elif isinstance(child, DescribedSelect):
+                for item in self._compile_described_select(child, resource_id=resource_id, prefix=prefix):
+                    compiled.add_item(item)
             elif isinstance(child, Section):
                 compiled.add_item(self._compile_section(child, resource_id=resource_id, prefix=prefix))
         return compiled

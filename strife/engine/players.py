@@ -13,6 +13,13 @@ class Player:
     bot_difficulty: str | None = None
     role_key: str | None = None
 
+    @property
+    def mention(self) -> str:
+        if self.user_id is not None and not self.is_bot:
+            return f"<@{self.user_id}>"
+        difficulty = f" ({self.bot_difficulty})" if self.bot_difficulty else ""
+        return f"**{self.display_name}**{difficulty}"
+
     def display(
         self,
         emoji: Any = None,
@@ -32,17 +39,10 @@ class Player:
             if self.is_bot or self.user_id is None:
                 prefix += f"{emoji.get('bot')} "
 
-        # 4. Mention / BOT suffix formatting
-        if self.user_id is not None and not self.is_bot:
-            name = f"<@{self.user_id}>"
-        else:
-            difficulty = f" ({self.bot_difficulty})" if self.bot_difficulty else ""
-            name = f"**{self.display_name}**{difficulty}"
-
-        return f"{prefix}{name}"
+        return f"{prefix}{self.mention}"
 
     def __str__(self) -> str:
-        return self.display()
+        return self.mention
 
 
 @dataclass

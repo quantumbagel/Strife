@@ -75,7 +75,7 @@ class LifecycleService:
                 session._warned = True
                 thread = self.bot.get_channel(session.thread_id)
                 if isinstance(thread, discord.Thread):
-                    stalled = [session.players[s].display_name for s in session.pending if not session.players[s].is_bot]
+                    stalled = [session.players[s].mention for s in session.pending if not session.players[s].is_bot]
                     if stalled:
                         await thread.send(
                             self.text.get("timeout.warning", player=stalled[0], seconds=int(timeout - idle))
@@ -107,10 +107,16 @@ class LifecycleService:
         if reason == "timeout" and meta.supports_bots:
             player.is_bot = True
             player.bot_difficulty = "hard"
+            session._record_system(
+                "bot_takeover",
+                {
+                    "seat": seat,
+                    "reason": "timeout",
+                    "user_id": player.user_id,
+                    "display_name": player.display_name,
+                },
+            )
             move = await session.game.bot_move("hard", seat)
-            move.args = dict(move.args)
-            move.args["replaced_by_bot"] = True
-            move.args["replace_reason"] = "timeout"
             await session.force_move(seat, move)
             return
 

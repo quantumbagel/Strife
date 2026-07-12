@@ -11,6 +11,7 @@ import discord
 from strife.config.text import TextConfig
 from strife.engine.context import LiveContext
 from strife.engine.game import Game
+from strife.engine.log import LogEntryKind, SYSTEM_SOURCES
 from strife.engine.players import GameOutcome, Move, Player
 from strife.lifecycle.results import build_results_view
 from strife.logging import get_logger
@@ -47,6 +48,7 @@ class RecordedMove:
     actor_seat: int | None
     source: str
     arguments: dict
+    kind: LogEntryKind
     created_at: datetime
 
 
@@ -152,7 +154,7 @@ class GameSession:
             return
         if self.task and not self.task.done():
             self.task.cancel()
-        self._record_action("game_end", {"reason": reason, "cancelled": True})
+        self._append_log_entry("game_end", {"reason": reason, "cancelled": True}, kind=LogEntryKind.SYSTEM)
         results = {}
         summary = {"reason": reason}
         player_descriptions = {}
@@ -206,13 +208,14 @@ class GameSession:
             await self.surface.update(view)
 
     async def _request_input(
-        self, view: LayoutView, *, actor: int, sources: set[str] | None
+        self, view: LayoutView, *, actor: int, sources: set[str] | None, record: bool = True
     ) -> Move:
         if self.players[actor].is_bot:
             difficulty = self.players[actor].bot_difficulty or "medium"
             move = await self.game.bot_move(difficulty, actor)
             await self._update_surface(view)
-            self._record_move(move)
+            if record:
+                self._record_move(move)
             return move
 
         loop = asyncio.get_running_loop()
@@ -222,7 +225,8 @@ class GameSession:
         self._warned = False
         await self._update_surface(view)
         move = await future
-        self._record_move(move)
+        if record:
+            self._record_move(move)
         return move
 
     async def _request_inputs(
@@ -233,6 +237,7 @@ class GameSession:
         sources: set[str] | None,
         until: Literal["all", "any"],
         per_seat_sources: dict[int, set[str]] | None = None,
+        record: bool = True,
     ) -> dict[int, Move]:
         results: dict[int, Move] = {}
         humans = {seat for seat in actors if not self.players[seat].is_bot}
@@ -241,7 +246,8 @@ class GameSession:
                 difficulty = self.players[seat].bot_difficulty or "medium"
                 move = await self.game.bot_move(difficulty, seat)
                 results[seat] = move
-                self._record_move(move)
+                if record:
+                    self._record_move(move)
 
         loop = asyncio.get_running_loop()
         futures: dict[int, asyncio.Future[Move]] = {}
@@ -268,7 +274,8 @@ class GameSession:
                 if future in done:
                     move = future.result()
                     results[seat] = move
-                    self._record_move(move)
+                    if record:
+                        self._record_move(move)
                 elif not future.done():
                     future.cancel()
                 self.pending.pop(seat, None)
@@ -277,7 +284,8 @@ class GameSession:
         for seat, future in futures.items():
             move = await future
             results[seat] = move
-            self._record_move(move)
+            if record:
+                self._record_move(move)
             self.pending.pop(seat, None)
         return results
 
@@ -311,31 +319,48 @@ class GameSession:
                 except discord.HTTPException:
                     log.exception("Failed to post DM failure notice in thread %s", self.thread_id)
 
-    def _record_move(self, move: Move) -> None:
+    def _record_move(self, move: Move, *, kind: LogEntryKind | None = None) -> None:
+        entry_kind = kind or (
+            LogEntryKind.SYSTEM
+            if move.source in SYSTEM_SOURCES
+            else LogEntryKind.GAME
+        )
         self.recorded_moves.append(
             RecordedMove(
                 turn_index=self._turn_index,
                 actor_seat=move.actor_seat,
                 source=move.source,
                 arguments=move.args,
+                kind=entry_kind,
                 created_at=datetime.now(timezone.utc),
             )
         )
         self._turn_index += 1
         self.last_move_at = time.monotonic()
 
-    def _record_action(self, source: str, arguments: dict) -> None:
+    def _append_log_entry(
+        self,
+        source: str,
+        arguments: dict,
+        *,
+        actor_seat: int | None = None,
+        kind: LogEntryKind = LogEntryKind.GAME,
+    ) -> None:
         self.recorded_moves.append(
             RecordedMove(
                 turn_index=self._turn_index,
-                actor_seat=None,
+                actor_seat=actor_seat,
                 source=source,
                 arguments=arguments,
+                kind=kind,
                 created_at=datetime.now(timezone.utc),
             )
         )
         self._turn_index += 1
         self.last_move_at = time.monotonic()
+
+    def _record_system(self, source: str, arguments: dict, *, actor_seat: int | None = None) -> None:
+        self._append_log_entry(source, arguments, actor_seat=actor_seat, kind=LogEntryKind.SYSTEM)
 
     async def _finalize(self, outcome: GameOutcome, *, status: str) -> None:
         if self._finalized:
@@ -360,7 +385,7 @@ class GameSession:
                     if outcome.player_descriptions
                     else {},
                 },
-                total_turns=len(self.recorded_moves),
+                total_turns=sum(1 for m in self.recorded_moves if m.kind == LogEntryKind.GAME),
                 started_at=self._started_at,
                 ended_at=datetime.now(timezone.utc),
                 players=[
@@ -381,6 +406,7 @@ class GameSession:
                         actor_seat=m.actor_seat,
                         source=m.source,
                         arguments=m.arguments,
+                        kind=m.kind,
                         created_at=m.created_at,
                     )
                     for m in self.recorded_moves
@@ -402,18 +428,9 @@ class GameSession:
             if self.header_surface is not None:
                 try:
                     emoji = self.header_surface.compiler.emoji
-                    game_emoji = emoji.get_game_emoji(self.game_key)
-                    forward = emoji.get("forward")
                     settings = get_settings()
                     finished_view = LayoutView()
                     container = Container()
-                    container.add_text(
-                        TextDisplay(
-                            markdown_content=f"### {game_emoji} {self.game.metadata.name} {forward} Match Finished",
-                            size_style=TextSize.HEADER,
-                        )
-                    )
-                    container.add_separator()
 
                     roster_lines = [
                         member_line(

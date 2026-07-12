@@ -12,7 +12,7 @@ from strife.presentation.components import (
     TextSize,
 )
 from strife.presentation.emoji import EmojiResolver
-from strife.presentation.roster import member_line, player_mention
+from strife.presentation.roster import member_line
 from strife.routing import prefixes as P
 
 
@@ -49,11 +49,7 @@ def build_results_view(
         body_text = f"{emoji.get('success')} **{description}**"
     elif winner_seat is not None and isinstance(winner_seat, int) and 0 <= winner_seat < len(players):
         winner = players[winner_seat]
-        winner_label = player_mention(
-            user_id=winner.user_id,
-            display_name=winner.display_name,
-            is_bot=winner.is_bot,
-        )
+        winner_label = winner.mention
         body = text.get("match.winner", winner=winner_label)
         body_text = f"{emoji.get('success')} **{body}**"
     elif "winning_faction" in summary:

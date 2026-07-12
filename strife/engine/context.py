@@ -28,7 +28,7 @@ class GameContext(Protocol):
     async def update(self, view: LayoutView) -> None: ...
 
     async def request_input(
-        self, view: LayoutView, *, actor: int, sources: set[str] | None = None
+        self, view: LayoutView, *, actor: int, sources: set[str] | None = None, record: bool = True
     ) -> Move: ...
 
     async def request_inputs(
@@ -39,11 +39,12 @@ class GameContext(Protocol):
         sources: set[str] | None = None,
         until: Literal["all", "any"] = "all",
         per_seat_sources: dict[int, set[str]] | None = None,
+        record: bool = True,
     ) -> dict[int, Move]: ...
 
     async def send_private(self, seat: int, view: LayoutView) -> None: ...
 
-    async def record_action(self, source: str, arguments: dict[str, Any]) -> None: ...
+    async def record_event(self, source: str, arguments: dict[str, Any]) -> None: ...
 
 
 class LiveContext:
@@ -81,9 +82,11 @@ class LiveContext:
         await self._session._update_surface(view)  # type: ignore[attr-defined]
 
     async def request_input(
-        self, view: LayoutView, *, actor: int, sources: set[str] | None = None
+        self, view: LayoutView, *, actor: int, sources: set[str] | None = None, record: bool = True
     ) -> Move:
-        return await self._session._request_input(view, actor=actor, sources=sources)  # type: ignore[attr-defined]
+        return await self._session._request_input(  # type: ignore[attr-defined]
+            view, actor=actor, sources=sources, record=record
+        )
 
     async def request_inputs(
         self,
@@ -93,6 +96,7 @@ class LiveContext:
         sources: set[str] | None = None,
         until: Literal["all", "any"] = "all",
         per_seat_sources: dict[int, set[str]] | None = None,
+        record: bool = True,
     ) -> dict[int, Move]:
         return await self._session._request_inputs(  # type: ignore[attr-defined]
             view,
@@ -100,13 +104,14 @@ class LiveContext:
             sources=sources,
             until=until,
             per_seat_sources=per_seat_sources,
+            record=record,
         )
 
     async def send_private(self, seat: int, view: LayoutView) -> None:
         await self._session._send_private(seat, view)  # type: ignore[attr-defined]
 
-    async def record_action(self, source: str, arguments: dict[str, Any]) -> None:
-        self._session._record_action(source, arguments)  # type: ignore[attr-defined]
+    async def record_event(self, source: str, arguments: dict[str, Any]) -> None:
+        self._session._append_log_entry(source, arguments)  # type: ignore[attr-defined]
 
 
 @dataclass
@@ -167,6 +172,6 @@ class ReplayContext:
     async def send_private(self, seat: int, view: LayoutView) -> None:
         raise NotImplementedError("Replays do not support send_private()")
 
-    async def record_action(self, source: str, arguments: dict[str, Any]) -> None:
+    async def record_event(self, source: str, arguments: dict[str, Any]) -> None:
         pass
 

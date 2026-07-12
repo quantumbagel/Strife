@@ -118,7 +118,7 @@ def register_strife_group(
                 mins, secs = divmod(seconds, 60)
                 duration_str = f"{mins}m {secs}s"
             elif match.total_turns:
-                duration_str = f"{match.total_turns} turns"
+                duration_str = f"{match.total_turns} actions"
 
             start_time = match.started_at or match.created_at
 
@@ -166,9 +166,13 @@ def register_strife_group(
         meta = registry.metadata(lobby_obj.game_key)
         choices = []
         for spec in meta.bots or ():
-            if current.lower() in spec.difficulty.lower():
+            haystack = f"{spec.difficulty} {spec.description}".lower()
+            if current.lower() in haystack:
                 choices.append(
-                    app_commands.Choice(name=spec.difficulty.capitalize(), value=spec.difficulty)
+                    app_commands.Choice(
+                        name=spec.display_label(),
+                        value=spec.difficulty,
+                    )
                 )
         if not choices:
             for fallback in ("easy", "medium", "hard"):

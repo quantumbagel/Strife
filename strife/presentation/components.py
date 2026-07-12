@@ -122,6 +122,20 @@ class UserSelect:
     resource_id: int | None = None
 
 
+def small_text(content: str) -> str:
+    stripped = content.strip()
+    if stripped.startswith("-#"):
+        return stripped
+    return f"-# {stripped}"
+
+
+@dataclass
+class DescribedSelect:
+    description: str
+    select: Select | ChannelSelect | UserSelect
+    label: str | None = None
+
+
 @dataclass
 class ActionRow:
     items: list[Button | Select | ChannelSelect | UserSelect] = field(default_factory=list)
@@ -145,14 +159,16 @@ class ActionRow:
 
 @dataclass
 class Container:
-    children: list[TextDisplay | Separator | MediaGallery | ActionRow | Section] = field(default_factory=list)
+    children: list[TextDisplay | Separator | MediaGallery | ActionRow | Section | DescribedSelect] = field(
+        default_factory=list
+    )
 
     def add_text(self, text: TextDisplay) -> Container:
         self.children.append(text)
         return self
 
     def add_separator(self, separator: Separator | None = None) -> Container:
-        self.children.append(separator or Separator())
+        self.children.append(separator if separator is not None else Separator(visible=False))
         return self
 
     def set_gallery(self, gallery: MediaGallery) -> Container:
@@ -165,6 +181,10 @@ class Container:
 
     def add_section(self, section: Section) -> Container:
         self.children.append(section)
+        return self
+
+    def add_described_select(self, described: DescribedSelect) -> Container:
+        self.children.append(described)
         return self
 
 
@@ -211,6 +231,8 @@ def walk_interactive(view: LayoutView) -> list[Button | Select | ChannelSelect |
         elif isinstance(node, Container):
             for child in node.children:
                 visit(child)
+        elif isinstance(node, DescribedSelect):
+            visit(node.select)
         elif isinstance(node, Section):
             if node.accessory:
                 visit(node.accessory)

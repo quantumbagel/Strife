@@ -28,6 +28,8 @@ LOBBY_APPROVE = "lobby_approve:"
 LOBBY_DENY = "lobby_deny:"
 LOBBY_ADD_BLACKLIST = "lobby_add_blacklist:"
 LOBBY_REMOVE_BLACKLIST = "lobby_remove_blacklist:"
+LOBBY_BOT_ADD = "lobby_bot_add:"
+LOBBY_BOT_REMOVE = "lobby_bot_remove:"
 
 ABOUT_NAV = "about_nav:"
 
@@ -50,6 +52,8 @@ LOBBY_PREFIXES = {
     LOBBY_DENY,
     LOBBY_ADD_BLACKLIST,
     LOBBY_REMOVE_BLACKLIST,
+    LOBBY_BOT_ADD,
+    LOBBY_BOT_REMOVE,
 }
 
 ALL_PREFIXES = GAME_PREFIXES | LOBBY_PREFIXES | SERVER_PREFIXES | {

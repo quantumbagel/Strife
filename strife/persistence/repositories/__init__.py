@@ -6,6 +6,8 @@ from typing import Any
 
 import asyncpg
 
+from strife.engine.log import LogEntryKind, infer_log_kind
+
 
 @dataclass
 class MoveRecord:
@@ -13,7 +15,16 @@ class MoveRecord:
     actor_seat: int | None
     source: str
     arguments: dict[str, Any]
+    kind: LogEntryKind = LogEntryKind.GAME
     created_at: datetime | None = None
+
+    @property
+    def is_game(self) -> bool:
+        return self.kind == LogEntryKind.GAME
+
+    @property
+    def is_system(self) -> bool:
+        return self.kind == LogEntryKind.SYSTEM
 
 
 @dataclass
@@ -200,8 +211,8 @@ class MatchRepository:
                         if record.moves:
                             await conn.executemany(
                                 """
-                                INSERT INTO moves(match_id, turn_index, actor_seat, source, arguments, created_at)
-                                VALUES($1,$2,$3,$4,$5,$6)
+                                INSERT INTO moves(match_id, turn_index, actor_seat, source, arguments, kind, created_at)
+                                VALUES($1,$2,$3,$4,$5,$6,$7)
                                 """,
                                 [
                                     (
@@ -210,6 +221,7 @@ class MatchRepository:
                                         move.actor_seat,
                                         move.source,
                                         move.arguments,
+                                        move.kind.value,
                                         move.created_at or datetime.now(timezone.utc),
                                     )
                                     for move in record.moves
@@ -390,16 +402,24 @@ class MoveRepository:
                 "SELECT * FROM moves WHERE match_id = $1 ORDER BY turn_index",
                 match_id,
             )
-            return [
-                MoveRecord(
-                    turn_index=row["turn_index"],
-                    actor_seat=row["actor_seat"],
-                    source=row["source"],
-                    arguments=row["arguments"] or {},
-                    created_at=row["created_at"],
+            records: list[MoveRecord] = []
+            for row in rows:
+                arguments = row["arguments"] or {}
+                if "kind" in row.keys():
+                    kind = LogEntryKind(row["kind"])
+                else:
+                    kind = infer_log_kind(row["source"], arguments)
+                records.append(
+                    MoveRecord(
+                        turn_index=row["turn_index"],
+                        actor_seat=row["actor_seat"],
+                        source=row["source"],
+                        arguments=arguments,
+                        kind=kind,
+                        created_at=row["created_at"],
+                    )
                 )
-                for row in rows
-            ]
+            return records
 
 
 class UserRepository:
