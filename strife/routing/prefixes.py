@@ -17,11 +17,13 @@ LOBBY_JOIN = "lobby_join:"
 LOBBY_LEAVE = "lobby_leave:"
 LOBBY_READY = "lobby_ready:"
 LOBBY_ASSIGN = "lobby_assign:"
+LOBBY_ASSIGN_ROLES = "lobby_assign_roles:"
 LOBBY_SETTINGS = "lobby_settings:"
 LOBBY_ROLE = "lobby_role:"
 LOBBY_PRIV = "lobby_priv:"
 LOBBY_RESET_PRIV = "lobby_reset_priv:"
 LOBBY_OPT = "lobby_opt:"
+LOBBY_OPT_MODAL = "lobby_opt_modal:"
 LOBBY_RESET_RULES = "lobby_reset_rules:"
 LOBBY_END = "lobby_end:"
 LOBBY_APPROVE = "lobby_approve:"
@@ -45,11 +47,13 @@ LOBBY_PREFIXES = {
     LOBBY_LEAVE,
     LOBBY_READY,
     LOBBY_ASSIGN,
+    LOBBY_ASSIGN_ROLES,
     LOBBY_SETTINGS,
     LOBBY_ROLE,
     LOBBY_PRIV,
     LOBBY_RESET_PRIV,
     LOBBY_OPT,
+    LOBBY_OPT_MODAL,
     LOBBY_RESET_RULES,
     LOBBY_END,
     LOBBY_APPROVE,

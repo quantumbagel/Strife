@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from strife.config.text import TextConfig
-from strife.engine.metadata import GameMetadata, format_settings_rules
+from strife.engine.metadata import GameMetadata, format_settings_rules, supports_role_selection
 from strife.matchmaking.lobby import Lobby
+from strife.matchmaking.role_validation import is_role_selection_complete
 from strife.presentation.components import (
     ActionRow,
     Button,
@@ -21,12 +24,18 @@ from strife.presentation.roster import format_roster, member_line
 from strife.routing import prefixes as P
 from strife.settings import get_settings
 
+if TYPE_CHECKING:
+    from strife.engine.game import Game
+
 
 def build_lobby_view(
         lobby: Lobby,
         meta: GameMetadata,
         emoji: EmojiResolver,
         text: TextConfig,
+        *,
+        game_cls: type[Game] | None = None,
+        role_invalid_reason: str | None = None,
 ) -> LayoutView:
     game_emoji = emoji.get_game_emoji(meta.key)
     view = LayoutView()
@@ -68,6 +77,15 @@ def build_lobby_view(
             count=lobby.total_players,
             min=meta.player_count.min_players,
         )
+    elif supports_role_selection(meta) and not is_role_selection_complete(lobby, meta):
+        selected = sum(1 for member in lobby.members if member.user_id in lobby.role_selection)
+        waiting_content = text.get(
+            "lobby.waiting_for_role_selection",
+            selected=selected,
+            total=len(lobby.members),
+        )
+    elif role_invalid_reason:
+        waiting_content = text.get("lobby.waiting_for_role_fix", reason=role_invalid_reason)
     else:
         waiting_content = text.get(
             "lobby.waiting_to_ready",
@@ -157,9 +175,10 @@ def build_lobby_view(
 
     container.add_separator()
 
-    can_r, _, _ = lobby.can_ready(meta, text)
+    can_r, _, _ = lobby.can_ready(meta, text, game_cls=game_cls)
     join_style = ButtonStyle.SECONDARY if can_r else ButtonStyle.SUCCESS
     ready_style = ButtonStyle.SUCCESS if can_r else ButtonStyle.PRIMARY
+    ready_disabled = role_invalid_reason is not None
 
     controls = ActionRow()
     if not lobby_full:
@@ -176,17 +195,13 @@ def build_lobby_view(
     )
     if can_r or lobby.ready:
         controls.add_button(
-            Button(source="ready", label=text.get("lobby.ready_button"), style=ready_style, emoji="ready", route_prefix=P.LOBBY_READY)
-        )
-
-    if meta.role_flow.value in {"selectable", "selectable_random"}:
-        controls.add_button(
             Button(
-                source="assign",
-                label=text.get("lobby.assign_roles_button"),
-                style=ButtonStyle.SECONDARY,
-                emoji="user",
-                route_prefix=P.LOBBY_ASSIGN,
+                source="ready",
+                label=text.get("lobby.ready_button"),
+                style=ready_style,
+                emoji="ready",
+                route_prefix=P.LOBBY_READY,
+                disabled=ready_disabled,
             )
         )
 
@@ -257,37 +272,6 @@ def build_lobby_view(
                 ),
             )
         )
-
-    if meta.role_flow.value == "selectable":
-        role_members = lobby.members[:8]
-        if len(lobby.members) > 8:
-            container.add_text(
-                TextDisplay(
-                    markdown_content="-# Role picks are shown for the first 8 players.",
-                    size_style=TextSize.BODY,
-                )
-            )
-        for member in role_members:
-            choices = [
-                SelectChoice(
-                    label=role.name,
-                    value=role.key,
-                    default=lobby.role_selection.get(member.user_id) == role.key,
-                )
-                for role in meta.roles
-            ]
-            container.add_described_select(
-                DescribedSelect(
-                    description=text.get("lobby.role_select_desc", name=member.display_name),
-                    select=Select(
-                        source="role",
-                        placeholder=text.get("lobby.role_placeholder", name=member.display_name),
-                        choices=choices,
-                        payload={"player_id": member.user_id},
-                        route_prefix=P.LOBBY_ROLE,
-                    ),
-                )
-            )
 
     # Finally, add the fully populated container to the view
     view.add_container(container)

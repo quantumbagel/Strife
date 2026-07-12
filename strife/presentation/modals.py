@@ -41,3 +41,89 @@ class PageJumpModal(ui.Modal):
             return
         page = max(1, min(page, self._total))
         await self._on_submit_cb(interaction, page - 1)
+
+
+class IntRangeModal(ui.Modal):
+    def __init__(
+        self,
+        *,
+        title: str,
+        label: str,
+        placeholder: str,
+        default: int,
+        minimum: int,
+        maximum: int,
+        on_submit_cb: Callable[[discord.Interaction, int], Awaitable[None]],
+        error_message: str = "Enter a valid number.",
+        range_error_message: str = "Enter a number within the allowed range.",
+    ) -> None:
+        super().__init__(title=title[:45])
+        self._on_submit_cb = on_submit_cb
+        self._minimum = minimum
+        self._maximum = maximum
+        self._error_message = error_message
+        self._range_error_message = range_error_message
+        self.value_input = ui.TextInput(
+            label=label[:45],
+            placeholder=placeholder[:100],
+            default=str(default),
+            min_length=1,
+            max_length=max(len(str(maximum)), len(str(minimum)), 1),
+            required=True,
+        )
+        self.add_item(self.value_input)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw = self.value_input.value.strip()
+        try:
+            value = int(raw)
+        except ValueError:
+            await interaction.response.send_message(self._error_message, ephemeral=True)
+            return
+        if value < self._minimum or value > self._maximum:
+            await interaction.response.send_message(self._range_error_message, ephemeral=True)
+            return
+        await self._on_submit_cb(interaction, value)
+
+
+ROLE_ASSIGN_MODAL_BATCH = 5
+
+
+class RoleAssignmentModal(ui.Modal):
+    def __init__(
+        self,
+        *,
+        title: str,
+        members: list[tuple[int, str]],
+        roles: list[tuple[str, str]],
+        current: dict[int, str],
+        on_submit_cb: Callable[[discord.Interaction, dict[int, str]], Awaitable[None]],
+    ) -> None:
+        super().__init__(title=title[:45])
+        self._on_submit_cb = on_submit_cb
+        for user_id, display_name in members[:ROLE_ASSIGN_MODAL_BATCH]:
+            options = [
+                discord.SelectOption(
+                    label=name[:100],
+                    value=key,
+                    default=current.get(user_id) == key,
+                )
+                for key, name in roles
+            ]
+            select = ui.Select(
+                custom_id=f"role_{user_id}",
+                placeholder="Select a role...",
+                options=options,
+                min_values=1,
+                max_values=1,
+                required=True,
+            )
+            self.add_item(ui.Label(text=display_name[:45], component=select))
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        assignments: dict[int, str] = {}
+        for item in self.walk_children():
+            if isinstance(item, ui.Select) and item.custom_id and item.values:
+                user_id = int(item.custom_id.removeprefix("role_"))
+                assignments[user_id] = item.values[0]
+        await self._on_submit_cb(interaction, assignments)

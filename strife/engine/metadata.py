@@ -103,6 +103,24 @@ class SettingOption:
     choice_emojis: tuple[tuple[str, str], ...] | None = None
 
 
+INT_SETTING_SELECT_LIMIT = 25
+
+
+def supports_role_selection(meta: GameMetadata) -> bool:
+    return meta.role_flow.value in {"selectable", "selectable_random"} and bool(meta.roles)
+
+
+def int_setting_bounds(option: SettingOption) -> tuple[int, int]:
+    minimum = option.minimum if option.minimum is not None else int(option.default)
+    maximum = option.maximum if option.maximum is not None else minimum + 5
+    return minimum, maximum
+
+
+def int_setting_fits_select(option: SettingOption) -> bool:
+    minimum, maximum = int_setting_bounds(option)
+    return maximum - minimum + 1 <= INT_SETTING_SELECT_LIMIT
+
+
 def choice_emoji_for(option: SettingOption, value: str, *, default: str = "pointing") -> str:
     if option.choice_emojis:
         for choice_value, emoji_key in option.choice_emojis:

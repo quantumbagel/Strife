@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import random
 import secrets
+from typing import TYPE_CHECKING
 
 import discord
 
 from strife.config import AppConfig
-from strife.engine.metadata import GameMetadata, OptionType
+from strife.engine.metadata import GameMetadata, OptionType, int_setting_bounds
 from strife.engine.players import Player
 from strife.engine.registry import GameRegistry
 from strife.engine.roles import order_players
@@ -15,6 +16,7 @@ from strife.logging import get_logger
 from strife.matchmaking.lobby import Lobby, LobbyMember, QueuedBot
 from strife.matchmaking.lobby_view import build_lobby_view
 from strife.matchmaking.registries import SessionRegistries, UserLocation
+from strife.matchmaking.role_validation import clear_ready_if_roles_invalid, invalid_role_reason
 from strife.matchmaking.settings_view import build_settings_view, normalize_settings_tab
 from strife.persistence.repositories import (
     FinishedMatch,
@@ -25,6 +27,7 @@ from strife.persistence.repositories import (
     generate_match_code,
 )
 from strife.presentation.compiler import Compiler, LayoutError
+from strife.presentation.modals import IntRangeModal, ROLE_ASSIGN_MODAL_BATCH, RoleAssignmentModal
 from strife.presentation.emoji import EmojiResolver
 from strife.presentation.components import Container, LayoutView, TextDisplay, TextSize, Separator
 from strife.presentation.message import ViewSurface
@@ -34,6 +37,9 @@ from strife.presentation.user_success import UserSuccessPresenter
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route
 from strife.settings import get_settings
+
+if TYPE_CHECKING:
+    from strife.engine.game import Game
 
 log = get_logger("matchmaking.service")
 
@@ -158,6 +164,28 @@ class LobbyService:
     def _is_lobby_member(self, lobby: Lobby, user_id: int) -> bool:
         return any(member.user_id == user_id for member in lobby.members)
 
+    def _game_cls(self, game_key: str) -> type[Game] | None:
+        try:
+            return self.registry.get(game_key)
+        except KeyError:
+            return None
+
+    def _role_invalid_reason(self, lobby: Lobby, meta: GameMetadata) -> str | None:
+        return invalid_role_reason(lobby, meta, self._game_cls(lobby.game_key))
+
+    def _clear_ready_if_roles_invalid(self, lobby: Lobby, meta: GameMetadata) -> None:
+        clear_ready_if_roles_invalid(lobby, meta, self._game_cls(lobby.game_key))
+
+    def _build_lobby_view(self, lobby: Lobby, meta: GameMetadata):
+        return build_lobby_view(
+            lobby,
+            meta,
+            self.emoji,
+            self.text,
+            game_cls=self._game_cls(lobby.game_key),
+            role_invalid_reason=self._role_invalid_reason(lobby, meta),
+        )
+
     async def _send_settings(
         self,
         lobby: Lobby,
@@ -180,6 +208,7 @@ class LobbyService:
                 interaction,
                 tab=tab,
                 readonly=readonly,
+                role_invalid_reason=self._role_invalid_reason(lobby, meta),
             )
             compiled = self.compiler.compile(
                 view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
@@ -260,7 +289,7 @@ class LobbyService:
                 "lobby", lobby_id, interaction.guild_id
             )
             self.registries.add_lobby(lobby)
-            view = build_lobby_view(lobby, meta, self.emoji, self.text)
+            view = self._build_lobby_view(lobby, meta)
             await surface.send(interaction, view)
             lobby.message_id = surface.message_id
         except Exception:
@@ -280,12 +309,14 @@ class LobbyService:
                 P.LOBBY_JOIN: self._join,
                 P.LOBBY_LEAVE: self._leave,
                 P.LOBBY_READY: self._ready,
-                P.LOBBY_ASSIGN: self._assign,
+                P.LOBBY_ASSIGN: self._assign_roles,
+                P.LOBBY_ASSIGN_ROLES: self._assign_roles,
                 P.LOBBY_SETTINGS: self._settings,
                 P.LOBBY_ROLE: self._role,
                 P.LOBBY_PRIV: self._privacy,
                 P.LOBBY_RESET_PRIV: self._reset_privacy,
                 P.LOBBY_OPT: self._option,
+                P.LOBBY_OPT_MODAL: self._option_modal,
                 P.LOBBY_RESET_RULES: self._reset_rules,
                 P.LOBBY_END: self._end,
                 P.LOBBY_APPROVE: self._approve,
@@ -307,7 +338,7 @@ class LobbyService:
     async def _refresh(self, lobby: Lobby, interaction: discord.Interaction) -> None:
         meta = self._meta(lobby.game_key)
         try:
-            view = build_lobby_view(lobby, meta, self.emoji, self.text)
+            view = self._build_lobby_view(lobby, meta)
         except Exception as exc:
             from strife.presentation.compiler import LayoutError
 
@@ -436,7 +467,8 @@ class LobbyService:
             await self._refresh(lobby, interaction)
         else:
             meta = self._meta(lobby.game_key)
-            ok, reason_key, reason_kwargs = lobby.can_ready(meta, self.text)
+            game_cls = self._game_cls(lobby.game_key)
+            ok, reason_key, reason_kwargs = lobby.can_ready(meta, self.text, game_cls=game_cls)
             if not ok:
                 await self._error(
                     interaction,
@@ -447,7 +479,7 @@ class LobbyService:
                 )
                 return
             lobby.ready.add(interaction.user.id)
-            ok_start, _, _ = lobby.can_start(meta, self.text)
+            ok_start, _, _ = lobby.can_start(meta, self.text, game_cls=game_cls)
             if ok_start:
                 if not interaction.response.is_done():
                     await interaction.response.defer()
@@ -455,10 +487,70 @@ class LobbyService:
             else:
                 await self._refresh(lobby, interaction)
 
-    async def _assign(
+    async def _assign_roles(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
-        await self._refresh(lobby, interaction)
+        if interaction.user.id != lobby.creator_id:
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
+            return
+        if not lobby.members:
+            await self._error(interaction, "common.error", lobby=lobby)
+            return
+        offset = int(route.payload.get("offset", 0))
+        await self._open_role_assign_modal(lobby, interaction, offset=offset)
+
+    async def _open_role_assign_modal(
+        self,
+        lobby: Lobby,
+        interaction: discord.Interaction,
+        *,
+        offset: int = 0,
+    ) -> None:
+        meta = self._meta(lobby.game_key)
+        members = lobby.members[offset : offset + ROLE_ASSIGN_MODAL_BATCH]
+        if not members:
+            await self._error(interaction, "common.error", lobby=lobby)
+            return
+        roles = [(role.key, role.name) for role in meta.roles]
+        valid_roles = {role.key for role in meta.roles}
+        total = len(lobby.members)
+        start = offset + 1
+        end = offset + len(members)
+        title_key = (
+            "lobby.role_assign_modal_title_paged"
+            if end < total
+            else "lobby.role_assign_modal_title"
+        )
+        title = self.text.get(title_key, start=start, end=end, total=total)
+
+        async def on_submit(
+            modal_interaction: discord.Interaction, assignments: dict[int, str]
+        ) -> None:
+            for user_id, role_key in assignments.items():
+                if role_key not in valid_roles:
+                    await self._error(modal_interaction, "errors.invalid_roles", lobby=lobby)
+                    return
+                lobby.role_selection[user_id] = role_key
+
+            self._clear_ready_if_roles_invalid(lobby, meta)
+
+            next_offset = offset + len(assignments)
+            if next_offset < total:
+                await self._open_role_assign_modal(lobby, modal_interaction, offset=next_offset)
+                return
+
+            await modal_interaction.response.defer(ephemeral=True)
+            await self._send_settings(lobby, modal_interaction, tab="roles", edit=True)
+            await self._refresh(lobby, modal_interaction)
+
+        modal = RoleAssignmentModal(
+            title=title,
+            members=[(member.user_id, member.display_name) for member in members],
+            roles=roles,
+            current=lobby.role_selection,
+            on_submit_cb=on_submit,
+        )
+        await interaction.response.send_modal(modal)
 
     async def _settings(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
@@ -492,6 +584,10 @@ class LobbyService:
                 await self._error(interaction, "errors.invalid_roles", lobby=lobby)
                 return
             lobby.role_selection[player_id] = role_key
+            self._clear_ready_if_roles_invalid(lobby, meta)
+        if route.payload.get("settings_tab") == "roles":
+            await interaction.response.defer(ephemeral=True)
+            await self._send_settings(lobby, interaction, tab="roles", edit=True)
         await self._refresh(lobby, interaction)
 
     async def _privacy(
@@ -522,6 +618,13 @@ class LobbyService:
         await self._send_settings(lobby, interaction, tab="general", edit=True)
         await self._refresh(lobby, interaction)
 
+    def _apply_int_setting(self, lobby: Lobby, option, value: int) -> bool:
+        minimum, maximum = int_setting_bounds(option)
+        if value < minimum or value > maximum:
+            return False
+        lobby.settings[option.key] = value
+        return True
+
     async def _option(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
@@ -546,9 +649,9 @@ class LobbyService:
                 except ValueError:
                     await self._error(interaction, "common.error", lobby=lobby)
                     return
-                minimum = option.minimum if option.minimum is not None else int(option.default)
-                maximum = option.maximum if option.maximum is not None else minimum + 5
-                lobby.settings[key] = max(minimum, min(maximum, value))
+                if not self._apply_int_setting(lobby, option, value):
+                    await self._error(interaction, "common.error", lobby=lobby)
+                    return
             else:
                 if option.type == OptionType.CHOICE and option.choices and raw not in option.choices:
                     await self._error(interaction, "common.error", lobby=lobby)
@@ -557,6 +660,47 @@ class LobbyService:
         await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="rules", edit=True)
         await self._refresh(lobby, interaction)
+
+    async def _option_modal(
+        self, lobby: Lobby, route: Route, interaction: discord.Interaction
+    ) -> None:
+        if interaction.user.id != lobby.creator_id:
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
+            return
+        key = route.payload.get("option_key")
+        if not key:
+            await self._error(interaction, "common.error", lobby=lobby)
+            return
+        meta = self._meta(lobby.game_key)
+        option = next((o for o in meta.settings if o.key == key), None)
+        if option is None or option.type != OptionType.INT:
+            await self._error(interaction, "common.error", lobby=lobby)
+            return
+        minimum, maximum = int_setting_bounds(option)
+        current = int(lobby.settings.get(option.key, option.default))
+
+        async def on_submit(modal_interaction: discord.Interaction, value: int) -> None:
+            self._apply_int_setting(lobby, option, value)
+            await modal_interaction.response.defer(ephemeral=True)
+            await self._send_settings(lobby, modal_interaction, tab="rules", edit=True)
+            await self._refresh(lobby, modal_interaction)
+
+        modal = IntRangeModal(
+            title=self.text.get("lobby.int_option_modal_title", title=option.title),
+            label=self.text.get(
+                "lobby.int_option_modal_label", minimum=minimum, maximum=maximum
+            ),
+            placeholder=self.text.get("lobby.int_option_modal_placeholder"),
+            default=current,
+            minimum=minimum,
+            maximum=maximum,
+            on_submit_cb=on_submit,
+            error_message=self.text.get("lobby.invalid_int_option"),
+            range_error_message=self.text.get(
+                "lobby.int_option_out_of_range", minimum=minimum, maximum=maximum
+            ),
+        )
+        await interaction.response.send_modal(modal)
 
     async def _reset_rules(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
@@ -792,7 +936,8 @@ class LobbyService:
         if lobby.starting:
             return
         meta = self._meta(lobby.game_key)
-        ok, reason_key, reason_kwargs = lobby.can_start(meta, self.text)
+        game_cls = self._game_cls(lobby.game_key)
+        ok, reason_key, reason_kwargs = lobby.can_start(meta, self.text, game_cls=game_cls)
         if not ok:
             await self._error(
                 interaction,
@@ -988,7 +1133,7 @@ class LobbyService:
         if added == 0:
             await self._error(interaction, "errors.lobby_full", lobby=lobby)
             return
-        view = build_lobby_view(lobby, meta, self.emoji, self.text)
+        view = self._build_lobby_view(lobby, meta)
         if lobby.surface:
             await lobby.surface.update(view)
         await self._success(interaction, "lobby.bot_added", count=added)
@@ -1007,7 +1152,7 @@ class LobbyService:
             return
         lobby.bots = [b for b in lobby.bots if b.name != name]
         meta = self._meta(lobby.game_key)
-        view = build_lobby_view(lobby, meta, self.emoji, self.text)
+        view = self._build_lobby_view(lobby, meta)
         if lobby.surface:
             await lobby.surface.update(view)
         await self._success(interaction, "lobby.bot_removed", name=bot_label(self.emoji, name))
@@ -1026,7 +1171,7 @@ class LobbyService:
         if private is not None:
             lobby.private = private
             meta = self._meta(lobby.game_key)
-            view = build_lobby_view(lobby, meta, self.emoji, self.text)
+            view = self._build_lobby_view(lobby, meta)
             if lobby.surface:
                 await lobby.surface.update(view)
         await self._settings(

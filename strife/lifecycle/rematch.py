@@ -12,6 +12,7 @@ from strife.logging import get_logger
 from strife.matchmaking.lobby import Lobby, LobbyMember, QueuedBot
 from strife.matchmaking.lobby_view import build_lobby_view
 from strife.matchmaking.registries import SessionRegistries, UserLocation
+from strife.matchmaking.role_validation import invalid_role_reason
 from strife.presentation.message import ViewSurface
 from strife.routing import prefixes as P
 
@@ -183,11 +184,14 @@ class RematchManager:
             lobby.members.append(member)
 
         meta = self.lobby.registry.metadata(game_key)
+        game_cls = self.lobby.registry.get(game_key)
         view = build_lobby_view(
             lobby,
             meta,
             self.lobby.emoji,
             self.text,
+            game_cls=game_cls,
+            role_invalid_reason=invalid_role_reason(lobby, meta, game_cls),
         )
         await surface.send(target_channel, view)
         lobby.message_id = surface.message_id

@@ -62,6 +62,8 @@ class TestGame(Game):
         for role in assignment.values():
             if role not in {"tester", "observer"}:
                 return False, f"Unknown role assignment: {role}"
+        if len(assignment) >= 2 and len(set(assignment.values())) < 2:
+            return False, "Need at least one Tester and one Observer."
         return True, None
 
     def _phase1_view(self, ctx: GameContext) -> LayoutView:

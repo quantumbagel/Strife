@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 from strife.config.text import TextConfig
 from strife.engine.game import Game
-from strife.engine.metadata import GameMetadata
+from strife.engine.metadata import GameMetadata, supports_role_selection
 from strife.presentation.message import ViewSurface
 
 
@@ -54,32 +54,33 @@ class Lobby:
         return self.total_players >= max_players
 
     def can_ready(
-        self, meta: GameMetadata, text: TextConfig, game: Game | None = None
+        self,
+        meta: GameMetadata,
+        text: TextConfig,
+        game_cls: type[Game] | None = None,
     ) -> tuple[bool, str | None, dict | None]:
+        from strife.matchmaking.role_validation import invalid_role_reason, is_role_selection_complete
+
         if not meta.player_count.is_valid(self.total_players):
             return False, "errors.need_players", {
                 "describe": meta.player_count.describe(),
             }
-        if meta.role_flow.value in {"selectable", "selectable_random"}:
-            for member in self.members:
-                if member.user_id not in self.role_selection:
-                    return False, "errors.role_selection_incomplete", None
-        if game is not None:
-            assignment = {
-                m.user_id: self.role_selection[m.user_id]
-                for m in self.members
-                if m.user_id in self.role_selection
-            }
-            ok, reason = game.validate_roles(assignment)
-            if not ok:
-                kwargs = {"detail": reason} if reason else None
-                return False, "errors.invalid_roles", kwargs
+        if supports_role_selection(meta):
+            if not is_role_selection_complete(self, meta):
+                return False, "errors.role_selection_incomplete", None
+            if game_cls is not None:
+                reason = invalid_role_reason(self, meta, game_cls)
+                if reason is not None:
+                    return False, "errors.invalid_roles", {"detail": reason}
         return True, None, None
 
     def can_start(
-        self, meta: GameMetadata, text: TextConfig, game: Game | None = None
+        self,
+        meta: GameMetadata,
+        text: TextConfig,
+        game_cls: type[Game] | None = None,
     ) -> tuple[bool, str | None, dict | None]:
-        ok, reason_key, reason_kwargs = self.can_ready(meta, text, game)
+        ok, reason_key, reason_kwargs = self.can_ready(meta, text, game_cls)
         if not ok:
             return False, reason_key, reason_kwargs
         if len(self.ready) < len(self.members):
