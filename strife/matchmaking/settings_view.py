@@ -27,6 +27,7 @@ from strife.presentation.components import (
     TextDisplay,
     TextSize,
     UserSelect,
+    small_text,
     walk_interactive,
 )
 from strife.presentation.emoji import EmojiResolver, get_game_emoji
@@ -578,8 +579,16 @@ def _add_int_setting(
         TextDisplay(
             markdown_content=(
                 f"**{opt_emoji} {option.title}**\n"
-                f"{option.description}\n"
-                f"{text.get('lobby.int_option_current', value=current, minimum=minimum, maximum=maximum)}"
+                f"{small_text(option.description)}"
+            ),
+            size_style=TextSize.BODY,
+        )
+    )
+    container.add_separator()
+    container.add_text(
+        TextDisplay(
+            markdown_content=text.get(
+                "lobby.int_option_current", value=current, minimum=minimum, maximum=maximum
             ),
             size_style=TextSize.BODY,
         )
