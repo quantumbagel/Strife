@@ -69,17 +69,7 @@ class LifecycleService:
                 continue
             game_cfg = self.config.games.for_game(session.game_key)
             timeout = game_cfg.turn_timeout_seconds
-            warning = game_cfg.turn_warning_seconds
             idle = now - session.last_move_at
-            if idle >= timeout - warning and not session._warned:
-                session._warned = True
-                thread = self.bot.get_channel(session.thread_id)
-                if isinstance(thread, discord.Thread):
-                    stalled = [session.players[s].mention for s in session.pending if not session.players[s].is_bot]
-                    if stalled:
-                        await thread.send(
-                            self.text.get("timeout.warning", player=stalled[0], seconds=int(timeout - idle))
-                        )
             if idle >= timeout:
                 for seat in list(session.pending.keys()):
                     if session.players[seat].is_bot:

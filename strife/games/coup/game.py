@@ -63,6 +63,31 @@ class Coup(Game):
             seat = (seat + 1) % n
         return seat
 
+    def _turn_wait_description(self, *, forced_coup: bool) -> str:
+        if forced_coup:
+            return "Must Coup — choose a target"
+        return "Take your turn"
+
+    def _challenge_wait_description(self, actor: int, challenge_card: str, action_type: str) -> str:
+        return (
+            f"Challenge {self.players[actor].display_name}'s "
+            f"{challenge_card.title()} claim ({action_type.title()}) or pass"
+        )
+
+    def _block_wait_description(self, action_type: str) -> str:
+        labels = {
+            "foreign_aid": "Block Foreign Aid (Duke) or pass",
+            "assassinate": "Block Assassination (Contessa) or pass",
+            "steal": "Block Steal (Captain/Ambassador) or pass",
+        }
+        return labels.get(action_type, "Block or pass")
+
+    def _block_challenge_wait_description(self, blocker: int, claim: str) -> str:
+        return (
+            f"Challenge {self.players[blocker].display_name}'s "
+            f"{claim.title()} block or pass"
+        )
+
     def _role_emoji(self, ctx: GameContext, role: str) -> str:
         fallback = {"duke": "👑", "assassin": "🗡️", "captain": "⚓", "ambassador": "💼", "contessa": "🛡️"}.get(role, "🎴")
         return ctx.emoji.get(f"coup_{role}") or fallback
@@ -102,7 +127,12 @@ class Coup(Game):
                 "action_target_select"
             }
 
-            move = await ctx.request_input(view, actor=actor, sources=sources)
+            move = await ctx.request_input(
+                view,
+                actor=actor,
+                sources=sources,
+                description=self._turn_wait_description(forced_coup=forced_coup),
+            )
 
             if move.source == "action_target_select":
                 val = move.args.get("value") or (move.args.get("values")[0] if move.args.get("values") else None)
@@ -158,6 +188,7 @@ class Coup(Game):
                     actors=opponents,
                     sources={"challenge", "pass"},
                     until="any",
+                    description=self._challenge_wait_description(actor, challenge_card, action_type),
                 )
 
                 challenger_seat = None
@@ -207,6 +238,7 @@ class Coup(Game):
                     actors=blockers,
                     sources={"block_captain", "block_ambassador", "block_contessa", "block_duke", "pass"},
                     until="any",
+                    description=self._block_wait_description(action_type),
                 )
 
                 blocker_seat = None
@@ -236,6 +268,7 @@ class Coup(Game):
                         self._public_board_view(ctx, status=f"{self.players[blocker_seat].mention} blocks with {claim.title()}. Challenge?"),
                         actor=actor,
                         sources={"challenge", "pass"},
+                        description=self._block_challenge_wait_description(blocker_seat, claim),
                     )
 
                     if challenge_react.source == "challenge":
@@ -294,7 +327,12 @@ class Coup(Game):
 
                     # Prompt privately for keeping
                     public_view = self._public_board_view(ctx, status=f"Waiting for {self.players[actor].mention} to exchange cards...")
-                    keep_move = await ctx.request_input(public_view, actor=actor, sources={"exchange_select"})
+                    keep_move = await ctx.request_input(
+                        public_view,
+                        actor=actor,
+                        sources={"exchange_select"},
+                        description="Exchange — choose cards to keep",
+                    )
                     keep_list = keep_move.args.get("values", [])
                     if not keep_list and keep_move.args.get("value"):
                         keep_list = [keep_move.args.get("value")]
@@ -356,7 +394,12 @@ class Coup(Game):
 
         # Request selection
         public_view = self._public_board_view(ctx, status=status_message)
-        move = await ctx.request_input(public_view, actor=seat, sources={"lose_influence_select"})
+        move = await ctx.request_input(
+            public_view,
+            actor=seat,
+            sources={"lose_influence_select"},
+            description="Choose a card to reveal",
+        )
         lost_card = move.args.get("value") or (move.args.get("values")[0] if move.args.get("values") else (move.args.get("card") or cards[0]))
         
         if lost_card in cards:

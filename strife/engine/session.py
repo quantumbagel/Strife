@@ -20,17 +20,11 @@ from strife.persistence.repositories import (
     MatchPlayer,
     MoveRecord,
 )
-from strife.presentation.components import (
-    Container,
-    LayoutView,
-    Separator,
-    TextDisplay,
-    TextSize,
-)
+from strife.presentation.components import LayoutView
+from strife.presentation.game_ui import build_game_thread_header_view
 from strife.presentation.message import ViewSurface
-from strife.presentation.roster import member_line
+from strife.lifecycle.timeout import timeout_consequence
 from strife.routing.router import InteractionInput
-from strife.settings import get_settings
 
 log = get_logger("engine.session")
 
@@ -40,6 +34,8 @@ class PendingInput:
     allowed_actors: set[int]
     allowed_sources: set[str] | None
     future: asyncio.Future[Move]
+    description: str | None = None
+    line_description: str | None = None
 
 
 @dataclass
@@ -67,6 +63,7 @@ class GameSession:
         finalize_cb,
         game_key: str,
         header_surface: ViewSurface | None = None,
+        turn_timeout_seconds: int = 90,
     ) -> None:
         self.id = thread_id
         self.thread_id = thread_id
@@ -78,6 +75,7 @@ class GameSession:
         self.surface = surface
         self.header_surface = header_surface
         self.text = text
+        self.turn_timeout_seconds = turn_timeout_seconds
         self._finalize_cb = finalize_cb
         self.game_key = game_key
         self.ctx = LiveContext(self)
@@ -85,7 +83,6 @@ class GameSession:
         self.pending: dict[int, PendingInput] = {}
         self.recorded_moves: list[RecordedMove] = []
         self.last_move_at = time.monotonic()
-        self._warned = False
         self.task: asyncio.Task | None = None
         self._turn_index = 0
         self._started_at = datetime.now(timezone.utc)
@@ -154,6 +151,7 @@ class GameSession:
             if pending and not pending.future.done():
                 pending.future.set_result(move)
                 self.pending.pop(seat, None)
+        await self.refresh_header()
 
     async def cancel(self, reason: str, forfeiter_seat: int | None = None) -> None:
         if self._finalized:
@@ -213,8 +211,56 @@ class GameSession:
         else:
             await self.surface.update(view)
 
+    async def refresh_header(self) -> None:
+        if self.header_surface is None or self._finalized:
+            return
+        try:
+            human_pending = sorted(
+                seat for seat in self.pending if not self.players[seat].is_bot
+            )
+            deadline_unix = None
+            wait_description = None
+            line_descriptions: dict[int, str] = {}
+            if human_pending:
+                remaining = self.turn_timeout_seconds - (time.monotonic() - self.last_move_at)
+                deadline_unix = int(time.time() + max(0, remaining))
+                header_descriptions = {
+                    self.pending[seat].description
+                    for seat in human_pending
+                    if self.pending[seat].description
+                }
+                if len(header_descriptions) == 1:
+                    wait_description = header_descriptions.pop()
+                for seat in human_pending:
+                    line_desc = self.pending[seat].line_description
+                    if line_desc:
+                        line_descriptions[seat] = line_desc
+            timeout_consequence_text = None
+            if human_pending:
+                key = timeout_consequence(self, human_pending[0]).value
+                timeout_consequence_text = self.text.get(f"lobby.timeout_consequence_{key}")
+            view = build_game_thread_header_view(
+                players=self.players,
+                text=self.text,
+                emoji=self.header_surface.compiler.emoji,
+                pending_seats=human_pending or None,
+                deadline_unix=deadline_unix,
+                wait_description=wait_description,
+                line_descriptions=line_descriptions or None,
+                timeout_consequence=timeout_consequence_text,
+            )
+            await self.header_surface.update(view)
+        except Exception:
+            log.exception("Failed to update game thread header message")
+
     async def _request_input(
-        self, view: LayoutView, *, actor: int, sources: set[str] | None, record: bool = True
+        self,
+        view: LayoutView,
+        *,
+        actor: int,
+        sources: set[str] | None,
+        record: bool = True,
+        description: str | None = None,
     ) -> Move:
         if self.players[actor].is_bot:
             difficulty = self.players[actor].bot_difficulty or "medium"
@@ -226,13 +272,16 @@ class GameSession:
 
         loop = asyncio.get_running_loop()
         future: asyncio.Future[Move] = loop.create_future()
-        self.pending[actor] = PendingInput({actor}, sources, future)
+        self.pending[actor] = PendingInput(
+            {actor}, sources, future, description=description
+        )
         self.last_move_at = time.monotonic()
-        self._warned = False
         await self._update_surface(view)
+        await self.refresh_header()
         move = await future
         if record:
             self._record_move(move)
+        await self.refresh_header()
         return move
 
     async def _request_inputs(
@@ -244,6 +293,8 @@ class GameSession:
         until: Literal["all", "any"],
         per_seat_sources: dict[int, set[str]] | None = None,
         record: bool = True,
+        description: str | None = None,
+        descriptions: dict[int, str] | None = None,
     ) -> dict[int, Move]:
         results: dict[int, Move] = {}
         humans = {seat for seat in actors if not self.players[seat].is_bot}
@@ -265,10 +316,18 @@ class GameSession:
                 if per_seat_sources is not None
                 else sources
             )
-            self.pending[seat] = PendingInput({seat}, seat_sources, future)
+            self.pending[seat] = PendingInput(
+                {seat},
+                seat_sources,
+                future,
+                description=description,
+                line_description=(
+                    descriptions.get(seat) if descriptions is not None else None
+                ),
+            )
         self.last_move_at = time.monotonic()
-        self._warned = False
         await self._update_surface(view)
+        await self.refresh_header()
 
         if until == "any":
             if not futures:
@@ -285,6 +344,7 @@ class GameSession:
                 elif not future.done():
                     future.cancel()
                 self.pending.pop(seat, None)
+            await self.refresh_header()
             return results
 
         for seat, future in futures.items():
@@ -293,6 +353,7 @@ class GameSession:
             if record:
                 self._record_move(move)
             self.pending.pop(seat, None)
+        await self.refresh_header()
         return results
 
     async def _send_private(self, seat: int, view: LayoutView) -> None:
@@ -433,37 +494,12 @@ class GameSession:
 
             if self.header_surface is not None:
                 try:
-                    emoji = self.header_surface.compiler.emoji
-                    settings = get_settings()
-                    finished_view = LayoutView()
-                    container = Container()
-
-                    roster_lines = [
-                        member_line(
-                            emoji,
-                            user_id=p.user_id,
-                            display_name=p.display_name,
-                            is_bot=p.is_bot,
-                            bot_difficulty=p.bot_difficulty,
-                            owner_ids=frozenset(settings.owner_ids),
-                        )
-                        for p in self.players
-                    ]
-                    container.add_text(
-                        TextDisplay(
-                            markdown_content=f"{self.text.get('lobby.players_title')}\n"
-                            + ("\n".join(roster_lines) or self.text.get("lobby.empty_roster")),
-                            size_style=TextSize.BODY,
-                        )
+                    finished_view = build_game_thread_header_view(
+                        players=self.players,
+                        text=self.text,
+                        emoji=self.header_surface.compiler.emoji,
+                        finished=True,
                     )
-                    container.add_separator(Separator(visible=False))
-                    container.add_text(
-                        TextDisplay(
-                            markdown_content=f"-# {emoji.get('success')} {self.text.get('lobby.game_finished')}",
-                            size_style=TextSize.BODY,
-                        )
-                    )
-                    finished_view.add_container(container)
                     await self.header_surface.update(finished_view)
                 except Exception:
                     log.exception("Failed to update game thread header message to finished")

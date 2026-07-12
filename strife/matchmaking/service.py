@@ -30,6 +30,7 @@ from strife.presentation.compiler import Compiler, LayoutError
 from strife.presentation.modals import IntRangeModal, ROLE_ASSIGN_MODAL_BATCH, RoleAssignmentModal
 from strife.presentation.emoji import EmojiResolver
 from strife.presentation.components import Container, LayoutView, TextDisplay, TextSize, Separator
+from strife.presentation.game_ui import build_game_thread_header_view
 from strife.presentation.message import ViewSurface
 from strife.presentation.roster import bot_label, member_line
 from strife.presentation.user_error import ErrorContext, UserErrorPresenter
@@ -1025,36 +1026,12 @@ class LobbyService:
             game_surface = ViewSurface(
                 self.compiler, prefix=P.G_MOVE, resource_id=thread.id
             )
-            starting_view = LayoutView()
-            start_container = Container()
-            start_container.add_separator()
-
-            settings = get_settings()
-            roster_lines = [
-                member_line(
-                    self.emoji,
-                    user_id=p.user_id,
-                    display_name=p.display_name,
-                    is_bot=p.is_bot,
-                    bot_difficulty=p.bot_difficulty,
-                    owner_ids=frozenset(settings.owner_ids),
-                )
-                for p in players
-            ]
-            start_container.add_text(
-                TextDisplay(
-                    markdown_content=f"{self.text.get('lobby.players_title')}\n" + "\n".join(roster_lines),
-                    size_style=TextSize.BODY,
-                )
+            game_cfg = self.config.games.for_game(lobby.game_key)
+            starting_view = build_game_thread_header_view(
+                players=players,
+                text=self.text,
+                emoji=self.emoji,
             )
-            start_container.add_separator(Separator(visible=False))
-            start_container.add_text(
-                TextDisplay(
-                    markdown_content=f"-# {self.emoji.get('loading')} {self.text.get('lobby.game_in_progress')}",
-                    size_style=TextSize.BODY,
-                )
-            )
-            starting_view.add_container(start_container)
             await header_surface.send_to_thread(thread, starting_view)
 
             async def finalize_cb(finished: FinishedMatch, outcome):
@@ -1079,6 +1056,7 @@ class LobbyService:
                 finalize_cb=finalize_cb,
                 game_key=lobby.game_key,
                 header_surface=header_surface,
+                turn_timeout_seconds=game_cfg.turn_timeout_seconds,
             )
             session._match_code = match_code
             session.lobby_surface = lobby.surface

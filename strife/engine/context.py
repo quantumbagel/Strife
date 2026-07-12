@@ -28,7 +28,13 @@ class GameContext(Protocol):
     async def update(self, view: LayoutView) -> None: ...
 
     async def request_input(
-        self, view: LayoutView, *, actor: int, sources: set[str] | None = None, record: bool = True
+        self,
+        view: LayoutView,
+        *,
+        actor: int,
+        sources: set[str] | None = None,
+        record: bool = True,
+        description: str | None = None,
     ) -> Move: ...
 
     async def request_inputs(
@@ -40,6 +46,8 @@ class GameContext(Protocol):
         until: Literal["all", "any"] = "all",
         per_seat_sources: dict[int, set[str]] | None = None,
         record: bool = True,
+        description: str | None = None,
+        descriptions: dict[int, str] | None = None,
     ) -> dict[int, Move]: ...
 
     async def send_private(self, seat: int, view: LayoutView) -> None: ...
@@ -82,10 +90,16 @@ class LiveContext:
         await self._session._update_surface(view)  # type: ignore[attr-defined]
 
     async def request_input(
-        self, view: LayoutView, *, actor: int, sources: set[str] | None = None, record: bool = True
+        self,
+        view: LayoutView,
+        *,
+        actor: int,
+        sources: set[str] | None = None,
+        record: bool = True,
+        description: str | None = None,
     ) -> Move:
         return await self._session._request_input(  # type: ignore[attr-defined]
-            view, actor=actor, sources=sources, record=record
+            view, actor=actor, sources=sources, record=record, description=description
         )
 
     async def request_inputs(
@@ -97,6 +111,8 @@ class LiveContext:
         until: Literal["all", "any"] = "all",
         per_seat_sources: dict[int, set[str]] | None = None,
         record: bool = True,
+        description: str | None = None,
+        descriptions: dict[int, str] | None = None,
     ) -> dict[int, Move]:
         return await self._session._request_inputs(  # type: ignore[attr-defined]
             view,
@@ -105,6 +121,8 @@ class LiveContext:
             until=until,
             per_seat_sources=per_seat_sources,
             record=record,
+            description=description,
+            descriptions=descriptions,
         )
 
     async def send_private(self, seat: int, view: LayoutView) -> None:
