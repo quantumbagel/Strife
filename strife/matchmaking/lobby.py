@@ -83,7 +83,7 @@ class Lobby:
         ok, reason_key, reason_kwargs = self.can_ready(meta, text, game_cls)
         if not ok:
             return False, reason_key, reason_kwargs
-        if len(self.ready) < len(self.members):
+        if not all(member.user_id in self.ready for member in self.members):
             return False, "errors.not_all_ready", None
         return True, None, None
 

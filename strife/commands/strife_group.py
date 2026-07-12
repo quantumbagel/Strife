@@ -5,6 +5,7 @@ from discord import app_commands
 
 from strife.commands.catalog import CatalogService
 from strife.commands.server_settings import ServerSettingsService
+from strife.engine.metadata import OptionType, int_setting_bounds
 from strife.lifecycle.service import LifecycleService
 from strife.matchmaking.service import LobbyService
 from strife.presentation.user_error import ErrorContext
@@ -157,10 +158,7 @@ def register_strife_group(
     async def bot_add_difficulty_autocomplete(
         interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        loc = lobby.registries.location_of(interaction.user.id)
-        if loc is None or loc.kind != "lobby":
-            return []
-        lobby_obj = lobby.registries.get_lobby(loc.thread_id)
+        lobby_obj = lobby.lobby_of_user(interaction.user.id)
         if lobby_obj is None:
             return []
         meta = registry.metadata(lobby_obj.game_key)
@@ -189,10 +187,7 @@ def register_strife_group(
     async def bot_remove_name_autocomplete(
         interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        loc = lobby.registries.location_of(interaction.user.id)
-        if loc is None or loc.kind != "lobby":
-            return []
-        lobby_obj = lobby.registries.get_lobby(loc.thread_id)
+        lobby_obj = lobby.lobby_of_user(interaction.user.id)
         if lobby_obj is None:
             return []
         return [
@@ -200,5 +195,191 @@ def register_strife_group(
             for bot in lobby_obj.bots
             if current.lower() in bot.name.lower()
         ][:25]
+
+    lobby_group = app_commands.Group(name="lobby", description="Manage game lobbies", parent=group)
+
+    def _role_choices(lobby_obj, current: str) -> list[app_commands.Choice[str]]:
+        if lobby_obj is None:
+            return []
+        try:
+            meta = registry.metadata(lobby_obj.game_key)
+        except KeyError:
+            return []
+        needle = current.lower()
+        return [
+            app_commands.Choice(name=role.name[:100], value=role.key)
+            for role in meta.roles
+            if needle in role.name.lower() or needle in role.key.lower()
+        ][:25]
+
+    def _option_key_choices(lobby_obj, current: str) -> list[app_commands.Choice[str]]:
+        if lobby_obj is None:
+            return []
+        try:
+            meta = registry.metadata(lobby_obj.game_key)
+        except KeyError:
+            return []
+        needle = current.lower()
+        return [
+            app_commands.Choice(name=option.title[:100], value=option.key)
+            for option in meta.settings
+            if needle in option.title.lower() or needle in option.key.lower()
+        ][:25]
+
+    def _option_value_choices(
+        lobby_obj, key: str | None, current: str
+    ) -> list[app_commands.Choice[str]]:
+        if lobby_obj is None or not key:
+            return []
+        try:
+            meta = registry.metadata(lobby_obj.game_key)
+        except KeyError:
+            return []
+        option = next((o for o in meta.settings if o.key == key), None)
+        if option is None:
+            return []
+
+        needle = current.lower()
+        if option.type == OptionType.BOOL:
+            values = [("On", "true"), ("Off", "false")]
+            return [
+                app_commands.Choice(name=label, value=value)
+                for label, value in values
+                if needle in label.lower() or needle in value
+            ]
+        if option.type == OptionType.CHOICE:
+            return [
+                app_commands.Choice(name=choice.capitalize()[:100], value=choice)
+                for choice in option.choices or ()
+                if needle in choice.lower()
+            ][:25]
+        if option.type == OptionType.INT:
+            minimum, maximum = int_setting_bounds(option)
+            current_value = lobby_obj.settings.get(option.key, option.default)
+            suggestions = {
+                str(current_value),
+                str(option.default),
+                str(minimum),
+                str(maximum),
+            }
+            return [
+                app_commands.Choice(name=value, value=value)
+                for value in sorted(suggestions, key=lambda item: (len(item), item))
+                if needle in value
+            ][:25]
+        return []
+
+    @lobby_group.command(name="join", description="Join a lobby by its creator")
+    @app_commands.describe(creator="Lobby creator to join")
+    async def lobby_join(interaction: discord.Interaction, creator: discord.User) -> None:
+        await lobby.join_by_creator(interaction, creator.id)
+
+    @lobby_group.command(name="leave", description="Leave your current lobby")
+    async def lobby_leave(interaction: discord.Interaction) -> None:
+        await lobby.leave_current(interaction)
+
+    @lobby_group.command(name="ready", description="Toggle ready in your lobby")
+    async def lobby_ready(interaction: discord.Interaction) -> None:
+        await lobby.toggle_ready(interaction)
+
+    @lobby_group.command(name="kick", description="Kick a player from your lobby")
+    @app_commands.describe(user="Player to kick")
+    async def lobby_kick(interaction: discord.Interaction, user: discord.User) -> None:
+        await lobby.kick_member(interaction, user.id)
+
+    @lobby_group.command(name="end", description="End your lobby")
+    async def lobby_end(interaction: discord.Interaction) -> None:
+        await lobby.end_lobby(interaction)
+
+    @lobby_group.command(name="clear-ready", description="Clear ready for everyone in your lobby")
+    async def lobby_clear_ready(interaction: discord.Interaction) -> None:
+        await lobby.clear_ready(interaction)
+
+    @lobby_group.command(name="privacy", description="Set lobby privacy")
+    @app_commands.describe(private="Whether the lobby requires join approval")
+    async def lobby_privacy(interaction: discord.Interaction, private: bool) -> None:
+        await lobby.set_privacy(interaction, private)
+
+    @lobby_group.command(name="reset-privacy", description="Reset privacy and access lists")
+    async def lobby_reset_privacy(interaction: discord.Interaction) -> None:
+        await lobby.reset_privacy(interaction)
+
+    @lobby_group.command(name="reset-rules", description="Reset game rules to defaults")
+    async def lobby_reset_rules(interaction: discord.Interaction) -> None:
+        await lobby.reset_rules(interaction)
+
+    @lobby_group.command(name="role", description="Choose your role in the lobby")
+    @app_commands.describe(role="Role to select")
+    async def lobby_role(interaction: discord.Interaction, role: str) -> None:
+        await lobby.set_own_role(interaction, role)
+
+    @lobby_role.autocomplete("role")
+    async def lobby_role_autocomplete(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        return _role_choices(lobby.lobby_of_user(interaction.user.id), current)
+
+    @lobby_group.command(name="assign-role", description="Assign a role to a lobby member")
+    @app_commands.describe(user="Player to assign", role="Role to assign")
+    async def lobby_assign_role(
+        interaction: discord.Interaction, user: discord.User, role: str
+    ) -> None:
+        await lobby.assign_member_role(interaction, user.id, role)
+
+    @lobby_assign_role.autocomplete("role")
+    async def lobby_assign_role_autocomplete(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        return _role_choices(lobby.lobby_of_user(interaction.user.id), current)
+
+    @lobby_group.command(name="option", description="Set a game rule option for your lobby")
+    @app_commands.describe(key="Option to change", value="New value")
+    async def lobby_option(interaction: discord.Interaction, key: str, value: str) -> None:
+        await lobby.set_option(interaction, key, value)
+
+    @lobby_option.autocomplete("key")
+    async def lobby_option_key_autocomplete(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        return _option_key_choices(lobby.lobby_of_user(interaction.user.id), current)
+
+    @lobby_option.autocomplete("value")
+    async def lobby_option_value_autocomplete(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        key = None
+        if interaction.namespace is not None:
+            key = getattr(interaction.namespace, "key", None)
+        return _option_value_choices(lobby.lobby_of_user(interaction.user.id), key, current)
+
+    @lobby_group.command(name="approve", description="Approve a pending join request")
+    @app_commands.describe(user="Player to approve")
+    async def lobby_approve(interaction: discord.Interaction, user: discord.User) -> None:
+        await lobby.approve_request(interaction, user.id)
+
+    @lobby_group.command(name="deny", description="Deny a pending join request")
+    @app_commands.describe(user="Player to deny")
+    async def lobby_deny(interaction: discord.Interaction, user: discord.User) -> None:
+        await lobby.deny_request(interaction, user.id)
+
+    @lobby_group.command(name="preapprove", description="Pre-approve a player for a private lobby")
+    @app_commands.describe(user="Player to pre-approve")
+    async def lobby_preapprove(interaction: discord.Interaction, user: discord.User) -> None:
+        await lobby.preapprove_user(interaction, user.id)
+
+    @lobby_group.command(name="revoke-approval", description="Revoke a player's pre-approval")
+    @app_commands.describe(user="Player to revoke")
+    async def lobby_revoke_approval(interaction: discord.Interaction, user: discord.User) -> None:
+        await lobby.revoke_approval(interaction, user.id)
+
+    @lobby_group.command(name="blacklist-add", description="Blacklist a player from your lobby")
+    @app_commands.describe(user="Player to blacklist")
+    async def lobby_blacklist_add(interaction: discord.Interaction, user: discord.User) -> None:
+        await lobby.blacklist_add(interaction, user.id)
+
+    @lobby_group.command(name="blacklist-remove", description="Remove a player from the blacklist")
+    @app_commands.describe(user="Player to unblacklist")
+    async def lobby_blacklist_remove(interaction: discord.Interaction, user: discord.User) -> None:
+        await lobby.blacklist_remove(interaction, user.id)
 
     tree.add_command(group)
