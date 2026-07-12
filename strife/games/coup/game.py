@@ -616,62 +616,265 @@ class Coup(Game):
         view.add_container(container)
         return view
 
-    async def parse_replay(self, moves: list[MoveRecord], ctx: GameContext) -> list[ReplayFrame]:
-        # Reset state to setup
+    def _replay_seat(self, move: MoveRecord, *keys: str) -> int | None:
+        for key in keys:
+            seat = move.arguments.get(key)
+            if seat is not None:
+                return int(seat)
+        return move.actor_seat
+
+    def _replay_reset(self) -> None:
         self.deck = list(self.ROLES * 3)
-        self.hands = {p.seat: [] for p in self.players}
+        self.rng.shuffle(self.deck)
+        self.hands = {p.seat: [self.deck.pop(), self.deck.pop()] for p in self.players}
         self.revealed = {p.seat: [] for p in self.players}
         self.coins = {p.seat: 2 for p in self.players}
         self.alive = {p.seat for p in self.players}
+        self.current = 0
         self.history = []
+        self.state_phase = "turn"
+        self.current_actor = None
+        self.current_action = None
+        self.current_target = None
+        self.current_blocker = None
+        self.current_block_claim = None
+        self.current_loser = None
+        self.exchange_options = {}
+
+    def _replay_apply_action_costs(self, actor: int, action_type: str) -> None:
+        if action_type == "coup":
+            self.coins[actor] -= 7
+        elif action_type == "assassinate":
+            self.coins[actor] -= 3
+
+    def _replay_apply_action_effects(
+        self,
+        actor: int,
+        action_type: str,
+        target: int | None,
+    ) -> None:
+        if action_type == "income":
+            self.coins[actor] += 1
+        elif action_type == "foreign_aid":
+            self.coins[actor] += 2
+        elif action_type == "tax":
+            self.coins[actor] += 3
+        elif action_type == "steal" and target is not None:
+            stolen = min(2, self.coins[target])
+            self.coins[actor] += stolen
+            self.coins[target] -= stolen
+
+    def _replay_lose_influence(self, seat: int, card: str) -> None:
+        if card in self.hands[seat]:
+            self.hands[seat].remove(card)
+        elif self.hands[seat]:
+            self.hands[seat].pop()
+        self.revealed[seat].append(card)
+        if not self.hands[seat]:
+            self.alive.discard(seat)
+
+    async def parse_replay(self, moves: list[MoveRecord], ctx: GameContext) -> list[ReplayFrame]:
+        self._replay_reset()
 
         frames: list[ReplayFrame] = []
         from strife.presentation.compiler import clone_and_disable
 
+        frames.append(
+            ReplayFrame(
+                index=0,
+                turn_label="Start",
+                actor_seat=None,
+                view=clone_and_disable(self._public_board_view(ctx, status="Match start")),
+                timestamp=ctx.started_at,
+            )
+        )
+
+        pending_actor: int | None = None
+        pending_action: str | None = None
+        pending_target: int | None = None
+        action_failed = False
+        action_blocked = False
+        block_pending = False
+
+        def _resolve_pending_action() -> None:
+            nonlocal pending_actor, pending_action, pending_target
+            nonlocal action_failed, action_blocked, block_pending
+            if pending_actor is None or pending_action is None:
+                return
+            if not action_failed and not action_blocked:
+                self._replay_apply_action_effects(
+                    pending_actor, pending_action, pending_target
+                )
+            pending_actor = None
+            pending_action = None
+            pending_target = None
+            action_failed = False
+            action_blocked = False
+            block_pending = False
+            self.current_blocker = None
+            self.current_block_claim = None
+            self.state_phase = "turn"
+
         for move in moves:
             takeover_info = system_replay_info(self.players, move)
 
-            # Simplistic replay reproduction based on actions recorded
             if move.source == "action_declare":
-                self.current_actor = move.actor_seat
-                self.current_action = move.arguments["type"]
-                self.current_target = move.arguments["target"]
-                
-                # Check costs
-                if self.current_action == "coup":
-                    self.coins[self.current_actor] -= 7
-                elif self.current_action == "assassinate":
-                    self.coins[self.current_actor] -= 3
+                _resolve_pending_action()
+                actor = self._replay_seat(move, "player")
+                if actor is None:
+                    continue
+                action_type = move.arguments.get("type")
+                target = move.arguments.get("target")
+                if target is not None:
+                    target = int(target)
+
+                self.current = actor
+                self.current_actor = actor
+                self.current_action = action_type
+                self.current_target = target
+                self.state_phase = "turn"
+                if action_type:
+                    self._replay_apply_action_costs(actor, action_type)
+
+                pending_actor = actor
+                pending_action = action_type
+                pending_target = target
+                action_failed = False
+                action_blocked = False
+                block_pending = False
 
                 view = self._public_board_view(ctx)
-                frames.append(ReplayFrame(
-                    index=len(frames),
-                    turn_label="Action",
-                    actor_seat=move.actor_seat,
-                    view=clone_and_disable(view),
-                    takeover_info=takeover_info,
-                    timestamp=move.created_at,
-                ))
+                frames.append(
+                    ReplayFrame(
+                        index=len(frames),
+                        turn_label="Action",
+                        actor_seat=actor,
+                        view=clone_and_disable(view),
+                        takeover_info=takeover_info,
+                        timestamp=move.created_at,
+                    )
+                )
+                continue
 
-            elif move.source == "lose_influence_resolve":
-                p = move.arguments["player"]
-                card = move.arguments["card"]
-                if card in self.hands[p]:
-                    self.hands[p].remove(card)
-                self.revealed[p].append(card)
-                if not self.hands[p]:
-                    self.alive.discard(p)
+            if move.source == "challenge_declare":
+                self.state_phase = "challenge_window"
+                challenged = self._replay_seat(move, "challenged")
+                challenger = self._replay_seat(move, "challenger")
+                view = self._public_board_view(
+                    ctx,
+                    status=(
+                        f"{self.players[challenger].display_name} challenges "
+                        f"{self.players[challenged].display_name}"
+                        if challenger is not None and challenged is not None
+                        else "Challenge declared"
+                    ),
+                )
+                frames.append(
+                    ReplayFrame(
+                        index=len(frames),
+                        turn_label="Challenge",
+                        actor_seat=challenger,
+                        view=clone_and_disable(view),
+                        takeover_info=takeover_info,
+                        timestamp=move.created_at,
+                    )
+                )
+                continue
 
+            if move.source == "block_declare":
+                self.state_phase = "block_window"
+                blocker = self._replay_seat(move, "blocker")
+                claim = move.arguments.get("claim")
+                self.current_blocker = blocker
+                self.current_block_claim = claim
+                block_pending = True
                 view = self._public_board_view(ctx)
-                frames.append(ReplayFrame(
-                    index=len(frames),
-                    turn_label="Influence Lost",
-                    actor_seat=p,
-                    view=clone_and_disable(view),
-                    takeover_info=takeover_info,
-                    timestamp=move.created_at,
-                ))
+                frames.append(
+                    ReplayFrame(
+                        index=len(frames),
+                        turn_label="Block",
+                        actor_seat=blocker,
+                        view=clone_and_disable(view),
+                        takeover_info=takeover_info,
+                        timestamp=move.created_at,
+                    )
+                )
+                continue
 
+            if move.source == "block_challenge":
+                self.state_phase = "block_challenge_window"
+                view = self._public_board_view(ctx, status="Block challenged")
+                frames.append(
+                    ReplayFrame(
+                        index=len(frames),
+                        turn_label="Block Challenge",
+                        actor_seat=self._replay_seat(move, "challenger"),
+                        view=clone_and_disable(view),
+                        takeover_info=takeover_info,
+                        timestamp=move.created_at,
+                    )
+                )
+                continue
+
+            if move.source == "exchange_resolve":
+                actor = self._replay_seat(move, "player")
+                if actor is not None:
+                    keep = move.arguments.get("keep", [])
+                    self.hands[actor] = list(keep)
+                view = self._public_board_view(ctx, status="Cards exchanged")
+                frames.append(
+                    ReplayFrame(
+                        index=len(frames),
+                        turn_label="Exchange",
+                        actor_seat=actor,
+                        view=clone_and_disable(view),
+                        takeover_info=takeover_info,
+                        timestamp=move.created_at,
+                    )
+                )
+                continue
+
+            if move.source == "pass" and block_pending:
+                action_blocked = True
+                block_pending = False
+                continue
+
+            if move.source == "lose_influence_resolve":
+                seat = self._replay_seat(move, "player")
+                if seat is None:
+                    continue
+                card = move.arguments.get("card")
+                if not card:
+                    continue
+
+                if block_pending:
+                    if seat == self.current_blocker:
+                        action_blocked = False
+                        block_pending = False
+                    elif seat == pending_actor:
+                        action_blocked = True
+                        block_pending = False
+                elif seat == pending_actor:
+                    action_failed = True
+
+                self._replay_lose_influence(seat, card)
+                self.state_phase = "lose_influence"
+                self.current_loser = seat
+
+                view = self._public_board_view(ctx, status="Influence lost")
+                frames.append(
+                    ReplayFrame(
+                        index=len(frames),
+                        turn_label="Influence Lost",
+                        actor_seat=seat,
+                        view=clone_and_disable(view),
+                        takeover_info=takeover_info,
+                        timestamp=move.created_at,
+                    )
+                )
+                continue
+
+        _resolve_pending_action()
         return frames
 
     async def bot_move(self, difficulty: str, seat: int) -> Move:

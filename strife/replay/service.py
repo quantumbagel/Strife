@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -16,6 +17,28 @@ from strife.engine.players import Player
 from strife.engine.registry import GameRegistry
 from strife.replay.view import build_replay_view
 from strife.routing import prefixes as P
+
+log = logging.getLogger(__name__)
+
+
+class ReplayLoadError(Exception):
+    """Replay reconstruction failed for a stored match."""
+
+    def __init__(
+        self,
+        match_id: int,
+        game_key: str,
+        *,
+        move_count: int,
+        cause: BaseException,
+    ) -> None:
+        self.match_id = match_id
+        self.game_key = game_key
+        self.move_count = move_count
+        self.cause = cause
+        super().__init__(
+            f"Replay load failed for match {match_id} ({game_key}, {move_count} moves)"
+        )
 
 
 @dataclass
@@ -77,21 +100,37 @@ class ReplayService:
             )
             for p in detail.players
         ]
-        game = self.game_registry.create(detail.game_key, players, detail.settings, detail.seed)
-        ctx = ReplayContext(
-            rng=game.rng,
-            players=players,
-            settings=detail.settings,
-            emoji=self.compiler.emoji,
-            started_at=detail.started_at,
-        )
-        from strife.presentation.emoji_context import bind_emoji, reset_emoji
-
-        token = bind_emoji(self.compiler.emoji)
         try:
-            frames = await game.parse_replay(move_records, ctx)
-        finally:
-            reset_emoji(token)
+            game = self.game_registry.create(
+                detail.game_key, players, detail.settings, detail.seed
+            )
+            ctx = ReplayContext(
+                rng=game.rng,
+                players=players,
+                settings=detail.settings,
+                emoji=self.compiler.emoji,
+                started_at=detail.started_at,
+            )
+            from strife.presentation.emoji_context import bind_emoji, reset_emoji
+
+            token = bind_emoji(self.compiler.emoji)
+            try:
+                frames = await game.parse_replay(move_records, ctx)
+            finally:
+                reset_emoji(token)
+        except Exception as exc:
+            log.exception(
+                "Replay load failed for match %s (game=%s, moves=%d)",
+                match_id,
+                detail.game_key,
+                len(move_records),
+            )
+            raise ReplayLoadError(
+                match_id,
+                detail.game_key,
+                move_count=len(move_records),
+                cause=exc,
+            ) from exc
         entry = _ReplayCacheEntry(detail=detail, frames=frames)
         self._cache[match_id] = entry
         if len(self._cache) > self._cache_size:
@@ -105,8 +144,18 @@ class ReplayService:
         if detail is None:
             await self.user_errors.send(interaction, "common.match_not_found")
             return
-        entry = await self._load_entry(detail.id)
+        try:
+            entry = await self._load_entry(detail.id)
+        except ReplayLoadError:
+            await self.user_errors.send(interaction, "common.replay_load_failed")
+            return
         if entry is None or not entry.frames:
+            if entry is not None and not entry.frames:
+                log.warning(
+                    "Replay for match %s (%s) produced no frames from stored moves",
+                    detail.id,
+                    detail.game_key,
+                )
             await self.user_errors.send(interaction, "common.replay_unavailable")
             return
         game_name = self.game_registry.metadata(detail.game_key).name
@@ -137,11 +186,20 @@ class ReplayService:
         *,
         owner_id: int,
     ) -> None:
-        entry = await self._load_entry(match_id)
+        try:
+            entry = await self._load_entry(match_id)
+        except ReplayLoadError:
+            await self.user_errors.send(interaction, "common.replay_load_failed")
+            return
         if entry is None:
             await self.user_errors.send(interaction, "common.match_not_found")
             return
         if not entry.frames:
+            log.warning(
+                "Replay for match %s (%s) produced no frames from stored moves",
+                match_id,
+                entry.detail.game_key,
+            )
             await self.user_errors.send(interaction, "common.replay_unavailable")
             return
         frame = max(0, min(frame, len(entry.frames) - 1))
