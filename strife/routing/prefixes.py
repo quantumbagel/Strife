@@ -30,6 +30,10 @@ LOBBY_ADD_BLACKLIST = "lobby_add_blacklist:"
 LOBBY_REMOVE_BLACKLIST = "lobby_remove_blacklist:"
 LOBBY_BOT_ADD = "lobby_bot_add:"
 LOBBY_BOT_REMOVE = "lobby_bot_remove:"
+LOBBY_KICK = "lobby_kick:"
+LOBBY_CLEAR_READY = "lobby_clear_ready:"
+LOBBY_PRE_APPROVE = "lobby_pre_approve:"
+LOBBY_REVOKE_APPROVAL = "lobby_revoke_approval:"
 
 ABOUT_NAV = "about_nav:"
 
@@ -54,6 +58,10 @@ LOBBY_PREFIXES = {
     LOBBY_REMOVE_BLACKLIST,
     LOBBY_BOT_ADD,
     LOBBY_BOT_REMOVE,
+    LOBBY_KICK,
+    LOBBY_CLEAR_READY,
+    LOBBY_PRE_APPROVE,
+    LOBBY_REVOKE_APPROVAL,
 }
 
 ALL_PREFIXES = GAME_PREFIXES | LOBBY_PREFIXES | SERVER_PREFIXES | {

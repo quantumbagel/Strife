@@ -14,7 +14,7 @@ from strife.presentation.components import (
     TextSize,
 )
 from strife.presentation.emoji import EmojiResolver
-from strife.presentation.roster import player_mention
+from strife.presentation.roster import bot_label, player_mention
 from strife.routing import prefixes as P
 
 
@@ -38,6 +38,7 @@ def _meta_line(match: MatchDetail, emoji: EmojiResolver) -> str | None:
             user_id=p.user_id,
             display_name=p.display_name,
             is_bot=p.is_bot,
+            emoji=emoji,
         )
         for p in sorted(match.players, key=lambda p: p.seat_index)
     ]
@@ -104,6 +105,7 @@ def build_replay_view(
                 user_id=winner_player.user_id,
                 display_name=winner_player.display_name,
                 is_bot=winner_player.is_bot,
+                emoji=emoji,
             )
             outcome_text = text.get("match.winner", winner=winner_label)
         else:
@@ -155,14 +157,17 @@ def build_replay_view(
         info_type = takeover_info.get("type", "bot_takeover")
         user_id = takeover_info.get("user_id")
         is_bot = takeover_info.get("is_bot", False)
-        if user_id is not None:
+        if user_id is not None or is_bot:
             name_label = player_mention(
                 user_id=user_id,
                 display_name=display_name,
-                is_bot=is_bot,
+                is_bot=is_bot or user_id is None,
+                emoji=emoji,
             )
+        elif display_name:
+            name_label = bot_label(emoji, display_name)
         else:
-            name_label = display_name
+            name_label = "Unknown"
 
         if info_type == "bot_takeover":
             reason_str = (

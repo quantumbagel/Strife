@@ -49,7 +49,7 @@ def build_results_view(
         body_text = f"{emoji.get('success')} **{description}**"
     elif winner_seat is not None and isinstance(winner_seat, int) and 0 <= winner_seat < len(players):
         winner = players[winner_seat]
-        winner_label = winner.mention
+        winner_label = winner.mention_for(emoji)
         body = text.get("match.winner", winner=winner_label)
         body_text = f"{emoji.get('success')} **{body}**"
     elif "winning_faction" in summary:

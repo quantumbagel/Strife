@@ -85,7 +85,13 @@ class ReplayService:
             emoji=self.compiler.emoji,
             started_at=detail.started_at,
         )
-        frames = await game.parse_replay(move_records, ctx)
+        from strife.presentation.emoji_context import bind_emoji, reset_emoji
+
+        token = bind_emoji(self.compiler.emoji)
+        try:
+            frames = await game.parse_replay(move_records, ctx)
+        finally:
+            reset_emoji(token)
         entry = _ReplayCacheEntry(detail=detail, frames=frames)
         self._cache[match_id] = entry
         if len(self._cache) > self._cache_size:

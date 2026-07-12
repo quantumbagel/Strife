@@ -24,7 +24,7 @@ class InteractionInput:
 
 
 _RUNTIME_ERROR_CODES = {
-    "not_your_turn": "common.not_your_turn",
+    "cannot_act": "common.cannot_act",
     "not_a_player": "errors.not_a_player",
     "invalid_action": "errors.invalid_action",
     "rematch_expired": "errors.rematch_expired",

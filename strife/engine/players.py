@@ -13,12 +13,24 @@ class Player:
     bot_difficulty: str | None = None
     role_key: str | None = None
 
-    @property
-    def mention(self) -> str:
+    def _base_name(self) -> str:
         if self.user_id is not None and not self.is_bot:
             return f"<@{self.user_id}>"
         difficulty = f" ({self.bot_difficulty})" if self.bot_difficulty else ""
         return f"**{self.display_name}**{difficulty}"
+
+    def mention_for(self, emoji: Any = None) -> str:
+        from strife.presentation.emoji_context import active_emoji
+
+        resolver = emoji or active_emoji()
+        base = self._base_name()
+        if (self.is_bot or self.user_id is None) and resolver is not None:
+            return f"{resolver.get('bot_indicator')} {base}"
+        return base
+
+    @property
+    def mention(self) -> str:
+        return self.mention_for()
 
     def display(
         self,
@@ -35,11 +47,8 @@ class Player:
             # 2. Admin prefix
             if owner_ids is not None and self.user_id in owner_ids:
                 prefix += f"{emoji.get('admin')} "
-            # 3. Bot prefix
-            if self.is_bot or self.user_id is None:
-                prefix += f"{emoji.get('bot')} "
 
-        return f"{prefix}{self.mention}"
+        return f"{prefix}{self.mention_for(emoji)}"
 
     def __str__(self) -> str:
         return self.mention

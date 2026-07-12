@@ -3,7 +3,14 @@ from __future__ import annotations
 from strife.presentation.emoji import EmojiResolver
 
 
-def player_mention(*, user_id: int | None, display_name: str, is_bot: bool, bot_difficulty: str | None = None) -> str:
+def player_mention(
+    *,
+    user_id: int | None,
+    display_name: str,
+    is_bot: bool,
+    bot_difficulty: str | None = None,
+    emoji: EmojiResolver | None = None,
+) -> str:
     from strife.engine.players import Player
     return Player(
         seat=-1,
@@ -11,7 +18,22 @@ def player_mention(*, user_id: int | None, display_name: str, is_bot: bool, bot_
         display_name=display_name,
         is_bot=is_bot,
         bot_difficulty=bot_difficulty,
-    ).mention
+    ).mention_for(emoji)
+
+
+def bot_label(
+    emoji: EmojiResolver,
+    name: str,
+    *,
+    difficulty: str | None = None,
+) -> str:
+    return player_mention(
+        user_id=None,
+        display_name=name,
+        is_bot=True,
+        bot_difficulty=difficulty,
+        emoji=emoji,
+    )
 
 
 def member_line(

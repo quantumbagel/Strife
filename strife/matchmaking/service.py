@@ -15,7 +15,7 @@ from strife.logging import get_logger
 from strife.matchmaking.lobby import Lobby, LobbyMember, QueuedBot
 from strife.matchmaking.lobby_view import build_lobby_view
 from strife.matchmaking.registries import SessionRegistries, UserLocation
-from strife.matchmaking.settings_view import build_settings_view
+from strife.matchmaking.settings_view import build_settings_view, normalize_settings_tab
 from strife.persistence.repositories import (
     FinishedMatch,
     GuildRepository,
@@ -24,11 +24,11 @@ from strife.persistence.repositories import (
     UserRepository,
     generate_match_code,
 )
-from strife.presentation.compiler import Compiler
+from strife.presentation.compiler import Compiler, LayoutError
 from strife.presentation.emoji import EmojiResolver
 from strife.presentation.components import Container, LayoutView, TextDisplay, TextSize, Separator
 from strife.presentation.message import ViewSurface
-from strife.presentation.roster import member_line
+from strife.presentation.roster import bot_label, member_line
 from strife.presentation.user_error import ErrorContext, UserErrorPresenter
 from strife.presentation.user_success import UserSuccessPresenter
 from strife.routing import prefixes as P
@@ -155,6 +155,69 @@ class LobbyService:
             settings[option.key] = yaml_overrides.get(option.key, option.default)
         return settings
 
+    def _is_lobby_member(self, lobby: Lobby, user_id: int) -> bool:
+        return any(member.user_id == user_id for member in lobby.members)
+
+    async def _send_settings(
+        self,
+        lobby: Lobby,
+        interaction: discord.Interaction,
+        *,
+        tab: str = "general",
+        edit: bool = False,
+    ) -> None:
+        meta = self._meta(lobby.game_key)
+        tab = normalize_settings_tab(tab)
+        if tab == "rules" and not meta.settings:
+            tab = "general"
+        readonly = interaction.user.id != lobby.creator_id
+        try:
+            view = build_settings_view(
+                lobby,
+                meta,
+                self.emoji,
+                self.text,
+                interaction,
+                tab=tab,
+                readonly=readonly,
+            )
+            compiled = self.compiler.compile(
+                view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
+            )
+        except LayoutError:
+            await self._error(interaction, "common.error", lobby=lobby)
+            return
+        if edit:
+            await interaction.edit_original_response(view=compiled)
+        else:
+            await interaction.response.send_message(view=compiled, ephemeral=True)
+
+    async def _eject_member(self, lobby: Lobby, user_id: int) -> bool:
+        if not any(member.user_id == user_id for member in lobby.members):
+            return False
+        lobby.members = [member for member in lobby.members if member.user_id != user_id]
+        lobby.ready.discard(user_id)
+        lobby.role_selection.pop(user_id, None)
+        await self.registries.release_user(user_id)
+        return True
+
+    async def _sync_lobby_after_creator_edit(
+        self,
+        lobby: Lobby,
+        interaction: discord.Interaction,
+        route: Route,
+        *,
+        default_settings_tab: str | None = None,
+    ) -> None:
+        settings_tab = route.payload.get("settings_tab", default_settings_tab)
+        if settings_tab:
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True)
+            await self._refresh(lobby, interaction)
+            await self._send_settings(lobby, interaction, tab=settings_tab, edit=True)
+            return
+        await self._refresh(lobby, interaction)
+
     async def create_lobby(
         self, interaction: discord.Interaction, game_key: str, private: bool
     ) -> None:
@@ -231,6 +294,10 @@ class LobbyService:
                 P.LOBBY_REMOVE_BLACKLIST: self._remove_blacklist,
                 P.LOBBY_BOT_ADD: self._bot_add,
                 P.LOBBY_BOT_REMOVE: self._bot_remove,
+                P.LOBBY_KICK: self._kick,
+                P.LOBBY_CLEAR_READY: self._clear_ready,
+                P.LOBBY_PRE_APPROVE: self._pre_approve,
+                P.LOBBY_REVOKE_APPROVAL: self._revoke_approval,
             }.get(route.prefix)
             if handler is None:
                 await self._error(interaction, "common.error")
@@ -396,15 +463,15 @@ class LobbyService:
     async def _settings(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
-        if interaction.user.id != lobby.creator_id:
-            await self._error(interaction, "lobby.creator_only", lobby=lobby)
+        if not self._is_lobby_member(lobby, interaction.user.id):
+            await self._error(interaction, "errors.not_in_lobby", lobby=lobby)
             return
-        meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
-        compiled = self.compiler.compile(
-            view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
-        )
-        await interaction.response.send_message(view=compiled, ephemeral=True)
+        tab = normalize_settings_tab(route.payload.get("tab"))
+        if route.source == "tab":
+            await interaction.response.defer(ephemeral=True)
+            await self._send_settings(lobby, interaction, tab=tab, edit=True)
+            return
+        await self._send_settings(lobby, interaction, tab=tab, edit=False)
 
     async def _role(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
@@ -437,12 +504,7 @@ class LobbyService:
         if values:
             lobby.private = values[0] == "private"
         await interaction.response.defer(ephemeral=True)
-        meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
-        compiled = self.compiler.compile(
-            view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
-        )
-        await interaction.edit_original_response(view=compiled)
+        await self._send_settings(lobby, interaction, tab="general", edit=True)
         await self._refresh(lobby, interaction)
 
     async def _reset_privacy(
@@ -457,12 +519,7 @@ class LobbyService:
         lobby.denied.clear()
         lobby.blacklist.clear()
         await interaction.response.defer(ephemeral=True)
-        meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
-        compiled = self.compiler.compile(
-            view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
-        )
-        await interaction.edit_original_response(view=compiled)
+        await self._send_settings(lobby, interaction, tab="general", edit=True)
         await self._refresh(lobby, interaction)
 
     async def _option(
@@ -498,12 +555,7 @@ class LobbyService:
                     return
                 lobby.settings[key] = raw
         await interaction.response.defer(ephemeral=True)
-        meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
-        compiled = self.compiler.compile(
-            view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
-        )
-        await interaction.edit_original_response(view=compiled)
+        await self._send_settings(lobby, interaction, tab="rules", edit=True)
         await self._refresh(lobby, interaction)
 
     async def _reset_rules(
@@ -514,12 +566,7 @@ class LobbyService:
             return
         lobby.settings = self._default_settings(self._meta(lobby.game_key))
         await interaction.response.defer(ephemeral=True)
-        meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
-        compiled = self.compiler.compile(
-            view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
-        )
-        await interaction.edit_original_response(view=compiled)
+        await self._send_settings(lobby, interaction, tab="rules", edit=True)
         await self._refresh(lobby, interaction)
 
     async def _end(
@@ -548,7 +595,7 @@ class LobbyService:
             lobby.denied.discard(target_id)
             if not any(m.user_id == target_id for m in lobby.members):
                 await self._seat_member(lobby, target_id, display_name, interaction)
-        await self._refresh(lobby, interaction)
+        await self._sync_lobby_after_creator_edit(lobby, interaction, route)
 
     async def _deny(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
@@ -561,7 +608,7 @@ class LobbyService:
             target_id = int(values[0])
             lobby.pending_requests.pop(target_id, None)
             lobby.denied.add(target_id)
-        await self._refresh(lobby, interaction)
+        await self._sync_lobby_after_creator_edit(lobby, interaction, route)
 
     async def _add_blacklist(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
@@ -579,18 +626,9 @@ class LobbyService:
             lobby.blacklist.add(target_id)
             lobby.approved.discard(target_id)
             lobby.pending_requests.pop(target_id, None)
-            if any(m.user_id == target_id for m in lobby.members):
-                lobby.members = [m for m in lobby.members if m.user_id != target_id]
-                lobby.ready.discard(target_id)
-                await self.registries.release_user(target_id)
-                kicked = True
+            kicked = await self._eject_member(lobby, target_id)
         await interaction.response.defer(ephemeral=True)
-        meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
-        compiled = self.compiler.compile(
-            view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
-        )
-        await interaction.edit_original_response(view=compiled)
+        await self._send_settings(lobby, interaction, tab="access", edit=True)
         if kicked:
             await self._refresh(lobby, interaction)
 
@@ -608,12 +646,7 @@ class LobbyService:
                 return
             lobby.blacklist.discard(target_id)
         await interaction.response.defer(ephemeral=True)
-        meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
-        compiled = self.compiler.compile(
-            view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
-        )
-        await interaction.edit_original_response(view=compiled)
+        await self._send_settings(lobby, interaction, tab="access", edit=True)
 
     async def _bot_add(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
@@ -639,11 +672,7 @@ class LobbyService:
                 )
             )
         await interaction.response.defer(ephemeral=True)
-        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
-        compiled = self.compiler.compile(
-            view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
-        )
-        await interaction.edit_original_response(view=compiled)
+        await self._send_settings(lobby, interaction, tab="general", edit=True)
         await self._refresh(lobby, interaction)
 
     async def _bot_remove(
@@ -660,13 +689,102 @@ class LobbyService:
                 return
             lobby.bots = [bot for bot in lobby.bots if bot.name != name]
         await interaction.response.defer(ephemeral=True)
-        meta = self._meta(lobby.game_key)
-        view = build_settings_view(lobby, meta, self.emoji, self.text, interaction)
-        compiled = self.compiler.compile(
-            view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
-        )
-        await interaction.edit_original_response(view=compiled)
+        await self._send_settings(lobby, interaction, tab="general", edit=True)
         await self._refresh(lobby, interaction)
+
+    async def _kick(
+        self, lobby: Lobby, route: Route, interaction: discord.Interaction
+    ) -> None:
+        if interaction.user.id != lobby.creator_id:
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
+            return
+        values = interaction.data.get("values") if interaction.data else []
+        kicked_name: str | None = None
+        if values:
+            target_id = int(values[0])
+            if target_id == lobby.creator_id:
+                await self._error(interaction, "errors.cannot_kick_self", lobby=lobby)
+                return
+            member = next((m for m in lobby.members if m.user_id == target_id), None)
+            if member is None:
+                await self._error(interaction, "errors.kick_target_not_seated", lobby=lobby)
+                return
+            kicked_name = member.display_name
+            lobby.approved.discard(target_id)
+            lobby.pending_requests.pop(target_id, None)
+            await self._eject_member(lobby, target_id)
+            if not lobby.members:
+                await interaction.response.defer(ephemeral=True)
+                await self._teardown(lobby, interaction)
+                return
+        await interaction.response.defer(ephemeral=True)
+        await self._send_settings(lobby, interaction, tab="access", edit=True)
+        await self._refresh(lobby, interaction)
+        if kicked_name:
+            await self._success(interaction, "lobby.player_kicked", name=kicked_name)
+
+    async def _clear_ready(
+        self, lobby: Lobby, route: Route, interaction: discord.Interaction
+    ) -> None:
+        if interaction.user.id != lobby.creator_id:
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
+            return
+        lobby.ready.clear()
+        await interaction.response.defer(ephemeral=True)
+        await self._send_settings(lobby, interaction, tab="general", edit=True)
+        await self._refresh(lobby, interaction)
+        await self._success(interaction, "lobby.ready_cleared")
+
+    async def _pre_approve(
+        self, lobby: Lobby, route: Route, interaction: discord.Interaction
+    ) -> None:
+        if interaction.user.id != lobby.creator_id:
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
+            return
+        if not lobby.private:
+            await self._error(interaction, "common.error", lobby=lobby)
+            return
+        values = interaction.data.get("values") if interaction.data else []
+        approved_name: str | None = None
+        if values:
+            target_id = int(values[0])
+            if target_id == lobby.creator_id:
+                await self._error(interaction, "common.error", lobby=lobby)
+                return
+            if target_id in lobby.blacklist:
+                await self._error(interaction, "errors.blacklisted", lobby=lobby)
+                return
+            lobby.approved.add(target_id)
+            lobby.denied.discard(target_id)
+            lobby.pending_requests.pop(target_id, None)
+            member = interaction.guild.get_member(target_id) if interaction.guild else None
+            approved_name = member.display_name if member else f"User {target_id}"
+        await interaction.response.defer(ephemeral=True)
+        await self._send_settings(lobby, interaction, tab="access", edit=True)
+        if approved_name:
+            await self._success(interaction, "lobby.player_preapproved", name=approved_name)
+
+    async def _revoke_approval(
+        self, lobby: Lobby, route: Route, interaction: discord.Interaction
+    ) -> None:
+        if interaction.user.id != lobby.creator_id:
+            await self._error(interaction, "lobby.creator_only", lobby=lobby)
+            return
+        values = interaction.data.get("values") if interaction.data else []
+        revoked_name: str | None = None
+        if values:
+            target_id = int(values[0])
+            seated_ids = {member.user_id for member in lobby.members}
+            if target_id not in lobby.approved or target_id in seated_ids:
+                await self._error(interaction, "common.error", lobby=lobby)
+                return
+            lobby.approved.discard(target_id)
+            member = interaction.guild.get_member(target_id) if interaction.guild else None
+            revoked_name = member.display_name if member else f"User {target_id}"
+        await interaction.response.defer(ephemeral=True)
+        await self._send_settings(lobby, interaction, tab="access", edit=True)
+        if revoked_name:
+            await self._success(interaction, "lobby.approval_revoked", name=revoked_name)
 
     async def _start(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
@@ -892,7 +1010,7 @@ class LobbyService:
         view = build_lobby_view(lobby, meta, self.emoji, self.text)
         if lobby.surface:
             await lobby.surface.update(view)
-        await self._success(interaction, "lobby.bot_removed", name=name)
+        await self._success(interaction, "lobby.bot_removed", name=bot_label(self.emoji, name))
 
     async def open_settings(
         self, interaction: discord.Interaction, private: bool | None

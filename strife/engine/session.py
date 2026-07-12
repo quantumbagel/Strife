@@ -101,23 +101,29 @@ class GameSession:
         self.task = asyncio.create_task(self._run())
 
     async def _run(self) -> None:
+        from strife.presentation.emoji_context import bind_emoji, reset_emoji
+
+        token = bind_emoji(self.surface.compiler.emoji)
         try:
-            outcome = await self.game.play(self.ctx)
-            await self._finalize(outcome, status="completed")
-        except asyncio.CancelledError:
-            return
-        except Exception:
-            log.exception("Game session crashed", extra={"match_id": self.id})
-            if not self._finalized:
-                await self._finalize(
-                    GameOutcome(
-                        results={},
-                        summary={"error": True},
-                        description="Game session crashed",
-                        player_descriptions={},
-                    ),
-                    status="abandoned",
-                )
+            try:
+                outcome = await self.game.play(self.ctx)
+                await self._finalize(outcome, status="completed")
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                log.exception("Game session crashed", extra={"match_id": self.id})
+                if not self._finalized:
+                    await self._finalize(
+                        GameOutcome(
+                            results={},
+                            summary={"error": True},
+                            description="Game session crashed",
+                            player_descriptions={},
+                        ),
+                        status="abandoned",
+                    )
+        finally:
+            reset_emoji(token)
 
     async def submit(self, inp: InteractionInput) -> None:
         async with self.lock:
@@ -126,7 +132,7 @@ class GameSession:
                 raise RuntimeError("not_a_player")
             pending = self.pending.get(seat)
             if pending is None or seat not in pending.allowed_actors:
-                raise RuntimeError("not_your_turn")
+                raise RuntimeError("cannot_act")
             if pending.allowed_sources is not None and inp.source not in pending.allowed_sources:
                 raise RuntimeError("invalid_action")
             move = Move(actor_seat=seat, source=inp.source, args=inp.args)
