@@ -202,7 +202,10 @@ class Coup(Game):
     def _format_hand(self, ctx: GameContext, seat: int, private: bool = False) -> str:
         if private:
             return " ".join(f"{self._role_emoji(ctx, r)} **{r.title()}**" for r in self.hands[seat])
-        cards = ["🎴" for _ in self.hands[seat]]
+        if ctx.is_replay:
+            cards = [f"{self._role_emoji(ctx, r)} **{r.title()}**" for r in self.hands[seat]]
+        else:
+            cards = ["🎴" for _ in self.hands[seat]]
         rev = [f"{self._role_emoji(ctx, r)} ~~{r.title()}~~" for r in self.revealed[seat]]
         return " ".join(cards + rev)
 
