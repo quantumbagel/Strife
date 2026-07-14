@@ -10,7 +10,6 @@ from strife.presentation.components import (
     Container,
     DescribedSelect,
     LayoutView,
-    Separator,
     TextDisplay,
     TextSize,
 )

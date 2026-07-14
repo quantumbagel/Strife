@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
+
 
 
 class TextSize(StrEnum):
@@ -193,6 +195,8 @@ class LayoutView:
     children: list[Container | ActionRow | TextDisplay | Separator | MediaGallery | Section] = field(
         default_factory=list
     )
+    files: list[Any] = field(default_factory=list)
+
 
     def add_container(self, container: Container) -> LayoutView:
         self.children.append(container)

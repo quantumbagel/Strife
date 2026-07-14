@@ -29,15 +29,14 @@ from strife.persistence.repositories import (
 from strife.presentation.compiler import Compiler, LayoutError
 from strife.presentation.modals import IntRangeModal, ROLE_ASSIGN_MODAL_BATCH, RoleAssignmentModal
 from strife.presentation.emoji import EmojiResolver
-from strife.presentation.components import Container, LayoutView, TextDisplay, TextSize, Separator
+from strife.presentation.components import Container, LayoutView, TextDisplay, TextSize
 from strife.presentation.game_ui import build_game_thread_header_view
 from strife.presentation.message import ViewSurface
-from strife.presentation.roster import bot_label, member_line
+from strife.presentation.roster import bot_label
 from strife.presentation.user_error import ErrorContext, UserErrorPresenter
 from strife.presentation.user_success import UserSuccessPresenter
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route
-from strife.settings import get_settings
 
 if TYPE_CHECKING:
     from strife.engine.game import Game
@@ -302,6 +301,10 @@ class LobbyService:
             lobby.message_id = surface.message_id
         except Exception:
             await self.registries.release_user(interaction.user.id)
+            try:
+                await self._error(interaction, "errors.lobby_failed_to_start")
+            except Exception:
+                log.exception("Failed to report lobby creation error to user")
             raise
 
     async def handle(self, route: Route, interaction: discord.Interaction) -> None:

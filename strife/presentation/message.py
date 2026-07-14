@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 import discord
 
-from strife.presentation.components import LayoutView, disable_all
+from strife.presentation.components import LayoutView
 from strife.presentation.compiler import Compiler
 
 if TYPE_CHECKING:
@@ -49,27 +49,38 @@ class ViewSurface:
         ephemeral: bool = False,
     ) -> discord.Message:
         compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
+        files = getattr(view, "files", [])
         if isinstance(target, discord.Interaction):
+            kwargs = {"view": compiled}
             if ephemeral:
-                await target.response.send_message(view=compiled, ephemeral=True)
-                self._message = await target.original_response()
-            else:
-                await target.response.send_message(view=compiled)
-                self._message = await target.original_response()
+                kwargs["ephemeral"] = True
+            if files:
+                kwargs["files"] = files
+            await target.response.send_message(**kwargs)
+            self._message = await target.original_response()
         else:
-            self._message = await target.send(view=compiled)
+            kwargs = {"view": compiled}
+            if files:
+                kwargs["files"] = files
+            self._message = await target.send(**kwargs)
         return self._message
 
     async def send_to_thread(self, thread: discord.Thread, view: LayoutView) -> discord.Message:
         compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
-        self._message = await thread.send(view=compiled)
+        files = getattr(view, "files", [])
+        kwargs = {"view": compiled}
+        if files:
+            kwargs["files"] = files
+        self._message = await thread.send(**kwargs)
         return self._message
 
     async def update(self, view: LayoutView) -> None:
         if self._message is None:
             raise RuntimeError("No message bound to surface")
         compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
-        await self._message.edit(content=None, embeds=[], view=compiled)
+        files = getattr(view, "files", [])
+        await self._message.edit(content=None, embeds=[], view=compiled, attachments=files)
+
 
     async def replace(self, view: LayoutView) -> None:
         await self.update(view)

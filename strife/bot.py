@@ -141,6 +141,9 @@ class StrifeBot(commands.Bot):
             server_settings=self.server_settings,
             registry=self.game_registry,
         )
+        from strife.commands.game_commands import register_game_slash_commands
+        register_game_slash_commands(self.tree, self.game_registry, self.sessions)
+
         await self.add_cog(AdminCommands(self, self.settings))
         self.lifecycle.start()
         log.info("Strife subsystems wired")
@@ -151,6 +154,8 @@ class StrifeBot(commands.Bot):
     async def on_interaction(self, interaction: discord.Interaction) -> None:
         if interaction.type is discord.InteractionType.component and self.router:
             await self.router.dispatch(interaction)
+
+
 
     async def close(self) -> None:
         if self.lifecycle:

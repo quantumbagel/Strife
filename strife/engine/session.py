@@ -4,7 +4,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 import discord
 
@@ -142,6 +142,28 @@ class GameSession:
             if not pending.future.done():
                 pending.future.set_result(move)
             self.pending.pop(seat, None)
+
+    async def handle_slash_command(self, user_id: int, command_name: str, args: dict[str, Any]) -> None:
+        async with self.lock:
+            seat = self._seat_for_user(user_id)
+            if seat is None:
+                raise RuntimeError("not_a_player")
+            pending = self.pending.get(seat)
+            if pending is None or seat not in pending.allowed_actors:
+                raise RuntimeError("cannot_act")
+
+            source = command_name
+            move_args = args
+
+            if pending.allowed_sources is not None and source not in pending.allowed_sources:
+                raise RuntimeError("invalid_action")
+
+            move = Move(actor_seat=seat, source=source, args=move_args)
+            if not pending.future.done():
+                pending.future.set_result(move)
+            self.pending.pop(seat, None)
+
+
 
     async def handle_query(self, source: str, interaction: discord.Interaction) -> bool:
         seat = self._seat_for_user(interaction.user.id)

@@ -23,7 +23,6 @@ from strife.presentation.components import (
     LayoutView,
     Select,
     SelectChoice,
-    Separator,
     TextDisplay,
     TextSize,
     UserSelect,

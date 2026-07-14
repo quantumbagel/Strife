@@ -20,7 +20,7 @@ from strife.presentation.components import (
     TextSize,
 )
 from strife.presentation.emoji import EmojiResolver
-from strife.presentation.roster import format_roster, member_line
+from strife.presentation.roster import member_line
 from strife.routing import prefixes as P
 from strife.settings import get_settings
 

@@ -41,6 +41,57 @@ def _validate_capabilities(game_cls: type[Game], metadata: GameMetadata) -> bool
     return ok
 
 
+def check_dependencies(dependencies: list[str]) -> None:
+    import importlib.metadata
+    import importlib.util
+    import subprocess
+    import sys
+
+    if not dependencies:
+        return
+
+    log.info("Checking dependencies: %s", dependencies)
+    missing = []
+    for dep in dependencies:
+        # Strip version constraint operators (e.g. >=, ==, <=, >, <, !=, ~=)
+        dep_name = dep
+        for op in (">=", "==", "<=", ">", "<", "!=", "~="):
+            if op in dep_name:
+                dep_name = dep_name.split(op)[0].strip()
+                break
+
+        try:
+            importlib.metadata.distribution(dep_name)
+        except importlib.metadata.PackageNotFoundError:
+            normalized = dep_name.replace("-", "_")
+            spec = None
+            try:
+                spec = importlib.util.find_spec(normalized)
+            except (ModuleNotFoundError, ValueError):
+                pass
+            if spec is None:
+                missing.append(dep)
+
+    if missing:
+        log.info("Installing missing dependencies: %s", missing)
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", *missing],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            log.info("Successfully installed dependencies: %s", missing)
+        except subprocess.CalledProcessError as e:
+            log.error(
+                "Failed to install dependencies %s: %s\nStdout: %s\nStderr: %s",
+                missing,
+                e,
+                e.stdout,
+                e.stderr,
+            )
+
+
 class GameRegistry:
     def __init__(self) -> None:
         self._games: dict[str, type[Game]] = {}

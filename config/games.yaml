@@ -23,3 +23,7 @@ games:
   coup:
     enabled: true
     turn_timeout_seconds: 90
+  chess:
+    enabled: true
+    turn_timeout_seconds: 120
+

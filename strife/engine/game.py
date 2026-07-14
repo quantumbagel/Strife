@@ -87,3 +87,4 @@ class Game(ABC):
         in ``parse_replay``. See ``docs/game-development.md``.
         """
         return False
+
