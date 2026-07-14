@@ -9,6 +9,7 @@ from strife.config.text import TextConfig
 from strife.engine.players import Move
 from strife.engine.registry import GameRegistry
 from strife.lifecycle.rematch import RematchManager
+from strife.lifecycle.timeout import determine_consequence, TimeoutConsequence
 from strife.logging import get_logger
 from strife.matchmaking.registries import SessionRegistries
 from strife.matchmaking.service import LobbyService
@@ -68,16 +69,16 @@ class LifecycleService:
             if not session.pending:
                 continue
             game_cfg = self.config.games.for_game(session.game_key)
-            timeout = game_cfg.turn_timeout_seconds
             idle = now - session.last_move_at
-            if idle >= timeout:
-                for seat in list(session.pending.keys()):
-                    if session.players[seat].is_bot:
-                        continue
+            for seat, pending in list(session.pending.items()):
+                if session.players[seat].is_bot:
+                    continue
+                timeout = pending.timeout_seconds if pending.timeout_seconds is not None else game_cfg.turn_timeout_seconds
+                if idle >= timeout:
                     await self._resolve_timeout(session, seat)
-
     async def _resolve_timeout(self, session, seat: int) -> None:
-        await self._handle_abandon(session, seat, "timeout")
+        consequence = determine_consequence(session, seat, reason="timeout")
+        await self._execute_consequence(session, seat, consequence, reason="timeout")
 
     async def forfeit(self, thread_id: int, user_id: int) -> None:
         session = self.registries.get_game(thread_id)
@@ -86,55 +87,81 @@ class LifecycleService:
         seat = session._seat_for_user(user_id)
         if seat is None:
             raise PermissionError
-        await self._handle_abandon(session, seat, "forfeit")
 
-    async def _handle_abandon(self, session, seat: int, reason: str) -> None:
+        consequence = determine_consequence(session, seat, reason="forfeit")
+        await self._execute_consequence(session, seat, consequence, reason="forfeit")
+
+    async def _execute_consequence(
+        self, session, seat: int, consequence: TimeoutConsequence, reason: str
+    ) -> None:
         player = session.players[seat]
-        if player.user_id:
-            await self.registries.release_user(player.user_id)
+        pending = session.pending.get(seat)
 
-        meta = session.game.metadata
-        if reason == "timeout" and meta.supports_bots:
+        # 1. Release the user if they are leaving the game session
+        if consequence in (
+            TimeoutConsequence.BOT_TAKEOVER,
+            TimeoutConsequence.REMOVED,
+            TimeoutConsequence.GAME_ENDS,
+        ):
+            if player.user_id:
+                await self.registries.release_user(player.user_id)
+
+        # 2. Execute the consequence action
+        if consequence == TimeoutConsequence.SKIP:
+            await session.force_move(seat, Move(actor_seat=seat, source="timeout", args={}))
+
+        elif consequence == TimeoutConsequence.AUTO_PASS:
+            await session.force_move(seat, Move(actor_seat=seat, source="pass", args={}))
+
+        elif consequence == TimeoutConsequence.STRIKE:
+            player.timeout_strikes += 1
+            max_strikes = getattr(session, "turn_timeout_max_strikes", 3)
+
+            thread = self.bot.get_channel(session.thread_id)
+            if not thread:
+                try:
+                    thread = await self.bot.fetch_channel(session.thread_id)
+                except Exception:
+                    thread = None
+
+            if thread is not None:
+                try:
+                    await thread.send(
+                        f"⚠️ {player.mention} timed out! Strike {player.timeout_strikes}/{max_strikes}."
+                    )
+                except Exception:
+                    log.exception("Failed to send strike warning message")
+
+            source = "pass"
+            if pending and pending.allowed_sources is not None and "pass" not in pending.allowed_sources:
+                source = "timeout"
+
+            await session.force_move(seat, Move(actor_seat=seat, source=source, args={}))
+
+        elif consequence == TimeoutConsequence.BOT_TAKEOVER:
             player.is_bot = True
             player.bot_difficulty = "hard"
             session._record_system(
                 "bot_takeover",
                 {
                     "seat": seat,
-                    "reason": "timeout",
+                    "reason": reason,
                     "user_id": player.user_id,
                     "display_name": player.display_name,
                 },
             )
             move = await session.game.bot_move("hard", seat)
             await session.force_move(seat, move)
-            return
 
-        humans = [p for p in session.players if not p.is_bot]
-        if reason == "forfeit" and len(humans) == 2:
-            await session.cancel("forfeit", forfeiter_seat=seat)
-            return
-
-        if meta.supports_player_removal:
+        elif consequence == TimeoutConsequence.REMOVED:
             session.game.remove_player(seat)
-            alive = getattr(session.game, "alive", None)
-            if isinstance(alive, set):
-                remaining_humans = [
-                    p for p in session.players if p.seat in alive and not p.is_bot
-                ]
-                if not alive or not remaining_humans:
-                    await session.cancel(reason, forfeiter_seat=seat)
-                    return
-                if len(alive) < meta.player_count.min_players:
-                    await session.cancel(reason, forfeiter_seat=seat)
-                    return
             args = {"reason": "timeout"} if reason == "timeout" else {}
             await session.force_move(
                 seat, Move(actor_seat=seat, source="forfeit", args=args)
             )
-            return
 
-        await session.cancel(reason, forfeiter_seat=seat)
+        elif consequence == TimeoutConsequence.GAME_ENDS:
+            await session.cancel(reason, forfeiter_seat=seat)
 
     async def register_rematch_vote(self, thread_id: int, user: discord.User) -> None:
         await self.rematch.vote(thread_id, user.id)

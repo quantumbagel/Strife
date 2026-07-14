@@ -12,6 +12,7 @@ class Player:
     is_bot: bool = False
     bot_difficulty: str | None = None
     role_key: str | None = None
+    timeout_strikes: int = 0
 
     def _base_name(self) -> str:
         if self.user_id is not None and not self.is_bot:

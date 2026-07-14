@@ -36,6 +36,8 @@ class PendingInput:
     future: asyncio.Future[Move]
     description: str | None = None
     line_description: str | None = None
+    timeout_seconds: float | None = None
+    timeout_consequence: str | None = None
 
 
 @dataclass
@@ -64,6 +66,8 @@ class GameSession:
         game_key: str,
         header_surface: ViewSurface | None = None,
         turn_timeout_seconds: int = 90,
+        turn_timeout_max_strikes: int = 3,
+        turn_timeout_consequence: str = "abandon",
     ) -> None:
         self.id = thread_id
         self.thread_id = thread_id
@@ -76,6 +80,8 @@ class GameSession:
         self.header_surface = header_surface
         self.text = text
         self.turn_timeout_seconds = turn_timeout_seconds
+        self.turn_timeout_max_strikes = turn_timeout_max_strikes
+        self.turn_timeout_consequence = turn_timeout_consequence
         self._finalize_cb = finalize_cb
         self.game_key = game_key
         self.ctx = LiveContext(self)
@@ -222,7 +228,12 @@ class GameSession:
             wait_description = None
             line_descriptions: dict[int, str] = {}
             if human_pending:
-                remaining = self.turn_timeout_seconds - (time.monotonic() - self.last_move_at)
+                timeout_val = self.turn_timeout_seconds
+                for seat in human_pending:
+                    pending_input = self.pending.get(seat)
+                    if pending_input and pending_input.timeout_seconds is not None:
+                        timeout_val = min(timeout_val, pending_input.timeout_seconds)
+                remaining = timeout_val - (time.monotonic() - self.last_move_at)
                 deadline_unix = int(time.time() + max(0, remaining))
                 header_descriptions = {
                     self.pending[seat].description
@@ -261,6 +272,8 @@ class GameSession:
         sources: set[str] | None,
         record: bool = True,
         description: str | None = None,
+        timeout_seconds: float | None = None,
+        timeout_consequence: str | None = None,
     ) -> Move:
         if self.players[actor].is_bot:
             difficulty = self.players[actor].bot_difficulty or "medium"
@@ -273,7 +286,12 @@ class GameSession:
         loop = asyncio.get_running_loop()
         future: asyncio.Future[Move] = loop.create_future()
         self.pending[actor] = PendingInput(
-            {actor}, sources, future, description=description
+            {actor},
+            sources,
+            future,
+            description=description,
+            timeout_seconds=timeout_seconds,
+            timeout_consequence=timeout_consequence,
         )
         self.last_move_at = time.monotonic()
         await self._update_surface(view)
@@ -295,6 +313,8 @@ class GameSession:
         record: bool = True,
         description: str | None = None,
         descriptions: dict[int, str] | None = None,
+        timeout_seconds: float | None = None,
+        timeout_consequence: str | None = None,
     ) -> dict[int, Move]:
         results: dict[int, Move] = {}
         humans = {seat for seat in actors if not self.players[seat].is_bot}
@@ -327,6 +347,8 @@ class GameSession:
                 line_description=(
                     descriptions.get(seat) if descriptions is not None else None
                 ),
+                timeout_seconds=timeout_seconds,
+                timeout_consequence=timeout_consequence,
             )
         self.last_move_at = time.monotonic()
         await self._update_surface(view)

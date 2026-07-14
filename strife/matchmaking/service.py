@@ -1199,6 +1199,8 @@ class LobbyService:
                 game_key=lobby.game_key,
                 header_surface=header_surface,
                 turn_timeout_seconds=game_cfg.turn_timeout_seconds,
+                turn_timeout_max_strikes=game_cfg.turn_timeout_max_strikes,
+                turn_timeout_consequence=game_cfg.turn_timeout_consequence,
             )
             session._match_code = match_code
             session.lobby_surface = lobby.surface

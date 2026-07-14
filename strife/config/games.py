@@ -10,12 +10,16 @@ from pydantic import BaseModel, Field, PrivateAttr
 class GameDefaults(BaseModel):
     turn_timeout_seconds: int = 90
     turn_warning_seconds: int = 30
+    turn_timeout_max_strikes: int = 3
+    turn_timeout_consequence: str = "abandon"
 
 
 class GameConfig(BaseModel):
     enabled: bool = True
     turn_timeout_seconds: int | None = None
     turn_warning_seconds: int | None = None
+    turn_timeout_max_strikes: int | None = None
+    turn_timeout_consequence: str | None = None
     settings_overrides: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -39,6 +43,16 @@ class GamesConfig(BaseModel):
                 game.turn_warning_seconds
                 if game.turn_warning_seconds is not None
                 else self.defaults.turn_warning_seconds
+            ),
+            turn_timeout_max_strikes=(
+                game.turn_timeout_max_strikes
+                if game.turn_timeout_max_strikes is not None
+                else self.defaults.turn_timeout_max_strikes
+            ),
+            turn_timeout_consequence=(
+                game.turn_timeout_consequence
+                if game.turn_timeout_consequence is not None
+                else self.defaults.turn_timeout_consequence
             ),
             settings_overrides=dict(game.settings_overrides),
         )

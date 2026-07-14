@@ -15,7 +15,7 @@ META = GameMetadata(
     source_link=None,
     time_estimate="15m",
     difficulty=5,
-    player_count=PlayerCount(minimum=3, maximum=6),
+    player_count=PlayerCount(minimum=2, maximum=6),
     player_order=PlayerOrder.RANDOM,
     bots=(
         BotSpec("easy", "Safe income and basic blocks"),

@@ -35,6 +35,8 @@ class GameContext(Protocol):
         sources: set[str] | None = None,
         record: bool = True,
         description: str | None = None,
+        timeout_seconds: float | None = None,
+        timeout_consequence: str | None = None,
     ) -> Move: ...
 
     async def request_inputs(
@@ -48,6 +50,8 @@ class GameContext(Protocol):
         record: bool = True,
         description: str | None = None,
         descriptions: dict[int, str] | None = None,
+        timeout_seconds: float | None = None,
+        timeout_consequence: str | None = None,
     ) -> dict[int, Move]: ...
 
     async def send_private(self, seat: int, view: LayoutView) -> None: ...
@@ -97,9 +101,17 @@ class LiveContext:
         sources: set[str] | None = None,
         record: bool = True,
         description: str | None = None,
+        timeout_seconds: float | None = None,
+        timeout_consequence: str | None = None,
     ) -> Move:
         return await self._session._request_input(  # type: ignore[attr-defined]
-            view, actor=actor, sources=sources, record=record, description=description
+            view,
+            actor=actor,
+            sources=sources,
+            record=record,
+            description=description,
+            timeout_seconds=timeout_seconds,
+            timeout_consequence=timeout_consequence,
         )
 
     async def request_inputs(
@@ -113,6 +125,8 @@ class LiveContext:
         record: bool = True,
         description: str | None = None,
         descriptions: dict[int, str] | None = None,
+        timeout_seconds: float | None = None,
+        timeout_consequence: str | None = None,
     ) -> dict[int, Move]:
         return await self._session._request_inputs(  # type: ignore[attr-defined]
             view,
@@ -123,6 +137,8 @@ class LiveContext:
             record=record,
             description=description,
             descriptions=descriptions,
+            timeout_seconds=timeout_seconds,
+            timeout_consequence=timeout_consequence,
         )
 
     async def send_private(self, seat: int, view: LayoutView) -> None:
@@ -173,7 +189,15 @@ class ReplayContext:
         raise NotImplementedError("Replays do not support update()")
 
     async def request_input(
-        self, view: LayoutView, *, actor: int, sources: set[str] | None = None
+        self,
+        view: LayoutView,
+        *,
+        actor: int,
+        sources: set[str] | None = None,
+        record: bool = True,
+        description: str | None = None,
+        timeout_seconds: float | None = None,
+        timeout_consequence: str | None = None,
     ) -> Move:
         raise NotImplementedError("Replays do not support request_input()")
 
@@ -184,6 +208,12 @@ class ReplayContext:
         actors: set[int],
         sources: set[str] | None = None,
         until: Literal["all", "any"] = "all",
+        per_seat_sources: dict[int, set[str]] | None = None,
+        record: bool = True,
+        description: str | None = None,
+        descriptions: dict[int, str] | None = None,
+        timeout_seconds: float | None = None,
+        timeout_consequence: str | None = None,
     ) -> dict[int, Move]:
         raise NotImplementedError("Replays do not support request_inputs()")
 

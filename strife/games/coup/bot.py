@@ -46,14 +46,15 @@ def choose_move(game: Coup, difficulty: str, seat: int) -> Move:
             if action_type == "assassinate" and target == seat:
                 if "contessa" in my_cards or game.rng.random() < 0.7:
                     return Move(actor_seat=seat, source="block_contessa", args={})
+            elif action_type == "steal" and target == seat:
+                if "captain" in my_cards or "ambassador" in my_cards or game.rng.random() < 0.7:
+                    claim = "captain" if "captain" in my_cards else ("ambassador" if "ambassador" in my_cards else game.rng.choice(["captain", "ambassador"]))
+                    return Move(actor_seat=seat, source=f"block_{claim}", args={})
             if game.rng.random() < 0.1 and game.current_actor != seat:
                 return Move(actor_seat=seat, source="challenge", args={})
             return Move(actor_seat=seat, source="pass", args={})
 
         if game.state_phase == "block_window":
-            if action_type == "steal" and target == seat:
-                claim = "captain" if "captain" in my_cards else "ambassador"
-                return Move(actor_seat=seat, source="block", args={"claim": claim})
             if action_type == "foreign_aid" and seat != game.current_actor:
                 if "duke" in my_cards or game.rng.random() < 0.2:
                     return Move(actor_seat=seat, source="block", args={"claim": "duke"})
