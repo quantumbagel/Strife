@@ -113,8 +113,23 @@ class GameSession:
                 await self._finalize(outcome, status="completed")
             except asyncio.CancelledError:
                 return
-            except Exception:
+            except Exception as e:
                 log.exception("Game session crashed", extra={"match_id": self.id})
+                if self._bot:
+                    thread = self._bot.get_channel(self.id)
+                    if not thread:
+                        try:
+                            thread = await self._bot.fetch_channel(self.id)
+                        except Exception:
+                            pass
+                    if isinstance(thread, discord.Thread):
+                        try:
+                            await thread.send(
+                                f"⚠️ **Game Session Error:** An internal error occurred and the game has crashed. Match abandoned.\n"
+                                f"*(Error: `{type(e).__name__}: {e}`)*"
+                            )
+                        except Exception:
+                            pass
                 if not self._finalized:
                     await self._finalize(
                         GameOutcome(
@@ -171,7 +186,18 @@ class GameSession:
             await interaction.response.send_message("You are not a player in this game.", ephemeral=True)
             return True
 
-        return await self.game.handle_query(seat, source, interaction, self.ctx, self.surface)
+        try:
+            return await asyncio.wait_for(
+                self.game.handle_query(seat, source, interaction, self.ctx, self.surface),
+                timeout=5.0,
+            )
+        except Exception as e:
+            log.exception(
+                "Error or timeout in handle_query for game %s (match_id: %s)",
+                self.game_key,
+                self.id,
+            )
+            raise RuntimeError(f"Query handler failed: {e}") from e
 
     async def force_move(self, seat: int, move: Move) -> None:
         async with self.lock:
@@ -299,7 +325,14 @@ class GameSession:
     ) -> Move:
         if self.players[actor].is_bot:
             difficulty = self.players[actor].bot_difficulty or "medium"
-            move = await self.game.bot_move(difficulty, actor)
+            try:
+                move = await asyncio.wait_for(
+                    self.game.bot_move(difficulty, actor),
+                    timeout=10.0,
+                )
+            except Exception as e:
+                log.exception("Bot move crashed or timed out for seat %s in match %s", actor, self.id)
+                raise RuntimeError(f"Bot failed to make a move: {e}") from e
             await self._update_surface(view)
             if record:
                 self._record_move(move)
@@ -346,7 +379,14 @@ class GameSession:
             # All actors are bots: pick one at random and return only that move.
             bot_seat = self.game.rng.choice(sorted(bots))
             difficulty = self.players[bot_seat].bot_difficulty or "medium"
-            move = await self.game.bot_move(difficulty, bot_seat)
+            try:
+                move = await asyncio.wait_for(
+                    self.game.bot_move(difficulty, bot_seat),
+                    timeout=10.0,
+                )
+            except Exception as e:
+                log.exception("Bot move crashed or timed out for seat %s in match %s", bot_seat, self.id)
+                raise RuntimeError(f"Bot failed to make a move: {e}") from e
             if record:
                 self._record_move(move)
             return {bot_seat: move}
@@ -397,7 +437,14 @@ class GameSession:
         # until == "all": collect bot moves alongside human futures.
         for seat in bots:
             difficulty = self.players[seat].bot_difficulty or "medium"
-            move = await self.game.bot_move(difficulty, seat)
+            try:
+                move = await asyncio.wait_for(
+                    self.game.bot_move(difficulty, seat),
+                    timeout=10.0,
+                )
+            except Exception as e:
+                log.exception("Bot move crashed or timed out for seat %s in match %s", seat, self.id)
+                raise RuntimeError(f"Bot failed to make a move: {e}") from e
             results[seat] = move
             if record:
                 self._record_move(move)
@@ -539,7 +586,10 @@ class GameSession:
             self._match_code = code
 
             try:
-                final = await self.game.final_view(self.ctx, outcome)
+                final = await asyncio.wait_for(
+                    self.game.final_view(self.ctx, outcome),
+                    timeout=5.0,
+                )
                 if final is not None:
                     await self._update_surface(final)
                 else:

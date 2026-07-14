@@ -75,7 +75,19 @@ class LifecycleService:
                     continue
                 timeout = pending.timeout_seconds if pending.timeout_seconds is not None else game_cfg.turn_timeout_seconds
                 if idle >= timeout:
-                    await self._resolve_timeout(session, seat)
+                    try:
+                        await self._resolve_timeout(session, seat)
+                    except Exception as e:
+                        log.exception(
+                            "Error resolving timeout for session %s (seat %s)",
+                            session.id,
+                            seat,
+                            exc_info=e,
+                        )
+                        try:
+                            await session.cancel("error")
+                        except Exception:
+                            log.exception("Failed to cancel session %s after timeout crash", session.id)
     async def _resolve_timeout(self, session, seat: int) -> None:
         consequence = determine_consequence(session, seat, reason="timeout")
         await self._execute_consequence(session, seat, consequence, reason="timeout")
@@ -150,15 +162,33 @@ class LifecycleService:
                     "display_name": player.display_name,
                 },
             )
-            move = await session.game.bot_move("hard", seat)
-            await session.force_move(seat, move)
+            try:
+                move = await asyncio.wait_for(session.game.bot_move("hard", seat), timeout=10.0)
+                await session.force_move(seat, move)
+            except Exception as e:
+                log.exception(
+                    "Error executing bot takeover for session %s (seat %s). Ending game.",
+                    session.id,
+                    seat,
+                    exc_info=e,
+                )
+                await session.cancel("error", forfeiter_seat=seat)
 
         elif consequence == TimeoutConsequence.REMOVED:
-            session.game.remove_player(seat)
-            args = {"reason": "timeout"} if reason == "timeout" else {}
-            await session.force_move(
-                seat, Move(actor_seat=seat, source="forfeit", args=args)
-            )
+            try:
+                session.game.remove_player(seat)
+                args = {"reason": "timeout"} if reason == "timeout" else {}
+                await session.force_move(
+                    seat, Move(actor_seat=seat, source="forfeit", args=args)
+                )
+            except Exception as e:
+                log.exception(
+                    "Error removing player for session %s (seat %s). Ending game.",
+                    session.id,
+                    seat,
+                    exc_info=e,
+                )
+                await session.cancel("error", forfeiter_seat=seat)
 
         elif consequence == TimeoutConsequence.GAME_ENDS:
             await session.cancel(reason, forfeiter_seat=seat)

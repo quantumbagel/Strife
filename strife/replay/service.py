@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+import asyncio
 from collections import OrderedDict
 from dataclasses import dataclass
 
@@ -115,7 +116,10 @@ class ReplayService:
 
             token = bind_emoji(self.compiler.emoji)
             try:
-                frames = await game.parse_replay(move_records, ctx)
+                frames = await asyncio.wait_for(
+                    game.parse_replay(move_records, ctx),
+                    timeout=15.0,
+                )
             finally:
                 reset_emoji(token)
         except Exception as exc:
