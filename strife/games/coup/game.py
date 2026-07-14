@@ -200,13 +200,15 @@ class Coup(Game):
 
     def _format_hand(self, ctx: GameContext, seat: int, private: bool = False) -> str:
         if private:
-            return " ".join(f"{self._role_emoji(ctx, r)} **{r.title()}**" for r in self.hands[seat])
-        if ctx.is_replay:
-            cards = [f"{self._role_emoji(ctx, r)} **{r.title()}**" for r in self.hands[seat]]
-        else:
-            cards = ["🎴" for _ in self.hands[seat]]
+            return " ".join(f"{self._role_emoji(ctx, r)} {r.title()}" for r in self.hands[seat])
+        cards = ["`[Card]`" for _ in self.hands[seat]]
         rev = [f"{self._role_emoji(ctx, r)} ~~{r.title()}~~" for r in self.revealed[seat]]
-        return " ".join(cards + rev)
+        return "  ".join(cards + rev)
+
+    def _format_hand_replay(self, ctx: GameContext, seat: int) -> str:
+        cards = [f"{self._role_emoji(ctx, r)} {r.title()}" for r in self.hands[seat]]
+        rev = [f"{self._role_emoji(ctx, r)} ~~{r.title()}~~" for r in self.revealed[seat]]
+        return "  ".join(cards + rev)
 
     async def play(self, ctx: GameContext) -> GameOutcome:
         last_actor = None
@@ -696,18 +698,17 @@ class Coup(Game):
         view.add_container(container)
         return view
 
-    def _public_board_view(self, ctx: GameContext, status: str | None = None) -> LayoutView:
+    def _build_base_board(self, ctx: GameContext, status: str | None = None, is_replay: bool = False) -> tuple[LayoutView, Container]:
         view = LayoutView()
         container = Container()
 
         # Build clean header status
-        current_status = status or f"👉 {self.players[self.current].display_name}'s Turn"
+        current_status = status or f"Active Turn: {self.players[self.current].display_name}"
         message_lead(container, current_status, emoji=ctx.emoji)
 
-        # 🏰 Premium Board Layout Text
         table_text = (
-            "🏰 **C O U P**\n"
-            "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
+            "**C O U P**\n"
+            "──────────────────────────────\n"
         )
         
         action_desc = ""
@@ -716,259 +717,243 @@ class Coup(Game):
             target_name = self.players[self.current_target].mention if self.current_target is not None else ""
             
             if self.current_action == "tax":
-                action_desc = f"{self._role_emoji(ctx, 'duke')} {actor_name} is claiming **Duke** to Tax (+3 coins)"
+                action_desc = f"{self._role_emoji(ctx, 'duke')} {actor_name} claims **Duke** to Tax (+3 coins)"
             elif self.current_action == "assassinate":
-                action_desc = f"{self._role_emoji(ctx, 'assassin')} {actor_name} is claiming **Assassin** to assassinate {target_name}"
+                action_desc = f"{self._role_emoji(ctx, 'assassin')} {actor_name} claims **Assassin** to assassinate {target_name}"
             elif self.current_action == "steal":
-                action_desc = f"{self._role_emoji(ctx, 'captain')} {actor_name} is claiming **Captain** to steal 2 coins from {target_name}"
+                action_desc = f"{self._role_emoji(ctx, 'captain')} {actor_name} claims **Captain** to steal from {target_name}"
             elif self.current_action == "exchange":
-                action_desc = f"{self._role_emoji(ctx, 'ambassador')} {actor_name} is claiming **Ambassador** to Exchange cards"
+                action_desc = f"{self._role_emoji(ctx, 'ambassador')} {actor_name} claims **Ambassador** to Exchange cards"
             elif self.current_action == "foreign_aid":
-                action_desc = f"🪙 {actor_name} is taking **Foreign Aid** (+2 coins)"
+                action_desc = f"{actor_name} takes **Foreign Aid** (+2 coins)"
             elif self.current_action == "coup":
-                action_desc = f"💥 {actor_name} is staging a **Coup** on {target_name}"
+                action_desc = f"{actor_name} stages a **Coup** on {target_name}"
             elif self.current_action == "income":
-                action_desc = f"💵 {actor_name} is taking **Income** (+1 coin)"
+                action_desc = f"{actor_name} takes **Income** (+1 coin)"
                 
         block_desc = ""
         if self.current_blocker is not None and self.current_block_claim is not None:
             blocker_name = self.players[self.current_blocker].mention
-            block_desc = f"{self._role_emoji(ctx, self.current_block_claim)} {blocker_name} is claiming **{self.current_block_claim.title()}** to block"
+            block_desc = f"{self._role_emoji(ctx, self.current_block_claim)} {blocker_name} claims **{self.current_block_claim.title()}** to block"
 
         if action_desc:
-            table_text += "⚡ **Current Action:**\n"
+            table_text += "**Current Action**\n"
             table_text += f"> {action_desc}\n"
             if block_desc:
                 table_text += f"> {block_desc}\n"
-            table_text += "\n"
+            table_text += "──────────────────────────────\n"
 
-        table_text += "👤 **Roster & Influence:**\n"
+        table_text += "**Players**\n"
         for p in self.players:
             is_active = (p.seat == self.current and self.state_phase == "turn")
-            marker = "👉" if is_active else "•"
-            hand_str = self._format_hand(ctx, p.seat)
-            coins_str = f"💰 **{self.coins[p.seat]}**" if p.seat in self.alive else "💀 *Exiled*"
+            marker = "➤ " if is_active else "  "
+            hand_str = self._format_hand_replay(ctx, p.seat) if is_replay else self._format_hand(ctx, p.seat)
+            coins_str = f"{self.coins[p.seat]} coins" if p.seat in self.alive else "Exiled"
             bot_tag = " [BOT]" if p.is_bot else ""
-            table_text += f"{marker} {p.mention}{bot_tag}: {hand_str} ({coins_str})\n"
+            table_text += f"-# {marker}{p.mention}{bot_tag}  ·  {hand_str}  ·  **{coins_str}**\n"
 
         treasury_coins = max(0, 50 - sum(self.coins.values()))
         deck_count = len(self.deck)
-        table_text += f"\n🏦 **Treasury:** 💰 {treasury_coins} | 🎴 **Court Deck:** {deck_count} cards\n"
+        table_text += f"\n-# **Treasury:** {treasury_coins} coins  ·  **Court Deck:** {deck_count} cards\n"
+        table_text += "──────────────────────────────\n"
 
         if self.history:
-            table_text += "\n📋 **Recent Events:**\n" + "\n".join(f"• {item}" for item in self.history[-5:])
+            table_text += "**Recent Events**\n"
+            table_text += "\n".join(f"-# • {item}" for item in self.history[-5:]) + "\n"
+            table_text += "──────────────────────────────"
 
-        table_text += "\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬"
         container.add_text(TextDisplay(table_text))
+        return view, container
 
-        # Build Interactive Controls (Only if not a Replay)
-        if not ctx.is_replay:
-            actor = self.current
+    def _public_board_view_replay(self, ctx: GameContext, status: str | None = None) -> LayoutView:
+        view, container = self._build_base_board(ctx, status=status, is_replay=True)
+        view.add_container(container)
+        return view
 
-            if self.state_phase == "turn":
-                forced_coup = self.coins[actor] >= 10
+    def _public_board_view(self, ctx: GameContext, status: str | None = None) -> LayoutView:
+        view, container = self._build_base_board(ctx, status=status, is_replay=False)
+        actor = self.current
 
-                # Action options
-                action_choices = []
-                if forced_coup:
+        if self.state_phase == "turn":
+            forced_coup = self.coins[actor] >= 10
+
+            # Action options
+            action_choices = []
+            if forced_coup:
+                action_choices.append(SelectChoice(
+                    label="Coup (Forced) -7 coins",
+                    value="coup",
+                    description="Must launch a Coup when starting with 10+ coins",
+                    emoji="💥",
+                    default=True
+                ))
+            else:
+                action_choices.append(SelectChoice(
+                    label="Income (+1 coin)",
+                    value="income",
+                    description="Take 1 coin from the Treasury",
+                    emoji="💵",
+                    default=(self.selected_action == "income")
+                ))
+                action_choices.append(SelectChoice(
+                    label="Foreign Aid (+2 coins)",
+                    value="foreign_aid",
+                    description="Take 2 coins (Can be blocked by Duke)",
+                    emoji="🪙",
+                    default=(self.selected_action == "foreign_aid")
+                ))
+                action_choices.append(SelectChoice(
+                    label="Tax (Duke) (+3 coins)",
+                    value="tax",
+                    description="Take 3 coins claiming Duke",
+                    emoji=self._role_emoji(ctx, "duke"),
+                    default=(self.selected_action == "tax")
+                ))
+                if self.coins[actor] >= 7:
                     action_choices.append(SelectChoice(
-                        label="Coup (Forced) -7 coins",
+                        label="Coup (-7 coins)",
                         value="coup",
-                        description="Must launch a Coup when starting with 10+ coins",
+                        description="Force another player to lose influence",
                         emoji="💥",
-                        default=True
+                        default=(self.selected_action == "coup")
                     ))
-                else:
+                if self.coins[actor] >= 3:
                     action_choices.append(SelectChoice(
-                        label="Income (+1 coin)",
-                        value="income",
-                        description="Take 1 coin from the Treasury",
-                        emoji="💵",
-                        default=(self.selected_action == "income")
+                        label="Assassinate (-3 coins)",
+                        value="assassinate",
+                        description="Assassinate another player (Can be blocked by Contessa)",
+                        emoji=self._role_emoji(ctx, "assassin"),
+                        default=(self.selected_action == "assassinate")
                     ))
-                    action_choices.append(SelectChoice(
-                        label="Foreign Aid (+2 coins)",
-                        value="foreign_aid",
-                        description="Take 2 coins (Can be blocked by Duke)",
-                        emoji="🪙",
-                        default=(self.selected_action == "foreign_aid")
-                    ))
-                    action_choices.append(SelectChoice(
-                        label="Tax (Duke) (+3 coins)",
-                        value="tax",
-                        description="Take 3 coins claiming Duke",
-                        emoji=self._role_emoji(ctx, "duke"),
-                        default=(self.selected_action == "tax")
-                    ))
-                    if self.coins[actor] >= 7:
-                        action_choices.append(SelectChoice(
-                            label="Coup (-7 coins)",
-                            value="coup",
-                            description="Force another player to lose influence",
-                            emoji="💥",
-                            default=(self.selected_action == "coup")
-                        ))
-                    if self.coins[actor] >= 3:
-                        action_choices.append(SelectChoice(
-                            label="Assassinate (-3 coins)",
-                            value="assassinate",
-                            description="Assassinate another player (Can be blocked by Contessa)",
-                            emoji=self._role_emoji(ctx, "assassin"),
-                            default=(self.selected_action == "assassinate")
-                        ))
-                    action_choices.append(SelectChoice(
-                        label="Steal (Captain)",
-                        value="steal",
-                        description="Take 2 coins from another player",
-                        emoji=self._role_emoji(ctx, "captain"),
-                        default=(self.selected_action == "steal")
-                    ))
-                    action_choices.append(SelectChoice(
-                        label="Exchange (Ambassador)",
-                        value="exchange",
-                        description="Exchange cards with the Court Deck",
-                        emoji=self._role_emoji(ctx, "ambassador"),
-                        default=(self.selected_action == "exchange")
-                    ))
+                action_choices.append(SelectChoice(
+                    label="Steal (Captain)",
+                    value="steal",
+                    description="Steal 2 coins from another player (Can be blocked by Captain/Ambassador)",
+                    emoji=self._role_emoji(ctx, "captain"),
+                    default=(self.selected_action == "steal")
+                ))
+                action_choices.append(SelectChoice(
+                    label="Exchange (Ambassador)",
+                    value="exchange",
+                    description="Draw 2 cards and choose which to keep",
+                    emoji=self._role_emoji(ctx, "ambassador"),
+                    default=(self.selected_action == "exchange")
+                ))
 
-                # Target options
+            row_actions = ActionRow()
+            row_actions.add_select(
+                Select(
+                    source="action_select",
+                    placeholder="Select action to perform",
+                    choices=action_choices,
+                )
+            )
+            container.add_action_row(row_actions)
+
+            # Target options (Only if selected action requires target)
+            needs_target = self.selected_action in ("coup", "assassinate", "steal")
+            if needs_target:
                 target_choices = [
                     SelectChoice(
-                        label="No Target Required",
-                        value="none",
-                        description="For Income, Foreign Aid, Tax, or Exchange",
-                        emoji="🚫",
-                        default=(self.selected_target == "none")
+                        label=p.display_name,
+                        value=str(p.seat),
+                        default=(self.selected_target == p.seat)
                     )
+                    for p in self.players
+                    if p.seat != actor and p.seat in self.alive
                 ]
-                for p in self.players:
-                    if p.seat in self.alive and p.seat != actor:
-                        target_choices.append(SelectChoice(
-                            label=f"Target: {p.display_name} (💰 {self.coins[p.seat]} coins)",
-                            value=str(p.seat),
-                            emoji="👤",
-                            default=(self.selected_target == str(p.seat))
-                        ))
-
-                # Dropdowns row
-                row_actions = ActionRow()
-                row_actions.add_select(
-                    Select(
-                        source="action_select",
-                        placeholder="Select your action...",
-                        choices=action_choices,
-                    )
-                )
-                container.add_action_row(row_actions)
-
                 row_targets = ActionRow()
                 row_targets.add_select(
                     Select(
                         source="target_select",
-                        placeholder="Select a target player (if needed)...",
+                        placeholder="Select target player",
                         choices=target_choices,
                     )
                 )
                 container.add_action_row(row_targets)
 
-                # Submit Button Validation
-                is_valid = False
-                submit_label = "Submit Action"
-                if self.selected_action is not None:
-                    action_title = self.selected_action.title()
-                    if self.selected_action in ("income", "foreign_aid", "tax", "exchange"):
-                        is_valid = True
-                        submit_label = f"Confirm {action_title}"
-                    elif self.selected_action in ("coup", "assassinate", "steal"):
-                        if self.selected_target is not None and self.selected_target != "none":
-                            target_player = self.players[int(self.selected_target)]
-                            is_valid = True
-                            submit_label = f"Confirm {action_title} ➔ {target_player.display_name}"
-                        else:
-                            submit_label = "Select a Target..."
-                else:
-                    submit_label = "Select an Action..."
-
-                row_submit = ActionRow()
-                row_submit.add_button(
-                    Button(
-                        source="submit_action",
-                        label=submit_label,
-                        style=ButtonStyle.SUCCESS if is_valid else ButtonStyle.SECONDARY,
-                        disabled=not is_valid
-                    )
+            # Submit action button
+            is_valid = not needs_target or (self.selected_target is not None)
+            row_submit = ActionRow()
+            row_submit.add_button(
+                Button(
+                    source="submit_action",
+                    label="Submit Move",
+                    style=ButtonStyle.PRIMARY,
+                    disabled=not is_valid
                 )
-                container.add_action_row(row_submit)
+            )
+            container.add_action_row(row_submit)
 
-            elif self.state_phase in ("challenge_window", "block_challenge_window"):
-                row = ActionRow()
-                row.add_button(Button(source="challenge", label="Challenge Claim", style=ButtonStyle.DANGER))
-                if self.state_phase == "challenge_window":
-                    if self.current_action == "assassinate":
-                        row.add_button(
-                            Button(
-                                source="block_contessa",
-                                label="Block: Contessa",
-                                style=ButtonStyle.PRIMARY,
-                            )
+        elif self.state_phase in ("challenge_window", "block_challenge_window"):
+            row = ActionRow()
+            row.add_button(Button(source="challenge", label="Challenge Claim", style=ButtonStyle.DANGER))
+            if self.state_phase == "challenge_window":
+                if self.current_action == "assassinate":
+                    row.add_button(
+                        Button(
+                            source="block_contessa",
+                            label="Block: Contessa",
+                            style=ButtonStyle.PRIMARY,
                         )
-                    elif self.current_action == "steal":
-                        row.add_button(
-                            Button(
-                                source="block_captain",
-                                label="Block: Captain",
-                                style=ButtonStyle.PRIMARY,
-                            )
-                        )
-                        row.add_button(
-                            Button(
-                                source="block_ambassador",
-                                label="Block: Ambassador",
-                                style=ButtonStyle.PRIMARY,
-                            )
-                        )
-                row.add_button(Button(source="pass", label="Pass", style=ButtonStyle.SECONDARY))
-                container.add_action_row(row)
-
-            elif self.state_phase == "block_window":
-                row = ActionRow()
-                if self.current_action == "steal":
-                    row.add_button(Button(source="block_captain", label="Block: Captain", style=ButtonStyle.PRIMARY))
-                    row.add_button(Button(source="block_ambassador", label="Block: Ambassador", style=ButtonStyle.PRIMARY))
-                elif self.current_action == "assassinate":
-                    row.add_button(Button(source="block_contessa", label="Block: Contessa", style=ButtonStyle.PRIMARY))
-                elif self.current_action == "foreign_aid":
-                    row.add_button(Button(source="block_duke", label="Block: Duke", style=ButtonStyle.PRIMARY))
-
-                row.add_button(Button(source="pass", label="Pass", style=ButtonStyle.SECONDARY))
-                container.add_action_row(row)
-
-            elif self.state_phase == "lose_influence":
-                row = ActionRow()
-                row.add_button(
-                    Button(
-                        source="lose_influence_open",
-                        label=f"Choose card to reveal ({self.players[self.current_loser].display_name})",
-                        style=ButtonStyle.DANGER,
                     )
-                )
-                container.add_action_row(row)
-
-            elif self.state_phase == "exchange":
-                row = ActionRow()
-                row.add_button(
-                    Button(
-                        source="exchange_open",
-                        label=f"Select cards to keep ({self.players[self.current_actor].display_name})",
-                        style=ButtonStyle.PRIMARY,
+                elif self.current_action == "steal":
+                    row.add_button(
+                        Button(
+                            source="block_captain",
+                            label="Block: Captain",
+                            style=ButtonStyle.PRIMARY,
+                        )
                     )
-                )
-                container.add_action_row(row)
+                    row.add_button(
+                        Button(
+                            source="block_ambassador",
+                            label="Block: Ambassador",
+                            style=ButtonStyle.PRIMARY,
+                        )
+                    )
+            row.add_button(Button(source="pass", label="Pass", style=ButtonStyle.SECONDARY))
+            container.add_action_row(row)
 
-            # Ephemeral Card Peek Button
-            row_peek = ActionRow()
-            row_peek.add_button(Button(source="peek", label="Peek Cards", emoji="peek", style=ButtonStyle.SECONDARY))
-            container.add_action_row(row_peek)
+        elif self.state_phase == "block_window":
+            row = ActionRow()
+            if self.current_action == "steal":
+                row.add_button(Button(source="block_captain", label="Block: Captain", style=ButtonStyle.PRIMARY))
+                row.add_button(Button(source="block_ambassador", label="Block: Ambassador", style=ButtonStyle.PRIMARY))
+            elif self.current_action == "assassinate":
+                row.add_button(Button(source="block_contessa", label="Block: Contessa", style=ButtonStyle.PRIMARY))
+            elif self.current_action == "foreign_aid":
+                row.add_button(Button(source="block_duke", label="Block: Duke", style=ButtonStyle.PRIMARY))
+
+            row.add_button(Button(source="pass", label="Pass", style=ButtonStyle.SECONDARY))
+            container.add_action_row(row)
+
+        elif self.state_phase == "lose_influence":
+            row = ActionRow()
+            row.add_button(
+                Button(
+                    source="lose_influence_open",
+                    label=f"Choose card to reveal ({self.players[self.current_loser].display_name})",
+                    style=ButtonStyle.DANGER,
+                )
+            )
+            container.add_action_row(row)
+
+        elif self.state_phase == "exchange":
+            row = ActionRow()
+            row.add_button(
+                Button(
+                    source="exchange_open",
+                    label=f"Select cards to keep ({self.players[self.current_actor].display_name})",
+                    style=ButtonStyle.PRIMARY,
+                )
+            )
+            container.add_action_row(row)
+
+        # Ephemeral Card Peek Button
+        row_peek = ActionRow()
+        row_peek.add_button(Button(source="peek", label="Peek Cards", emoji="peek", style=ButtonStyle.SECONDARY))
+        container.add_action_row(row_peek)
 
         view.add_container(container)
         return view
@@ -986,7 +971,7 @@ class Coup(Game):
             prefix_emoji="success",
         )
 
-        history_text = "🏆 **Final Match Logs:**\n" + "\n".join(f"• {item}" for item in self.history)
+        history_text = "**Final Match Logs:**\n" + "\n".join(f"-# • {item}" for item in self.history)
         container.add_text(TextDisplay(history_text))
         view.add_container(container)
         return view
@@ -1062,7 +1047,7 @@ class Coup(Game):
                 index=0,
                 turn_label="Start",
                 actor_seat=None,
-                view=clone_and_disable(self._public_board_view(ctx, status="Match start")),
+                view=clone_and_disable(self._public_board_view_replay(ctx, status="Match start")),
                 timestamp=ctx.started_at,
             )
         )
@@ -1121,7 +1106,7 @@ class Coup(Game):
                 action_blocked = False
                 block_pending = False
 
-                view = self._public_board_view(ctx)
+                view = self._public_board_view_replay(ctx)
                 frames.append(
                     ReplayFrame(
                         index=len(frames),
@@ -1138,7 +1123,7 @@ class Coup(Game):
                 self.state_phase = "challenge_window"
                 challenged = self._replay_seat(move, "challenged")
                 challenger = self._replay_seat(move, "challenger")
-                view = self._public_board_view(
+                view = self._public_board_view_replay(
                     ctx,
                     status=(
                         f"{self.players[challenger].display_name} challenges "
@@ -1166,7 +1151,7 @@ class Coup(Game):
                 self.current_blocker = blocker
                 self.current_block_claim = claim
                 block_pending = True
-                view = self._public_board_view(ctx)
+                view = self._public_board_view_replay(ctx)
                 frames.append(
                     ReplayFrame(
                         index=len(frames),
@@ -1181,7 +1166,7 @@ class Coup(Game):
 
             if move.source == "block_challenge":
                 self.state_phase = "block_challenge_window"
-                view = self._public_board_view(ctx, status="Block challenged")
+                view = self._public_board_view_replay(ctx, status="Block challenged")
                 frames.append(
                     ReplayFrame(
                         index=len(frames),
@@ -1199,7 +1184,7 @@ class Coup(Game):
                 if actor is not None:
                     keep = move.arguments.get("keep", [])
                     self.hands[actor] = list(keep)
-                view = self._public_board_view(ctx, status="Cards exchanged")
+                view = self._public_board_view_replay(ctx, status="Cards exchanged")
                 frames.append(
                     ReplayFrame(
                         index=len(frames),
@@ -1224,7 +1209,7 @@ class Coup(Game):
                     if self.coins[actor] > 0:
                         self.coins[actor] -= 1
                     self.current = self._next_player(actor)
-                view = self._public_board_view(ctx, status="Turn timed out")
+                view = self._public_board_view_replay(ctx, status="Turn timed out")
                 frames.append(
                     ReplayFrame(
                         index=len(frames),
@@ -1259,7 +1244,7 @@ class Coup(Game):
                 self.state_phase = "lose_influence"
                 self.current_loser = seat
 
-                view = self._public_board_view(ctx, status="Influence lost")
+                view = self._public_board_view_replay(ctx, status="Influence lost")
                 frames.append(
                     ReplayFrame(
                         index=len(frames),

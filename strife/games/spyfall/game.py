@@ -249,7 +249,7 @@ class Spyfall(Game):
             player_descriptions=player_descriptions,
         )
 
-    def _discussion_view(self, ctx: GameContext) -> LayoutView:
+    def _discussion_view_replay(self, ctx: GameContext) -> LayoutView:
         view = LayoutView()
         container = Container()
         message_lead(container, self._phase_status(ctx), emoji=ctx.emoji, prefix_emoji="timer")
@@ -265,73 +265,75 @@ class Spyfall(Game):
             loc_text += f"• {loc}\n"
 
         container.add_text(TextDisplay(roster_text + loc_text))
-
-        if not ctx.is_replay:
-            other_choices = [
-                SelectChoice(label=p.display_name, value=str(p.seat))
-                for p in self.players
-                if p.seat in self.alive
-            ]
-            row1 = ActionRow()
-            row1.add_select(
-                Select(
-                    source="accuse_select",
-                    placeholder="Accuse a player of being the spy",
-                    choices=other_choices,
-                )
-            )
-            container.add_action_row(row1)
-
-            loc_choices = [
-                SelectChoice(label=loc, value=loc)
-                for loc in self.LOCATIONS
-            ]
-            row2 = ActionRow()
-            row2.add_select(
-                Select(
-                    source="location_select",
-                    placeholder="Guess location (Spy only)",
-                    choices=loc_choices,
-                )
-            )
-            container.add_action_row(row2)
-
-            row3 = ActionRow()
-            row3.add_button(
-                Button(
-                    source="accuse",
-                    label="Submit Accusation",
-                    style=ButtonStyle.DANGER,
-                )
-            )
-            row3.add_button(
-                Button(
-                    source="guess_location",
-                    label="Guess Location (Spy only)",
-                    style=ButtonStyle.SUCCESS,
-                )
-            )
-            row3.add_button(
-                Button(
-                    source="pass",
-                    label="Pass",
-                    style=ButtonStyle.SECONDARY,
-                )
-            )
-            row3.add_button(
-                Button(
-                    source="peek",
-                    label="Peek Info",
-                    emoji="peek",
-                    style=ButtonStyle.SECONDARY,
-                )
-            )
-            container.add_action_row(row3)
-
         view.add_container(container)
         return view
 
-    def _voting_view(self, ctx: GameContext) -> LayoutView:
+    def _discussion_view(self, ctx: GameContext) -> LayoutView:
+        view = self._discussion_view_replay(ctx)
+        container = view.containers[0]
+        other_choices = [
+            SelectChoice(label=p.display_name, value=str(p.seat))
+            for p in self.players
+            if p.seat in self.alive
+        ]
+        row1 = ActionRow()
+        row1.add_select(
+            Select(
+                source="accuse_select",
+                placeholder="Accuse a player of being the spy",
+                choices=other_choices,
+            )
+        )
+        container.add_action_row(row1)
+
+        loc_choices = [
+            SelectChoice(label=loc, value=loc)
+            for loc in self.LOCATIONS
+        ]
+        row2 = ActionRow()
+        row2.add_select(
+            Select(
+                source="location_select",
+                placeholder="Guess location (Spy only)",
+                choices=loc_choices,
+            )
+        )
+        container.add_action_row(row2)
+
+        row3 = ActionRow()
+        row3.add_button(
+            Button(
+                source="accuse",
+                label="Submit Accusation",
+                style=ButtonStyle.DANGER,
+            )
+        )
+        row3.add_button(
+            Button(
+                source="guess_location",
+                label="Guess Location (Spy only)",
+                style=ButtonStyle.SUCCESS,
+            )
+        )
+        row3.add_button(
+            Button(
+                source="pass",
+                label="Pass",
+                style=ButtonStyle.SECONDARY,
+            )
+        )
+        row3.add_button(
+            Button(
+                source="peek",
+                label="Peek Info",
+                emoji="peek",
+                style=ButtonStyle.SECONDARY,
+            )
+        )
+        container.add_action_row(row3)
+        return view
+
+    def _voting_view_replay(self, ctx: GameContext) -> LayoutView:
         view = LayoutView()
         container = Container()
         accused_name = self._name(self.accused_player)
@@ -350,37 +352,39 @@ class Spyfall(Game):
             votes_text += f"• {p.mention}: **{v_status.upper()}**\n"
 
         container.add_text(TextDisplay(votes_text))
-
-        if not ctx.is_replay:
-            row = ActionRow()
-            row.add_button(
-                Button(
-                    source="vote_guilty",
-                    label="Guilty",
-                    style=ButtonStyle.DANGER,
-                )
-            )
-            row.add_button(
-                Button(
-                    source="vote_innocent",
-                    label="Innocent",
-                    style=ButtonStyle.SUCCESS,
-                )
-            )
-            container.add_action_row(row)
-
-            row2 = ActionRow()
-            row2.add_button(
-                Button(
-                    source="peek",
-                    label="Peek Info",
-                    emoji="peek",
-                    style=ButtonStyle.SECONDARY,
-                )
-            )
-            container.add_action_row(row2)
-
         view.add_container(container)
+        return view
+
+    def _voting_view(self, ctx: GameContext) -> LayoutView:
+        view = self._voting_view_replay(ctx)
+        container = view.containers[0]
+        row = ActionRow()
+        row.add_button(
+            Button(
+                source="vote_guilty",
+                label="Guilty",
+                style=ButtonStyle.DANGER,
+            )
+        )
+        row.add_button(
+            Button(
+                source="vote_innocent",
+                label="Innocent",
+                style=ButtonStyle.SUCCESS,
+            )
+        )
+        container.add_action_row(row)
+
+        row2 = ActionRow()
+        row2.add_button(
+            Button(
+                source="peek",
+                label="Peek Info",
+                emoji="peek",
+                style=ButtonStyle.SECONDARY,
+            )
+        )
+        container.add_action_row(row2)
         return view
 
     async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
@@ -418,7 +422,7 @@ class Spyfall(Game):
             if move.source == "setup":
                 self.location = move.arguments["location"]
                 self.spy = move.arguments["spy"]
-                view = self._discussion_view(ctx)
+                view = self._discussion_view_replay(ctx)
                 frames.append(ReplayFrame(
                     index=len(frames),
                     turn_label="Setup",
@@ -432,7 +436,7 @@ class Spyfall(Game):
                 self.accuser = move.arguments.get("accuser", move.actor_seat)
                 self.accused_player = move.arguments["accused"]
                 self.votes = {}
-                view = self._voting_view(ctx)
+                view = self._voting_view_replay(ctx)
                 frames.append(ReplayFrame(
                     index=len(frames),
                     turn_label="Accusation",
@@ -448,7 +452,7 @@ class Spyfall(Game):
                 self.accused_player = None
                 self.accuser = None
                 self.turn += 1
-                view = self._discussion_view(ctx)
+                view = self._discussion_view_replay(ctx)
                 frames.append(ReplayFrame(
                     index=len(frames),
                     turn_label="Accusation Resolved",

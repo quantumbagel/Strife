@@ -268,7 +268,7 @@ class LiarsDice(Game):
             player_descriptions=player_descriptions,
         )
 
-    def _round_view(
+    def _round_view_replay(
         self,
         ctx: GameContext,
         *,
@@ -293,99 +293,108 @@ class LiarsDice(Game):
             table_text += "\n👉 **Current Bid**: None (Opening bid)"
 
         container.add_text(TextDisplay(table_text))
-
-        if not ctx.is_replay:
-            total_dice = self._total_alive_dice()
-            min_q = 1
-            if self.current_bid is not None:
-                min_q = self.current_bid[0]
-
-            max_q = total_dice
-            low_q = min_q
-            if max_q - low_q + 1 > 25:
-                low_q = max(min_q, max_q - 24)
-
-            quantity_choices = [
-                SelectChoice(
-                    label=str(q),
-                    value=str(q),
-                    default=(self.pending_quantity == q),
-                )
-                for q in range(low_q, max_q + 1)
-            ]
-
-            val_start = 1 if not self.settings.get("wild_ones", True) else 2
-            value_choices = [
-                SelectChoice(
-                    label=f"Value {v}",
-                    value=str(v),
-                    emoji=f"die_{v}",
-                    default=(self.pending_value == v),
-                )
-                for v in range(val_start, 7)
-            ]
-
-            at_max_bid = self._is_max_bid()
-            pending_text = ""
-            if self.pending_quantity is not None and self.pending_value is not None:
-                pending_text = (
-                    f"\n**Pending bid:** {self.pending_quantity} × "
-                    f"{self._die_emoji(ctx, self.pending_value)}"
-                )
-            elif self.pending_quantity is not None or self.pending_value is not None:
-                pending_text = "\n**Pending bid:** choose both quantity and value."
-
-            if pending_text:
-                container.add_text(TextDisplay(pending_text))
-
-            row1 = ActionRow()
-            row1.add_select(
-                Select(
-                    source="quantity_select",
-                    placeholder="Choose quantity",
-                    choices=quantity_choices,
-                )
-            )
-            container.add_action_row(row1)
-
-            row2 = ActionRow()
-            row2.add_select(
-                Select(
-                    source="value_select",
-                    placeholder="Choose die value",
-                    choices=value_choices,
-                )
-            )
-            container.add_action_row(row2)
-
-            row3 = ActionRow()
-            row3.add_button(
-                Button(
-                    source="bid",
-                    label="Submit Bid",
-                    style=ButtonStyle.PRIMARY,
-                    disabled=at_max_bid,
-                )
-            )
-            row3.add_button(
-                Button(
-                    source="challenge",
-                    label="Call Liar!",
-                    style=ButtonStyle.DANGER,
-                    disabled=self.last_bidder is None,
-                )
-            )
-            row3.add_button(
-                Button(
-                    source="peek",
-                    label="Peek Hand",
-                    emoji="peek",
-                    style=ButtonStyle.SECONDARY,
-                )
-            )
-            container.add_action_row(row3)
-
         view.add_container(container)
+        return view
+
+    def _round_view(
+        self,
+        ctx: GameContext,
+        *,
+        lead: str | None = None,
+        prefix_emoji: str | None = None,
+    ) -> LayoutView:
+        view = self._round_view_replay(ctx, lead=lead, prefix_emoji=prefix_emoji)
+        container = view.containers[0]
+
+        total_dice = self._total_alive_dice()
+        min_q = 1
+        if self.current_bid is not None:
+            min_q = self.current_bid[0]
+
+        max_q = total_dice
+        low_q = min_q
+        if max_q - low_q + 1 > 25:
+            low_q = max(min_q, max_q - 24)
+
+        quantity_choices = [
+            SelectChoice(
+                label=str(q),
+                value=str(q),
+                default=(self.pending_quantity == q),
+            )
+            for q in range(low_q, max_q + 1)
+        ]
+
+        val_start = 1 if not self.settings.get("wild_ones", True) else 2
+        value_choices = [
+            SelectChoice(
+                label=f"Value {v}",
+                value=str(v),
+                emoji=f"die_{v}",
+                default=(self.pending_value == v),
+            )
+            for v in range(val_start, 7)
+        ]
+
+        at_max_bid = self._is_max_bid()
+        pending_text = ""
+        if self.pending_quantity is not None and self.pending_value is not None:
+            pending_text = (
+                f"\n**Pending bid:** {self.pending_quantity} × "
+                f"{self._die_emoji(ctx, self.pending_value)}"
+            )
+        elif self.pending_quantity is not None or self.pending_value is not None:
+            pending_text = "\n**Pending bid:** choose both quantity and value."
+
+        if pending_text:
+            container.add_text(TextDisplay(pending_text))
+
+        row1 = ActionRow()
+        row1.add_select(
+            Select(
+                source="quantity_select",
+                placeholder="Choose quantity",
+                choices=quantity_choices,
+            )
+        )
+        container.add_action_row(row1)
+
+        row2 = ActionRow()
+        row2.add_select(
+            Select(
+                source="value_select",
+                placeholder="Choose die value",
+                choices=value_choices,
+            )
+        )
+        container.add_action_row(row2)
+
+        row3 = ActionRow()
+        row3.add_button(
+            Button(
+                source="bid",
+                label="Submit Bid",
+                style=ButtonStyle.PRIMARY,
+                disabled=at_max_bid,
+            )
+        )
+        row3.add_button(
+            Button(
+                source="challenge",
+                label="Call Liar!",
+                style=ButtonStyle.DANGER,
+                disabled=self.last_bidder is None,
+            )
+        )
+        row3.add_button(
+            Button(
+                source="peek",
+                label="Peek Hand",
+                emoji="peek",
+                style=ButtonStyle.SECONDARY,
+            )
+        )
+        container.add_action_row(row3)
         return view
 
     async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
@@ -412,8 +421,6 @@ class LiarsDice(Game):
         self.alive = {p.seat for p in self.players}
         self.current_bid = None
         self.last_bidder = None
-        self.history = []
-
         frames: list[ReplayFrame] = []
         from strife.presentation.compiler import clone_and_disable
 
@@ -425,7 +432,7 @@ class LiarsDice(Game):
                 self.dice_counts = {int(k): v for k, v in move.arguments["dice_counts"].items()}
                 self.current_bid = None
                 self.last_bidder = None
-                view = self._round_view(ctx, lead="Dice rolled!")
+                view = self._round_view_replay(ctx, lead="Dice rolled!")
                 frames.append(ReplayFrame(
                     index=len(frames),
                     turn_label="Round Start",
@@ -438,7 +445,7 @@ class LiarsDice(Game):
             elif move.source == "bid":
                 self.current_bid = (move.arguments["quantity"], move.arguments["value"])
                 self.last_bidder = move.actor_seat
-                view = self._round_view(
+                view = self._round_view_replay(
                     ctx,
                     lead=f"Bid submitted by {self.players[move.actor_seat].mention}",
                 )

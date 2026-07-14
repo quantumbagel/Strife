@@ -358,7 +358,7 @@ class Mafia(Game):
 
             elif move.source == "night_start":
                 day_num = move.arguments["day"]
-                view = self._public_view(
+                view = self._public_view_replay(
                     ctx,
                     lead="Night falls across the town...",
                     prefix_emoji="timer",
@@ -530,7 +530,7 @@ class Mafia(Game):
 
         return frames
 
-    def _public_view(
+    def _public_view_replay(
         self,
         ctx: GameContext,
         *,
@@ -548,15 +548,26 @@ class Mafia(Game):
             container.add_separator()
             container.add_text(TextDisplay(markdown_content=history_block))
 
-        if not ctx.is_replay:
-            row = ActionRow()
-            row.add_button(Button(source="peek", label="Peek Role", emoji="peek", style=ButtonStyle.SECONDARY))
-            container.add_action_row(row)
-
         view.add_container(container)
         return view
 
-    def _day_view(self, ctx: GameContext) -> LayoutView:
+    def _public_view(
+        self,
+        ctx: GameContext,
+        *,
+        lead: str | None = None,
+        prefix_emoji: str | None = None,
+        alive: set[int] | None = None,
+        history: list[str] | None = None,
+    ) -> LayoutView:
+        view = self._public_view_replay(ctx, lead=lead, prefix_emoji=prefix_emoji, alive=alive, history=history)
+        container = view.containers[0]
+        row = ActionRow()
+        row.add_button(Button(source="peek", label="Peek Role", emoji="peek", style=ButtonStyle.SECONDARY))
+        container.add_action_row(row)
+        return view
+
+    def _day_view_replay(self, ctx: GameContext) -> LayoutView:
         view = LayoutView()
         container = Container()
         message_lead(
@@ -571,21 +582,24 @@ class Mafia(Game):
             container.add_separator()
             container.add_text(TextDisplay(markdown_content=history_block))
 
-        if not ctx.is_replay:
-            row = ActionRow()
-            choices = [
-                SelectChoice(label=self.players[s].display_name, value=str(s))
-                for s in sorted(self.alive)
-            ]
-            choices.append(SelectChoice(label="Skip", value="skip"))
-            row.add_select(Select(source="vote", placeholder="Cast your vote", choices=choices))
-            container.add_action_row(row)
-
-            row2 = ActionRow()
-            row2.add_button(Button(source="peek", label="Peek Role", emoji="peek", style=ButtonStyle.SECONDARY))
-            container.add_action_row(row2)
-
         view.add_container(container)
+        return view
+
+    def _day_view(self, ctx: GameContext) -> LayoutView:
+        view = self._day_view_replay(ctx)
+        container = view.containers[0]
+        row = ActionRow()
+        choices = [
+            SelectChoice(label=self.players[s].display_name, value=str(s))
+            for s in sorted(self.alive)
+        ]
+        choices.append(SelectChoice(label="Skip", value="skip"))
+        row.add_select(Select(source="vote", placeholder="Cast your vote", choices=choices))
+        container.add_action_row(row)
+
+        row2 = ActionRow()
+        row2.add_button(Button(source="peek", label="Peek Role", emoji="peek", style=ButtonStyle.SECONDARY))
+        container.add_action_row(row2)
         return view
 
     def _winner(self) -> str | None:

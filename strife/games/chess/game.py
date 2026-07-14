@@ -328,7 +328,7 @@ class Chess(TurnBasedGame):
             
         builder = ReplayBuilder(ctx)
         builder.initial_frame(
-            self.render(
+            self.render_replay(
                 ctx,
                 title="Start",
                 status=self.replay_initial_status(ctx, moves),
@@ -347,7 +347,7 @@ class Chess(TurnBasedGame):
             if is_terminal_replay_move(move, index, len(moves)):
                 builder.after_move(
                     move,
-                    self.render_final(ctx),
+                    self.render_final_replay(ctx),
                     label="Final",
                     actor_seat=move.actor_seat,
                     takeover_info=system_info,
@@ -357,7 +357,7 @@ class Chess(TurnBasedGame):
             action = index + 1
             builder.after_move(
                 move,
-                self.render(ctx, title=f"Action {action}"),
+                self.render_replay(ctx, title=f"Action {action}"),
                 label=f"Action {action}",
                 actor_seat=move.actor_seat,
                 takeover_info=system_info,
@@ -365,7 +365,7 @@ class Chess(TurnBasedGame):
 
         return builder.build()
 
-    def render(
+    def _render_base(
         self,
         ctx: GameContext,
         *,
@@ -373,7 +373,7 @@ class Chess(TurnBasedGame):
         status: str | None = None,
         status_emoji: str | None = None,
         lead: str | None = None,
-    ) -> LayoutView:
+    ) -> tuple[LayoutView, Container]:
         view = LayoutView()
 
         # Render SVG board
@@ -394,14 +394,40 @@ class Chess(TurnBasedGame):
         gallery.add_item(MediaGalleryItem(media_url=f"attachment://{filename}", description="Chess Board"))
         container.set_gallery(gallery)
 
-        # Show list of legal moves (SAN)
-        if not ctx.is_replay:
-            legal_moves_str = ", ".join(self.board.san(m) for m in self.board.legal_moves)
-            container.add_text(TextDisplay(f"**Legal moves:** {legal_moves_str}"))
-
         if self.time_control_active:
             container.add_text(TextDisplay(f"⏱️ **Clocks:** {self._format_clocks()}"))
 
+        return view, container
+
+    def render(
+        self,
+        ctx: GameContext,
+        *,
+        title: str | None = None,
+        status: str | None = None,
+        status_emoji: str | None = None,
+        lead: str | None = None,
+    ) -> LayoutView:
+        view, container = self._render_base(
+            ctx, title=title, status=status, status_emoji=status_emoji, lead=lead
+        )
+        legal_moves_str = ", ".join(self.board.san(m) for m in self.board.legal_moves)
+        container.add_text(TextDisplay(f"**Legal moves:** {legal_moves_str}"))
+        view.add_container(container)
+        return view
+
+    def render_replay(
+        self,
+        ctx: GameContext,
+        *,
+        title: str | None = None,
+        status: str | None = None,
+        status_emoji: str | None = None,
+        lead: str | None = None,
+    ) -> LayoutView:
+        view, container = self._render_base(
+            ctx, title=title, status=status, status_emoji=status_emoji, lead=lead
+        )
         view.add_container(container)
         return view
 
@@ -409,6 +435,11 @@ class Chess(TurnBasedGame):
         outcome = self._outcome()
         status = outcome.description if outcome else "Game over."
         return self.render(ctx, title="Final", status=status, status_emoji="error")
+
+    def render_final_replay(self, ctx: GameContext) -> LayoutView:
+        outcome = self._outcome()
+        status = outcome.description if outcome else "Game over."
+        return self.render_replay(ctx, title="Final", status=status, status_emoji="error")
 
 
 

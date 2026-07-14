@@ -189,9 +189,25 @@ class ConnectFour(TurnBasedGame):
                 lead = status
             elif title is not None:
                 lead = title
-            elif not ctx.is_replay:
+            else:
                 lead = self._action_status(ctx, self.current)
         return self._board_view(ctx, lead=lead, prefix_emoji=status_emoji)
+
+    def render_replay(
+        self,
+        ctx: GameContext,
+        *,
+        lead: str | None = None,
+        status: str | None = None,
+        status_emoji: str | None = None,
+        title: str | None = None,
+    ) -> LayoutView:
+        if lead is None:
+            if status is not None:
+                lead = status
+            elif title is not None:
+                lead = title
+        return self._board_view(ctx, lead=lead, prefix_emoji=status_emoji, controls=False)
 
     def _board_view(
         self,
@@ -229,7 +245,7 @@ class ConnectFour(TurnBasedGame):
 
         container.add_text(TextDisplay(board_text))
 
-        if controls and not ctx.is_replay:
+        if controls:
             valid_cols = self.get_valid_moves()
 
             row1 = ActionRow()
