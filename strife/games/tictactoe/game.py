@@ -209,50 +209,36 @@ class TicTacToe(TurnBasedGame):
         view = LayoutView()
         container = Container()
         message_lead(container, lead, emoji=ctx.emoji, prefix_emoji=prefix_emoji)
-        if ctx.is_replay:
-            board_lines: list[str] = []
-            for row in range(3):
-                cells: list[str] = []
-                for col in range(3):
-                    idx = self._idx(col, row)
-                    occupant = self.board[idx]
-                    if occupant is None:
-                        cells.append("⬜")
-                    else:
-                        cells.append(ctx.emoji.get(self.marks[occupant]))
-                board_lines.append(" ".join(cells))
-            container.add_text(TextDisplay("\n".join(board_lines)))
-        else:
-            for row in range(3):
-                action = ActionRow()
-                for col in range(3):
-                    idx = self._idx(col, row)
-                    occupant = self.board[idx]
-                    if occupant is None:
-                        action.add_button(
-                            Button(
-                                source=f"tile_{col}{row}",
-                                label="\u200b",
-                                style=ButtonStyle.SECONDARY,
-                                disabled=not controls,
-                            )
+        for row in range(3):
+            action = ActionRow()
+            for col in range(3):
+                idx = self._idx(col, row)
+                occupant = self.board[idx]
+                if occupant is None:
+                    action.add_button(
+                        Button(
+                            source=f"tile_{col}{row}",
+                            label="\u200b",
+                            style=ButtonStyle.SECONDARY,
+                            disabled=not controls or ctx.is_replay,
                         )
-                    else:
-                        style = (
-                            ButtonStyle.SUCCESS
-                            if highlight and idx in highlight
-                            else ButtonStyle.PRIMARY
+                    )
+                else:
+                    style = (
+                        ButtonStyle.SUCCESS
+                        if highlight and idx in highlight
+                        else ButtonStyle.PRIMARY
+                    )
+                    action.add_button(
+                        Button(
+                            source=f"tile_{col}{row}",
+                            label="\u200b",
+                            emoji=self.marks[occupant],
+                            style=style,
+                            disabled=True,
                         )
-                        action.add_button(
-                            Button(
-                                source=f"tile_{col}{row}",
-                                label="\u200b",
-                                emoji=self.marks[occupant],
-                                style=style,
-                                disabled=True,
-                            )
-                        )
-                container.add_action_row(action)
+                    )
+            container.add_action_row(action)
         view.add_container(container)
         return view
 

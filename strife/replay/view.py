@@ -201,6 +201,8 @@ def build_replay_view(
 
     if frame_view:
         _merge_frame_into(container, frame_view)
+        if getattr(frame_view, "files", None):
+            view.files.extend(frame_view.files)
     else:
         container.add_text(
             TextDisplay(

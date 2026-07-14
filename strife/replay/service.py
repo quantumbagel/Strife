@@ -177,10 +177,11 @@ class ReplayService:
             emoji=self.compiler.emoji,
         )
         compiled = self.compiler.compile(view, resource_id=entry.detail.id, prefix=P.R_NAV)
+        files = getattr(view, "files", [])
         if interaction.response.is_done():
-            await interaction.followup.send(view=compiled, ephemeral=True)
+            await interaction.followup.send(view=compiled, files=files, ephemeral=True)
         else:
-            await interaction.response.send_message(view=compiled, ephemeral=True)
+            await interaction.response.send_message(view=compiled, files=files, ephemeral=True)
 
     async def render_frame(
         self,
@@ -222,10 +223,11 @@ class ReplayService:
             emoji=self.compiler.emoji,
         )
         compiled = self.compiler.compile(view, resource_id=match_id, prefix=P.R_NAV)
+        files = getattr(view, "files", [])
         if interaction.response.is_done():
-            await interaction.edit_original_response(view=compiled)
+            await interaction.edit_original_response(view=compiled, attachments=files)
         else:
-            await interaction.response.edit_message(view=compiled)
+            await interaction.response.edit_message(view=compiled, attachments=files)
 
     async def open_jump_modal(
         self,

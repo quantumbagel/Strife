@@ -151,8 +151,9 @@ class LifecycleService:
             await session.force_move(seat, Move(actor_seat=seat, source=source, args={}))
 
         elif consequence == TimeoutConsequence.BOT_TAKEOVER:
+            difficulty = getattr(session.game.metadata, "bot_takeover_difficulty", "hard")
             player.is_bot = True
-            player.bot_difficulty = "hard"
+            player.bot_difficulty = difficulty
             session._record_system(
                 "bot_takeover",
                 {
@@ -160,10 +161,11 @@ class LifecycleService:
                     "reason": reason,
                     "user_id": player.user_id,
                     "display_name": player.display_name,
+                    "bot_difficulty": difficulty,
                 },
             )
             try:
-                move = await asyncio.wait_for(session.game.bot_move("hard", seat), timeout=10.0)
+                move = await asyncio.wait_for(session.game.bot_move(difficulty, seat), timeout=10.0)
                 await session.force_move(seat, move)
             except Exception as e:
                 log.exception(

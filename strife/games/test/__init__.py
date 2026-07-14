@@ -31,6 +31,7 @@ META = GameMetadata(
     bots=(
         BotSpec("easy", "Plays the API Test game automatically"),
     ),
+    bot_takeover_difficulty="easy",
     settings=(
         SettingOption(
             key="test_mode",

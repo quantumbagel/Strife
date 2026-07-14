@@ -216,6 +216,7 @@ class GameMetadata:
     player_count: PlayerCount
     player_order: PlayerOrder
     bots: tuple[BotSpec, ...] = ()
+    bot_takeover_difficulty: str = "hard"
     settings: tuple[SettingOption, ...] = ()
     slash_moves: tuple[SlashMove, ...] = ()
     role_mode: RoleMode = RoleMode.NONE
