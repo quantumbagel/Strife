@@ -21,6 +21,7 @@ from strife.presentation.components import (
     LayoutView,
     Select,
     SelectChoice,
+    Separator,
     TextDisplay,
 )
 from strife.presentation.game_ui import message_lead
@@ -706,10 +707,8 @@ class Coup(Game):
         current_status = status or f"Active Turn: {self.players[self.current].display_name}"
         message_lead(container, current_status, emoji=ctx.emoji)
 
-        table_text = (
-            "**C O U P**\n"
-            "──────────────────────────────\n"
-        )
+        container.add_text(TextDisplay("**C O U P**"))
+        container.add_separator(Separator(visible=True))
         
         action_desc = ""
         if self.current_action is not None and self.current_actor is not None:
@@ -737,32 +736,35 @@ class Coup(Game):
             block_desc = f"{self._role_emoji(ctx, self.current_block_claim)} {blocker_name} claims **{self.current_block_claim.title()}** to block"
 
         if action_desc:
-            table_text += "**Current Action**\n"
-            table_text += f"> {action_desc}\n"
+            action_text = "**Current Action**\n"
+            action_text += f"> {action_desc}\n"
             if block_desc:
-                table_text += f"> {block_desc}\n"
-            table_text += "──────────────────────────────\n"
+                action_text += f"> {block_desc}"
+            container.add_text(TextDisplay(action_text))
+            container.add_separator(Separator(visible=True))
 
-        table_text += "**Players**\n"
+        roster_text = "**Players**\n"
         for p in self.players:
             is_active = (p.seat == self.current and self.state_phase == "turn")
             marker = "➤ " if is_active else "  "
             hand_str = self._format_hand_replay(ctx, p.seat) if is_replay else self._format_hand(ctx, p.seat)
             coins_str = f"{self.coins[p.seat]} coins" if p.seat in self.alive else "Exiled"
             bot_tag = " [BOT]" if p.is_bot else ""
-            table_text += f"-# {marker}{p.mention}{bot_tag}  ·  {hand_str}  ·  **{coins_str}**\n"
+            roster_text += f"-# {marker}{p.mention}{bot_tag}  ·  {hand_str}  ·  **{coins_str}**\n"
+        container.add_text(TextDisplay(roster_text))
 
         treasury_coins = max(0, 50 - sum(self.coins.values()))
         deck_count = len(self.deck)
-        table_text += f"\n-# **Treasury:** {treasury_coins} coins  ·  **Court Deck:** {deck_count} cards\n"
-        table_text += "──────────────────────────────\n"
+        info_text = f"-# **Treasury:** {treasury_coins} coins  ·  **Court Deck:** {deck_count} cards"
+        container.add_text(TextDisplay(info_text))
+        container.add_separator(Separator(visible=True))
 
         if self.history:
-            table_text += "**Recent Events**\n"
-            table_text += "\n".join(f"-# • {item}" for item in self.history[-5:]) + "\n"
-            table_text += "──────────────────────────────"
+            history_text = "**Recent Events**\n"
+            history_text += "\n".join(f"-# • {item}" for item in self.history[-5:])
+            container.add_text(TextDisplay(history_text))
+            container.add_separator(Separator(visible=True))
 
-        container.add_text(TextDisplay(table_text))
         return view, container
 
     def _public_board_view_replay(self, ctx: GameContext, status: str | None = None) -> LayoutView:
