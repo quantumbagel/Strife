@@ -43,6 +43,10 @@ if TYPE_CHECKING:
 
 log = get_logger("matchmaking.service")
 
+
+class NeedTextChannel(Exception):
+    """Game threads can only be created from a guild text channel."""
+
 _LOBBY_MEMBER_PREFIXES = frozenset({
     P.LOBBY_LEAVE,
     P.LOBBY_READY,
@@ -263,6 +267,9 @@ class LobbyService:
         game_cfg = self.config.games.for_game(game_key)
         if not game_cfg.enabled:
             await self._error(interaction, "errors.game_disabled")
+            return
+        if self._is_forum_channel(interaction.channel):
+            await self._error(interaction, "errors.need_text_channel")
             return
         if not await self.registries.reserve_user(
             interaction.user.id, UserLocation("lobby", 0, interaction.guild_id)
@@ -1074,6 +1081,12 @@ class LobbyService:
         if revoked_name:
             await self._success(interaction, "lobby.approval_revoked", name=revoked_name)
 
+    def _is_forum_channel(self, channel) -> bool:
+        if isinstance(channel, discord.ForumChannel):
+            return True
+        parent = getattr(channel, "parent", None)
+        return isinstance(parent, discord.ForumChannel)
+
     async def _open_public_game_thread(
         self,
         channel,
@@ -1082,20 +1095,14 @@ class LobbyService:
         game_name: str,
         players: list[Player],
     ) -> discord.Thread:
+        if self._is_forum_channel(channel):
+            raise NeedTextChannel
         starter_text = self.text.get("lobby.thread_starter", game_name=game_name)
         parent = channel
         if isinstance(channel, discord.Thread):
             parent = channel.parent or channel
-
-        if isinstance(parent, discord.ForumChannel):
-            thread = await parent.create_thread(
-                name=name,
-                content=starter_text,
-                auto_archive_duration=1440,
-            )
-        else:
-            starter = await parent.send(starter_text)
-            thread = await starter.create_thread(name=name, auto_archive_duration=1440)
+        starter = await parent.send(starter_text)
+        thread = await starter.create_thread(name=name, auto_archive_duration=1440)
 
         for player in players:
             if not player.user_id or player.is_bot:
@@ -1177,12 +1184,18 @@ class LobbyService:
             if channel is None:
                 channel = interaction.channel
             thread_name = f"{meta.name} (#{match_code})"
-            thread = await self._open_public_game_thread(
-                channel,
-                name=thread_name,
-                game_name=meta.name,
-                players=players,
-            )
+            try:
+                thread = await self._open_public_game_thread(
+                    channel,
+                    name=thread_name,
+                    game_name=meta.name,
+                    players=players,
+                )
+            except NeedTextChannel:
+                lobby.starting = False
+                lobby.ready.clear()
+                await self._error(interaction, "errors.need_text_channel", lobby=lobby)
+                return
 
             ended_view = LayoutView()
             brand = self.emoji.get("logo")

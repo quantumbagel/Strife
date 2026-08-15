@@ -240,6 +240,7 @@ invalid_roles = "Invalid roles selected."
 not_all_ready = "Not all players are ready."
 browse_games = "Browse Games"
 lobby_failed_to_start = "The lobby could not be started."
+need_text_channel = "Start the game from a text channel, not a forum."
 go_to_lobby = "Go to Lobby"
 go_to_session = "Go to Session"
 open_settings = "Open Settings"
@@ -278,6 +279,7 @@ role_selection_incomplete = "Every player must have a role assigned in **Setting
 invalid_roles = "Adjust role assignments so they satisfy the game's rules, then try again."
 not_all_ready = "Every human player in the lobby must press **Ready** before the game can start."
 lobby_failed_to_start = "An unexpected error occurred during lobby creation. Please try again, or contact an administrator if the issue persists."
+need_text_channel = "Use **/play** in a regular text channel. Forum posts and forum channels cannot host game threads."
 
 [match]
 result_title = "{game_name} {forward} Result"

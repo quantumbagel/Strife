@@ -170,7 +170,6 @@ class StrifeBot(commands.Bot):
                 except Exception:
                     log.exception("Failed to abandon session %s during shutdown", session.id)
                 if session.task and not session.task.done():
-                    session.task.cancel()
                     try:
                         await session.task
                     except asyncio.CancelledError:

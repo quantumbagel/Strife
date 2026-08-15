@@ -213,9 +213,9 @@ class GameSession:
                 self.pending.pop(seat, None)
         await self.refresh_header()
 
-    async def cancel(self, reason: str, forfeiter_seat: int | None = None) -> None:
+    async def cancel(self, reason: str, forfeiter_seat: int | None = None) -> bool:
         if self._finalized:
-            return
+            return False
         task = self.task
         if task is not None and not task.done() and task is not asyncio.current_task():
             task.cancel()
@@ -256,6 +256,7 @@ class GameSession:
             ),
             status="abandoned",
         )
+        return True
 
     def _seat_for_user(self, user_id: int) -> int | None:
         for player in self.players:

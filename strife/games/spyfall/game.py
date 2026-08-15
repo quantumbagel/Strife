@@ -75,6 +75,23 @@ class Spyfall(Game):
     def _name(self, seat: int) -> str:
         return self.players[seat].mention
 
+    def _bot_seats(self) -> set[int]:
+        return {player.seat for player in self.players if player.is_bot and player.seat in self.alive}
+
+    async def _bot_discussion_move(self) -> tuple[int, Move] | None:
+        for seat in sorted(self._bot_seats()):
+            if seat in self._passes:
+                continue
+            move = await self.bot_move(
+                self.players[seat].bot_difficulty or "medium",
+                seat,
+            )
+            if move.source == "pass":
+                self._passes.add(seat)
+                continue
+            return seat, move
+        return None
+
     def _phase_status(self, ctx: GameContext) -> str:
         if self.accused_player is not None:
             accused_name = self._name(self.accused_player)
@@ -109,23 +126,41 @@ class Spyfall(Game):
 
         # 2. Main Gameplay Loop
         winner_faction = None
+        consider_bots = True
         while winner_faction is None and self.turn <= self.max_turns:
-            # We display the public discussion screen and wait for input
             view = self._discussion_view(ctx)
-            
-            # Request input from ANY active player
-            moves = await ctx.request_inputs(
-                view,
-                actors=set(self.alive),
-                sources={"accuse_select", "location_select", "accuse", "guess_location", "pass"},
-                until="any",
-                record=False,
-            )
-
-            if not moves:
-                continue
-
-            actor_seat, move = next(iter(moves.items()))
+            actor_seat = None
+            move = None
+            if consider_bots:
+                bot_action = await self._bot_discussion_move()
+                if bot_action is not None:
+                    actor_seat, move = bot_action
+            consider_bots = True
+            if move is None:
+                humans = {
+                    seat for seat in self.alive if not self.players[seat].is_bot
+                }
+                if not humans:
+                    if self._passes >= self.alive:
+                        self.turn += 1
+                        self._passes.clear()
+                    continue
+                moves = await ctx.request_inputs(
+                    view,
+                    actors=humans,
+                    sources={
+                        "accuse_select",
+                        "location_select",
+                        "accuse",
+                        "guess_location",
+                        "pass",
+                    },
+                    until="any",
+                    record=False,
+                )
+                if not moves:
+                    continue
+                actor_seat, move = next(iter(moves.items()))
 
             if move.source == "accuse_select":
                 val = move.args.get("value")
@@ -133,14 +168,17 @@ class Spyfall(Game):
                     target = int(val)
                     if target in self.alive and target != actor_seat:
                         self.pending_accuse[actor_seat] = target
+                consider_bots = False
                 continue
 
             if move.source == "location_select":
                 if actor_seat != self.spy:
+                    consider_bots = False
                     continue
                 val = move.args.get("value")
                 if val is not None:
                     self.pending_guess[actor_seat] = str(val)
+                consider_bots = False
                 continue
 
             if move.source == "pass":
@@ -237,6 +275,7 @@ class Spyfall(Game):
                     self.accused_player = None
                     self.accuser = None
                     self.turn += 1
+                    self._passes.clear()
 
         # If turn limit reached without resolution, Spy wins by default
         if winner_faction is None:
