@@ -13,9 +13,9 @@ from strife.presentation.components import (
     ButtonStyle,
     Container,
     LayoutView,
-    TextDisplay,
 )
 from strife.presentation.game_ui import message_lead
+from strife.presentation.style import add_body
 
 
 class ConnectFour(TurnBasedGame):
@@ -243,7 +243,7 @@ class ConnectFour(TurnBasedGame):
                     row_emojis.append(ctx.emoji.get("connect_four_empty"))
             board_text += " ".join(row_emojis) + "\n"
 
-        container.add_text(TextDisplay(board_text))
+        add_body(container, board_text)
 
         if controls:
             valid_cols = self.get_valid_moves()

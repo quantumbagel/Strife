@@ -21,7 +21,6 @@ from strife.presentation.components import (
     ButtonStyle,
     Container,
     LayoutView,
-    TextDisplay,
 )
 from strife.presentation.game_ui import message_lead
 

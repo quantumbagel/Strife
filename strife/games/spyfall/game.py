@@ -21,9 +21,10 @@ from strife.presentation.components import (
     LayoutView,
     Select,
     SelectChoice,
-    TextDisplay,
 )
-from strife.presentation.game_ui import message_lead
+from strife.presentation.game_ui import message_lead, query_panel, respond_query
+from strife.presentation.roster import member_line
+from strife.presentation.style import add_body, add_section, history_block
 
 
 class Spyfall(Game):
@@ -95,8 +96,8 @@ class Spyfall(Game):
     def _phase_status(self, ctx: GameContext) -> str:
         if self.accused_player is not None:
             accused_name = self._name(self.accused_player)
-            accuser_name = self._name(self.accuser) if self.accuser is not None else "System"
-            return f"⚠️ {accuser_name} accused {accused_name}! Voting in progress..."
+            accuser_name = self._name(self.accuser) if self.accuser is not None else "Someone"
+            return f"{accuser_name} accused {accused_name}. Voting in progress."
         return "Ask questions. Accuse a player or guess the location at any time."
 
     async def play(self, ctx: GameContext) -> GameOutcome:
@@ -112,14 +113,16 @@ class Spyfall(Game):
             if p.seat == self.spy:
                 message_lead(
                     priv_container,
-                    "🕵️ You are the SPY! Try to blend in and guess the location.",
+                    "You are the spy. Blend in and guess the location.",
                     emoji=ctx.emoji,
+                    prefix_emoji="game_spyfall",
                 )
             else:
                 message_lead(
                     priv_container,
-                    f"📍 Secret Location: **{self.location}**",
+                    f"Secret location: **{self.location}**",
                     emoji=ctx.emoji,
+                    prefix_emoji="learn",
                 )
             priv_view.add_container(priv_container)
             await ctx.send_private(p.seat, priv_view)
@@ -309,17 +312,26 @@ class Spyfall(Game):
         container = Container()
         message_lead(container, self._phase_status(ctx), emoji=ctx.emoji, prefix_emoji="timer")
 
-        # Show players list
-        roster_text = "**Active Players:**\n"
-        for p in self.players:
-            roster_text += f"• {p.mention}\n"
-
-        # Show possible locations list
-        loc_text = "\n**Possible Locations:**\n"
-        for loc in self.LOCATIONS:
-            loc_text += f"• {loc}\n"
-
-        container.add_text(TextDisplay(roster_text + loc_text))
+        roster_lines = [
+            member_line(
+                ctx.emoji,
+                user_id=p.user_id,
+                display_name=p.display_name,
+                is_bot=p.is_bot,
+                bot_difficulty=p.bot_difficulty,
+            )
+            for p in self.players
+        ]
+        add_section(
+            container,
+            "Players",
+            "\n".join(roster_lines) if roster_lines else "_None_",
+        )
+        add_section(
+            container,
+            "Locations",
+            "\n".join(f"{ctx.emoji.get('bullet')} {loc}" for loc in self.LOCATIONS),
+        )
         view.add_container(container)
         return view
 
@@ -399,14 +411,13 @@ class Spyfall(Game):
             prefix_emoji="ban",
         )
 
-        votes_text = "**Votes Cast:**\n"
+        vote_lines = []
         for p in self.players:
             if p.seat == self.accused_player:
                 continue
-            v_status = self.votes.get(p.seat, "Pending...")
-            votes_text += f"• {p.mention}: **{v_status.upper()}**\n"
-
-        container.add_text(TextDisplay(votes_text))
+            v_status = self.votes.get(p.seat, "Pending")
+            vote_lines.append(f"{p.mention}: **{v_status.title()}**")
+        add_section(container, "Votes", "\n".join(vote_lines) if vote_lines else "_None_")
         view.add_container(container)
         return view
 
@@ -450,13 +461,13 @@ class Spyfall(Game):
         container = Container()
         message_lead(
             container,
-            f"The {winner.upper()} won! The Spy was **{spy_name}**.",
+            f"The {winner} won. The spy was **{spy_name}**.",
             emoji=ctx.emoji,
             prefix_emoji="success",
         )
-
-        history_text = "**Log of Events:**\n" + "\n".join(f"• {item}" for item in self.history)
-        container.add_text(TextDisplay(history_text))
+        block = history_block(self.history, ctx.emoji, limit=10)
+        if block:
+            add_body(container, block)
         view.add_container(container)
         return view
 
@@ -558,11 +569,20 @@ class Spyfall(Game):
         surface: ViewSurface,
     ) -> bool:
         if source == "peek":
-            peek_text = (
-                "🕵️ **You are the SPY!** Try to blend in and guess the location."
-                if seat == self.spy
-                else f"📍 **Secret Location: {self.location}**"
-            )
-            await interaction.response.send_message(peek_text, ephemeral=True)
+            if seat == self.spy:
+                view = query_panel(
+                    ctx,
+                    title="You are the spy",
+                    prefix_emoji="game_spyfall",
+                    body="Blend in and guess the location.",
+                )
+            else:
+                view = query_panel(
+                    ctx,
+                    title="Secret location",
+                    prefix_emoji="learn",
+                    body=f"**{self.location}**",
+                )
+            await respond_query(interaction, surface, view)
             return True
         return await super().handle_query(seat, source, interaction, ctx, surface)

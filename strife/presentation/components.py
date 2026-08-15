@@ -202,6 +202,10 @@ class LayoutView:
         self.children.append(container)
         return self
 
+    @property
+    def containers(self) -> list[Container]:
+        return [child for child in self.children if isinstance(child, Container)]
+
     def add_action_row(self, row: ActionRow) -> LayoutView:
         self.children.append(row)
         return self

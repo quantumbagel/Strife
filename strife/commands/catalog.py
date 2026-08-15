@@ -177,5 +177,8 @@ class CatalogService:
             total=pages,
             on_submit_cb=on_submit,
             error_message=self.text.get("common.invalid_page"),
+            compiler=self.compiler,
+            emoji=self.emoji,
+            text=self.text,
         )
         await interaction.response.send_modal(modal)

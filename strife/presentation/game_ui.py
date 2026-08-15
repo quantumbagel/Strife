@@ -5,6 +5,7 @@ from strife.engine.players import Player
 from strife.presentation.components import Container, LayoutView, Separator, TextDisplay, TextSize
 from strife.presentation.emoji import EmojiResolver
 from strife.presentation.roster import member_line
+from strife.presentation.style import add_header, add_spacer, notice_view
 from strife.settings import get_settings
 
 
@@ -31,14 +32,9 @@ def message_lead(
     """Add optional contextual lead text above game content."""
     if text is None:
         return container
-    prefix = f"{emoji.get(prefix_emoji)} " if emoji and prefix_emoji else ""
-    container.add_text(
-        TextDisplay(
-            markdown_content=f"### {prefix}{text}",
-            size_style=TextSize.HEADER,
-        )
-    )
-    container.add_separator(Separator(visible=False))
+    icon = emoji.get(prefix_emoji) if emoji and prefix_emoji else None
+    add_header(container, text, emoji=icon)
+    add_spacer(container)
     return container
 
 
@@ -137,3 +133,31 @@ def build_game_thread_header_view(
     )
     view.add_container(container)
     return view
+
+
+def query_panel(
+    ctx: object,
+    *,
+    title: str,
+    prefix_emoji: str | None = None,
+    body: str | None = None,
+    sections: list[tuple[str, str]] | None = None,
+) -> LayoutView:
+    """Ephemeral peek / notice panel matching platform command styling."""
+    emoji_resolver: EmojiResolver = ctx.emoji  # type: ignore[attr-defined]
+    icon = emoji_resolver.get(prefix_emoji) if prefix_emoji else None
+    return notice_view(title=title, emoji=icon, body=body, sections=sections)
+
+
+async def respond_query(interaction: object, surface: object, view: LayoutView) -> None:
+    """Send a compiled ephemeral view for a game query (peek, notice, error)."""
+    compiled = surface.compiler.compile(  # type: ignore[attr-defined]
+        view,
+        resource_id=surface.resource_id,  # type: ignore[attr-defined]
+        prefix=surface.prefix,  # type: ignore[attr-defined]
+    )
+    response = interaction.response  # type: ignore[attr-defined]
+    if not response.is_done():
+        await response.send_message(view=compiled, ephemeral=True)
+    else:
+        await interaction.followup.send(view=compiled, ephemeral=True)  # type: ignore[attr-defined]

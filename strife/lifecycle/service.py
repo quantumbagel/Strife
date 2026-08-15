@@ -171,9 +171,20 @@ class LifecycleService:
 
             if thread is not None:
                 try:
-                    await thread.send(
-                        f"⚠️ {player.mention} timed out! Strike {player.timeout_strikes}/{max_strikes}."
+                    from strife.presentation.feedback import build_feedback_view
+
+                    view = build_feedback_view(
+                        icon=self.emoji.get("timer"),
+                        title=f"{player.mention} timed out",
+                        body=f"Strike {player.timeout_strikes}/{max_strikes}.",
+                        text=self.text,
                     )
+                    compiled = session.surface.compiler.compile(
+                        view,
+                        resource_id=session.thread_id,
+                        prefix=session.surface.prefix,
+                    )
+                    await thread.send(view=compiled)
                 except Exception:
                     log.exception("Failed to send strike warning message")
 

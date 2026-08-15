@@ -25,8 +25,9 @@ from strife.presentation.components import (
     SelectChoice,
     TextDisplay,
 )
-from strife.presentation.game_ui import message_lead
+from strife.presentation.game_ui import message_lead, query_panel, respond_query
 from strife.presentation.roster import member_line
+from strife.presentation.style import history_block
 
 
 class Mafia(Game):
@@ -68,14 +69,11 @@ class Mafia(Game):
             )
             for s in seats
         ]
-        return "**Alive**\n" + ("\n".join(lines) if lines else "_None_")
+        return "**Players**\n" + ("\n".join(lines) if lines else "_None_")
 
     def _history_block(self, ctx: GameContext, history: list[str] | None = None) -> str | None:
-        entries = (history if history is not None else self.history)[-5:]
-        if not entries:
-            return None
-        bullet = ctx.emoji.get("bullet")
-        return "**Recent events**\n" + "\n".join(f"{bullet} {entry}" for entry in entries)
+        entries = history if history is not None else self.history
+        return history_block(entries, ctx.emoji)
 
     def _game_over_view(self, ctx: GameContext, winner: str, roles: dict[int, str] | None = None) -> LayoutView:
         role_map = roles if roles is not None else self.role
@@ -695,10 +693,8 @@ class Mafia(Game):
     ) -> bool:
         if source == "peek":
             role = self.role.get(seat, "unknown")
-            role_emoji = self._role_emoji(ctx, role)
             instructions = next((r.instructions for r in self.metadata.roles if r.key == role), "")
-            
-            text = f"{role_emoji} **Your Role: {role.title()}**\n{instructions}"
+            sections: list[tuple[str, str]] = []
             if role == "mafia":
                 teammates = [
                     self._name(p.seat)
@@ -706,20 +702,27 @@ class Mafia(Game):
                     if self.role.get(p.seat) == "mafia" and p.seat != seat
                 ]
                 if teammates:
-                    text += f"\n\n**Mafia teammates:** {', '.join(teammates)}"
-            await interaction.response.send_message(text, ephemeral=True)
+                    sections.append(("Mafia teammates", ", ".join(teammates)))
+            view = query_panel(
+                ctx,
+                title=f"Your role: {role.title()}",
+                prefix_emoji=self._ROLE_EMOJI.get(role, "user"),
+                body=instructions or None,
+                sections=sections or None,
+            )
+            await respond_query(interaction, surface, view)
             return True
         if source == "night_act":
             view = self._night_views.get(seat)
             if view is None:
-                await interaction.response.send_message(
-                    "You have no night action right now. Villagers can Peek Role if DMs are closed.",
-                    ephemeral=True,
+                notice = query_panel(
+                    ctx,
+                    title="No night action",
+                    prefix_emoji="hmm",
+                    body="You have no night action right now. Villagers can peek their role if DMs are closed.",
                 )
+                await respond_query(interaction, surface, notice)
                 return True
-            compiled = surface.compiler.compile(
-                view, resource_id=surface.resource_id, prefix=surface.prefix
-            )
-            await interaction.response.send_message(view=compiled, ephemeral=True)
+            await respond_query(interaction, surface, view)
             return True
         return await super().handle_query(seat, source, interaction, ctx, surface)

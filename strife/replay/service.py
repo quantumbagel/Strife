@@ -254,5 +254,8 @@ class ReplayService:
             current=frame + 1,
             total=total,
             on_submit_cb=on_submit,
+            compiler=self.compiler,
+            emoji=self.compiler.emoji,
+            text=self.text,
         )
         await interaction.response.send_modal(modal)

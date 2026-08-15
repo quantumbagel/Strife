@@ -9,11 +9,13 @@ from discord import app_commands
 from strife.engine.metadata import ParamType, SlashMove
 from strife.engine.registry import GameRegistry
 from strife.matchmaking.registries import SessionRegistries
+from strife.presentation.user_error import UserErrorPresenter
+from strife.presentation.user_success import UserSuccessPresenter
 
-_KNOWN_ERRORS = {
-    "cannot_act": "It is not your turn or you cannot act right now.",
-    "invalid_action": "Invalid action for this turn.",
-    "not_a_player": "You are not a player in this game.",
+_SLASH_ERRORS = {
+    "cannot_act": "common.cannot_act",
+    "invalid_action": "errors.invalid_action",
+    "not_a_player": "errors.not_a_player",
 }
 
 
@@ -27,27 +29,22 @@ def create_slash_command(
     game_key: str,
     slash_move: SlashMove,
     sessions: SessionRegistries,
+    user_errors: UserErrorPresenter,
+    user_success: UserSuccessPresenter,
 ) -> app_commands.Command:
     async def callback(interaction: discord.Interaction, **kwargs: Any) -> None:
         channel = interaction.channel
         session = sessions.get_game(channel.id) if channel is not None else None
         if session is None:
-            await interaction.response.send_message(
-                "No active game in this channel.", ephemeral=True
-            )
+            await user_errors.send(interaction, "errors.no_game_in_channel")
             return
         args = {param.name: kwargs.get(param.name) for param in slash_move.params}
         try:
-            await interaction.response.defer(ephemeral=True)
             await session.handle_slash_command(interaction.user.id, slash_move.name, args)
-            await interaction.followup.send("Move submitted!", ephemeral=True)
+            await user_success.send(interaction, "game.move_submitted")
         except Exception as exc:
-            msg = str(exc)
-            friendly = _KNOWN_ERRORS.get(msg, "Could not submit that move. Try again.")
-            if interaction.response.is_done():
-                await interaction.followup.send(friendly, ephemeral=True)
-            else:
-                await interaction.response.send_message(friendly, ephemeral=True)
+            code = _SLASH_ERRORS.get(str(exc), "common.error")
+            await user_errors.send(interaction, code)
 
     parameters = [
         inspect.Parameter(
@@ -107,11 +104,15 @@ def register_game_slash_commands(
     tree: app_commands.CommandTree,
     registry: GameRegistry,
     sessions: SessionRegistries,
+    user_errors: UserErrorPresenter,
+    user_success: UserSuccessPresenter,
 ) -> None:
     for meta in registry.all():
         if meta.slash_moves:
-            group = app_commands.Group(name=meta.key, description=f"{meta.name} gameplay commands")
+            group = app_commands.Group(name=meta.key, description=f"{meta.name} commands")
             for slash_move in meta.slash_moves:
-                cmd = create_slash_command(meta.key, slash_move, sessions)
+                cmd = create_slash_command(
+                    meta.key, slash_move, sessions, user_errors, user_success
+                )
                 group.add_command(cmd)
             tree.add_command(group)

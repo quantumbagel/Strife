@@ -222,6 +222,7 @@ not_in_lobby = "You must be in the lobby to do that."
 lobby_full = "The lobby is full. Remove a player or bot before adding more."
 not_a_player = "You are not a player in this game."
 invalid_action = "That action is not allowed right now."
+no_game_in_channel = "No active game in this channel."
 rematch_not_eligible = "You cannot vote for a rematch because you were not a player in the match."
 rematch_expired = "Rematch offer expired."
 rematch_unavailable = "Rematch is unavailable."
@@ -262,6 +263,7 @@ not_blacklisted = "Only players currently on the blacklist can be removed. Pick 
 not_in_lobby = "Open **/strife catalog** and press **Play Now**, or press **Join** on an existing lobby post."
 not_a_player = "Only players seated in this match can take that action."
 invalid_action = "That control is not available in the current game phase."
+no_game_in_channel = "Use this command in the game thread while a match is in progress."
 creator_not_hosting = "Ask them to create a lobby with **/play**, or join from the lobby message instead."
 no_pending_request = "Pending requests appear on the lobby message. Approve or deny from there, or pick a pending player."
 lobby_not_private = "Set the lobby to private with **/strife lobby privacy** first."
@@ -280,6 +282,12 @@ invalid_roles = "Adjust role assignments so they satisfy the game's rules, then 
 not_all_ready = "Every human player in the lobby must press **Ready** before the game can start."
 lobby_failed_to_start = "An unexpected error occurred during lobby creation. Please try again, or contact an administrator if the issue persists."
 need_text_channel = "Use **/play** in a regular text channel. Forum posts and forum channels cannot host game threads."
+
+[game]
+move_submitted = "Move submitted."
+
+[game_success]
+move_submitted = "The board will update when the game accepts your move."
 
 [match]
 result_title = "{game_name} {forward} Result"

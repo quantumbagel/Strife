@@ -51,7 +51,8 @@ When a player clicks a game button, the router calls `handle_query(source)` firs
 ```python
 async def handle_query(self, seat, source, interaction, ctx, surface) -> bool:
     if source == "peek":
-        await interaction.response.send_message(f"Role: {self.role[seat]}", ephemeral=True)
+        view = query_panel(ctx, title=f"Role: {self.role[seat]}", prefix_emoji="peek")
+        await respond_query(interaction, surface, view)
         return True
     return False
 ```

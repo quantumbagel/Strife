@@ -32,9 +32,9 @@ from strife.presentation.components import (
     LayoutView,
     MediaGallery,
     MediaGalleryItem,
-    TextDisplay,
 )
 from strife.presentation.game_ui import game_container
+from strife.presentation.style import add_meta
 
 
 def parse_user_move(board: chess.Board, text: str) -> chess.Move | None:
@@ -206,18 +206,13 @@ class Chess(TurnBasedGame):
         player = self.players[next_actor]
         color = "White" if next_actor == 0 else "Black"
         status = f"{color} ({player.mention}) to act"
-        if self.time_control_active:
-            status += f"\n⏱️ **Clocks:** {self._format_clocks()}"
         return status
 
     def _action_status(self, ctx: GameContext, seat: int) -> str:
         player = self.players[seat]
         color = "White" if seat == 0 else "Black"
-        check_str = " (in check!)" if self.board.is_check() else ""
-        status = f"{color} ({player.mention}) to act{check_str}"
-        if self.time_control_active:
-            status += f"\n⏱️ **Clocks:** {self._format_clocks()}"
-        return status
+        check_str = " (in check)" if self.board.is_check() else ""
+        return f"{color} ({player.mention}) to act{check_str}"
 
     def _outcome(self) -> GameOutcome | None:
         if not self.board.is_game_over():
@@ -390,13 +385,12 @@ class Chess(TurnBasedGame):
 
         container = game_container(ctx, lead=lead or status or title, prefix_emoji=status_emoji or "loading")
 
-        # Media gallery containing the board
-        gallery = MediaGallery()
-        gallery.add_item(MediaGalleryItem(media_url=f"attachment://{filename}", description="Chess Board"))
-        container.set_gallery(gallery)
-
         if self.time_control_active:
-            container.add_text(TextDisplay(f"⏱️ **Clocks:** {self._format_clocks()}"))
+            add_meta(container, f"{ctx.emoji.get('timer')} Clocks: {self._format_clocks()}")
+
+        gallery = MediaGallery()
+        gallery.add_item(MediaGalleryItem(media_url=f"attachment://{filename}", description="Chess board"))
+        container.set_gallery(gallery)
 
         return view, container
 
@@ -412,9 +406,7 @@ class Chess(TurnBasedGame):
         view, container = self._render_base(
             ctx, title=title, status=status, status_emoji=status_emoji, lead=lead
         )
-        container.add_text(
-            TextDisplay("Use `/chess move` with SAN or UCI, for example `e4`, `Nf3`, or `e2e4`.")
-        )
+        add_meta(container, "Use `/chess move` with SAN or UCI — `e4`, `Nf3`, or `e2e4`.")
         view.add_container(container)
         return view
 

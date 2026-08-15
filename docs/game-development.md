@@ -138,10 +138,8 @@ async def handle_query(
 ) -> bool:
     if source == "peek":
         role = self.role.get(seat, "unknown")
-        await interaction.response.send_message(
-            f"**Your role:** {role.title()}",
-            ephemeral=True,
-        )
+        view = query_panel(ctx, title=f"Your role: {role.title()}", prefix_emoji="user")
+        await respond_query(interaction, surface, view)
         return True
     return False
 ```
@@ -150,12 +148,11 @@ Return `True` when handled. Return `False` to fall through to normal move submis
 
 **Replay:** omit action rows during replay (`if not ctx.is_replay:`) so replays show game state only.
 
-**Text vs view:** send plain text with `interaction.response.send_message(...)`, or compile a `LayoutView` for richer ephemeral UI:
+**Ephemeral notices:** use `query_panel` + `respond_query` so peeks and query errors match platform command styling. Do not send bare `send_message("...")` text.
 
 ```python
-view = self._peek_view(seat, ctx)
-compiled = surface.compiler.compile(view, resource_id=surface.resource_id, prefix=surface.prefix)
-await interaction.response.send_message(view=compiled, ephemeral=True)
+view = query_panel(ctx, title="Your cards", prefix_emoji="peek", body=hand_text)
+await respond_query(interaction, surface, view)
 ```
 
 ### Ephemeral sub-views (query opens, action completes)
@@ -309,13 +306,25 @@ See [`strife/games/test/`](../strife/games/test/) for a guided tour of every API
 
 See [Action buttons vs query buttons vs link buttons](#action-buttons-vs-query-buttons-vs-link-buttons) above for the full pattern. In short: put peek/help buttons on the board, leave them out of `sources`, and handle them in `handle_query()`. Used by Coup, Mafia, Spyfall, and Liars Dice.
 
-## Presentation helpers
+## Presentation style
+
+Platform commands (catalog, about, settings, profile, errors) set the visual language. Games should match it. The contract lives in [`strife/presentation/style.py`](../strife/presentation/style.py).
+
+- One `Container` per message
+- Header: `### {custom emoji} Title` — breadcrumbs use the `forward` emoji
+- One `-#` subtitle for status, counts, or a hint
+- Visible separators between sections; custom application emoji only (no ⚠️ 🕵️ 📍 ⏱️ decoration)
+- `**Section Title**` headings, calm sentence-case copy, Title Case button labels
+- Buttons: `SECONDARY` default, `PRIMARY` for the main CTA, `SUCCESS` / `DANGER` only when the action itself confirms or destroys
+- Peeks, query errors, and slash-command feedback use the same header/body panels — never bare text
 
 [`strife/presentation/game_ui.py`](../strife/presentation/game_ui.py):
 
 - `action_status(ctx, player, prefix_emoji=...)` — standard "who can act" line
 - `message_lead(container, text, emoji=..., prefix_emoji=...)` — optional contextual lead above game content
 - `game_container(ctx, lead=..., prefix_emoji=...)` — container with optional lead
+- `query_panel(ctx, title=..., prefix_emoji=..., body=...)` — ephemeral peek / notice
+- `respond_query(interaction, surface, view)` — compile and send that panel
 
 Use `message_lead` for phase-specific context (e.g. "Waiting for votes..."). Omit the lead for self-explanatory boards.
 

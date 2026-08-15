@@ -142,7 +142,9 @@ class StrifeBot(commands.Bot):
             registry=self.game_registry,
         )
         from strife.commands.game_commands import register_game_slash_commands
-        register_game_slash_commands(self.tree, self.game_registry, self.sessions)
+        register_game_slash_commands(
+            self.tree, self.game_registry, self.sessions, user_errors, user_success
+        )
 
         await self.add_cog(AdminCommands(self, self.settings))
         self.lifecycle.start()

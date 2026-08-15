@@ -846,6 +846,9 @@ class LobbyService:
             range_error_message=self.text.get(
                 "lobby.int_option_out_of_range", minimum=minimum, maximum=maximum
             ),
+            compiler=self.compiler,
+            emoji=self.emoji,
+            text=self.text,
         )
         await interaction.response.send_modal(modal)
 

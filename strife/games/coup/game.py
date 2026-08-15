@@ -21,10 +21,10 @@ from strife.presentation.components import (
     LayoutView,
     Select,
     SelectChoice,
-    Separator,
-    TextDisplay,
 )
-from strife.presentation.game_ui import message_lead
+from strife.presentation.game_ui import message_lead, query_panel, respond_query
+from strife.presentation.roster import member_line
+from strife.presentation.style import add_body, add_divider, add_meta, add_section, history_block
 
 
 class Coup(Game):
@@ -132,7 +132,7 @@ class Coup(Game):
 
         if challenge_card in self.hands[actor]:
             self.history.append(
-                f"🛡️ {self.players[actor].mention} successfully proved they have the **{challenge_card.title()}**!"
+                f"{ctx.emoji.get('success')} {self.players[actor].mention} proved **{challenge_card.title()}**."
             )
             self.hands[actor].remove(challenge_card)
             self.deck.append(challenge_card)
@@ -146,7 +146,7 @@ class Coup(Game):
             return False
 
         self.history.append(
-            f"🕵️ {self.players[actor].mention} lied about having the **{challenge_card.title()}**!"
+            f"{ctx.emoji.get('error')} {self.players[actor].mention} lied about **{challenge_card.title()}**."
         )
         await self._lose_influence(
             ctx,
@@ -172,7 +172,7 @@ class Coup(Game):
 
         if claim in self.hands[blocker_seat]:
             self.history.append(
-                f"🛡️ {self.players[blocker_seat].mention} proved they have the **{claim.title()}**!"
+                f"{ctx.emoji.get('success')} {self.players[blocker_seat].mention} proved **{claim.title()}**."
             )
             self.hands[blocker_seat].remove(claim)
             self.deck.append(claim)
@@ -186,7 +186,7 @@ class Coup(Game):
             return True, True
 
         self.history.append(
-            f"🕵️ {self.players[blocker_seat].mention} lied about having the **{claim.title()}**!"
+            f"{ctx.emoji.get('error')} {self.players[blocker_seat].mention} lied about **{claim.title()}**."
         )
         await self._lose_influence(
             ctx,
@@ -273,9 +273,9 @@ class Coup(Game):
                         if self.coins[actor] > 0:
                             self.coins[actor] -= 1
                             penalty = True
-                        msg = f"⏱️ {self.players[actor].mention} timed out!"
+                        msg = f"{ctx.emoji.get('timer')} {self.players[actor].mention} timed out."
                         if penalty:
-                            msg += " Action skipped and lost 1 coin as a penalty."
+                            msg += " Action skipped and 1 coin lost."
                         else:
                             msg += " Action skipped."
                         self.history.append(msg)
@@ -490,24 +490,36 @@ class Coup(Game):
             if not action_failed and not action_blocked:
                 if action_type == "income":
                     self.coins[actor] += 1
-                    self.history.append(f"🪙 {self.players[actor].mention} took Income.")
+                    self.history.append(f"{ctx.emoji.get('success')} {self.players[actor].mention} took income.")
                 elif action_type == "foreign_aid":
                     self.coins[actor] += 2
-                    self.history.append(f"💰 {self.players[actor].mention} took Foreign Aid.")
+                    self.history.append(f"{ctx.emoji.get('public')} {self.players[actor].mention} took foreign aid.")
                 elif action_type == "tax":
                     self.coins[actor] += 3
-                    self.history.append(f"👑 {self.players[actor].mention} taxed the Treasury (+3 coins).")
+                    self.history.append(
+                        f"{self._role_emoji(ctx, 'duke')} {self.players[actor].mention} taxed the treasury (+3 coins)."
+                    )
                 elif action_type == "coup":
-                    self.history.append(f"💥 {self.players[actor].mention} staged a Coup on {self.players[target].mention}!")
-                    await self._lose_influence(ctx, target, f"💥 Coup target {self.players[target].mention} must lose influence.")
+                    self.history.append(
+                        f"{ctx.emoji.get('explosion')} {self.players[actor].mention} staged a coup on {self.players[target].mention}."
+                    )
+                    await self._lose_influence(
+                        ctx, target, f"{self.players[target].mention} must lose influence."
+                    )
                 elif action_type == "assassinate":
-                    self.history.append(f"🗡️ {self.players[actor].mention} assassinated {self.players[target].mention}!")
-                    await self._lose_influence(ctx, target, f"🗡️ Assassination target {self.players[target].mention} must lose influence.")
+                    self.history.append(
+                        f"{self._role_emoji(ctx, 'assassin')} {self.players[actor].mention} assassinated {self.players[target].mention}."
+                    )
+                    await self._lose_influence(
+                        ctx, target, f"{self.players[target].mention} must lose influence."
+                    )
                 elif action_type == "steal":
                     stolen = min(2, self.coins[target])
                     self.coins[actor] += stolen
                     self.coins[target] -= stolen
-                    self.history.append(f"⚓ {self.players[actor].mention} stole {stolen} coins from {self.players[target].mention}.")
+                    self.history.append(
+                        f"{self._role_emoji(ctx, 'captain')} {self.players[actor].mention} stole {stolen} coins from {self.players[target].mention}."
+                    )
                 elif action_type == "exchange":
                     self.state_phase = "exchange"
                     drawn = [self.deck.pop(), self.deck.pop()]
@@ -530,7 +542,9 @@ class Coup(Game):
                     if keep_move.source == "timeout":
                         # Exchange Timeout: auto-keep original cards
                         keep_cards = list(self.hands[actor])
-                        self.history.append(f"⏱️ {self.players[actor].mention} timed out exchanging cards! Original cards kept.")
+                        self.history.append(
+                            f"{ctx.emoji.get('timer')} {self.players[actor].mention} timed out exchanging cards. Original cards kept."
+                        )
                     else:
                         raw_keep = keep_move.args.get("values", [])
                         if not raw_keep and keep_move.args.get("value") is not None:
@@ -556,7 +570,9 @@ class Coup(Game):
                         self.hands[actor] = keep_cards
                         self.deck.extend(returned)
                         self.rng.shuffle(self.deck)
-                    self.history.append(f"💼 {self.players[actor].mention} exchanged cards with the Deck.")
+                    self.history.append(
+                        f"{self._role_emoji(ctx, 'ambassador')} {self.players[actor].mention} exchanged cards with the deck."
+                    )
                     
                     await ctx.record_event("exchange_resolve", {
                         "player": actor,
@@ -577,7 +593,7 @@ class Coup(Game):
         return GameOutcome(
             results=results,
             summary={"winner": winner, "history": list(self.history)},
-            description=f"🏆 {winner_mention} won!",
+            description=f"{winner_mention} won.",
             player_descriptions=player_descriptions,
         )
 
@@ -592,7 +608,9 @@ class Coup(Game):
             # Force reveal last card
             lost_card = cards.pop()
             self.revealed[seat].append(lost_card)
-            self.history.append(f"💀 {self.players[seat].mention} revealed their last card: **{lost_card.title()}**.")
+            self.history.append(
+                f"{ctx.emoji.get('error')} {self.players[seat].mention} revealed their last card: **{lost_card.title()}**."
+            )
             self.alive.discard(seat)
             self.coins[seat] = 0
             await ctx.record_event("lose_influence_resolve", {
@@ -615,7 +633,9 @@ class Coup(Game):
         if move.source == "timeout":
             # Timeout: auto-reveal the first card
             lost_card = cards[0]
-            self.history.append(f"⏱️ {self.players[seat].mention} timed out choosing a card to reveal! Auto-revealed: **{lost_card.title()}**.")
+            self.history.append(
+                f"{ctx.emoji.get('timer')} {self.players[seat].mention} timed out choosing a card. Auto-revealed **{lost_card.title()}**."
+            )
         else:
             lost_card = move.args.get("value") or (move.args.get("values")[0] if move.args.get("values") else (move.args.get("card")))
             if lost_card is not None and str(lost_card).isdigit():
@@ -630,7 +650,9 @@ class Coup(Game):
             lost_card = self.hands[seat].pop()
             self.revealed[seat].append(lost_card)
 
-        self.history.append(f"💀 {self.players[seat].mention} revealed: **{lost_card.title()}**.")
+        self.history.append(
+            f"{ctx.emoji.get('error')} {self.players[seat].mention} revealed **{lost_card.title()}**."
+        )
         
         if not self.hands[seat]:
             self.alive.discard(seat)
@@ -703,26 +725,22 @@ class Coup(Game):
         view = LayoutView()
         container = Container()
 
-        # Build clean header status
-        current_status = status or f"Active Turn: {self.players[self.current].display_name}"
+        current_status = status or f"{self.players[self.current].mention} to act"
         message_lead(container, current_status, emoji=ctx.emoji)
 
-        container.add_text(TextDisplay("**C O U P**"))
-        container.add_separator(Separator(visible=True))
-        
         action_desc = ""
         if self.current_action is not None and self.current_actor is not None:
             actor_name = self.players[self.current_actor].mention
             target_name = self.players[self.current_target].mention if self.current_target is not None else ""
             
             if self.current_action == "tax":
-                action_desc = f"{self._role_emoji(ctx, 'duke')} {actor_name} claims **Duke** to Tax (+3 coins)"
+                action_desc = f"{self._role_emoji(ctx, 'duke')} {actor_name} claims **Duke** to tax (+3 coins)"
             elif self.current_action == "assassinate":
                 action_desc = f"{self._role_emoji(ctx, 'assassin')} {actor_name} claims **Assassin** to assassinate {target_name}"
             elif self.current_action == "steal":
                 action_desc = f"{self._role_emoji(ctx, 'captain')} {actor_name} claims **Captain** to steal from {target_name}"
             elif self.current_action == "exchange":
-                action_desc = f"{self._role_emoji(ctx, 'ambassador')} {actor_name} claims **Ambassador** to Exchange cards"
+                action_desc = f"{self._role_emoji(ctx, 'ambassador')} {actor_name} claims **Ambassador** to exchange cards"
             elif self.current_action == "foreign_aid":
                 action_desc = f"{actor_name} takes **Foreign Aid** (+2 coins)"
             elif self.current_action == "coup":
@@ -736,34 +754,39 @@ class Coup(Game):
             block_desc = f"{self._role_emoji(ctx, self.current_block_claim)} {blocker_name} claims **{self.current_block_claim.title()}** to block"
 
         if action_desc:
-            action_text = "**Current Action**\n"
-            action_text += f"> {action_desc}\n"
+            action_body = action_desc
             if block_desc:
-                action_text += f"> {block_desc}"
-            container.add_text(TextDisplay(action_text))
-            container.add_separator(Separator(visible=True))
+                action_body = f"{action_body}\n{block_desc}"
+            add_section(container, "Current Action", action_body)
+            add_divider(container)
 
-        roster_text = "**Players**\n"
+        roster_lines = []
         for p in self.players:
-            is_active = (p.seat == self.current and self.state_phase == "turn")
-            marker = "➤ " if is_active else "  "
+            is_active = p.seat == self.current and self.state_phase == "turn"
+            marker = ctx.emoji.get("pointing") if is_active else ctx.emoji.get("bullet")
+            name = member_line(
+                ctx.emoji,
+                user_id=p.user_id,
+                display_name=p.display_name,
+                is_bot=p.is_bot,
+                bot_difficulty=p.bot_difficulty,
+            )
             hand_str = self._format_hand_replay(ctx, p.seat) if is_replay else self._format_hand(ctx, p.seat)
             coins_str = f"{self.coins[p.seat]} coins" if p.seat in self.alive else "Exiled"
-            bot_tag = " [BOT]" if p.is_bot else ""
-            roster_text += f"-# {marker}{p.mention}{bot_tag}  ·  {hand_str}  ·  **{coins_str}**\n"
-        container.add_text(TextDisplay(roster_text))
+            roster_lines.append(f"-# {marker} {name} · {hand_str} · **{coins_str}**")
+        add_section(container, "Players", "\n".join(roster_lines))
 
         treasury_coins = max(0, 50 - sum(self.coins.values()))
-        deck_count = len(self.deck)
-        info_text = f"-# **Treasury:** {treasury_coins} coins  ·  **Court Deck:** {deck_count} cards"
-        container.add_text(TextDisplay(info_text))
-        container.add_separator(Separator(visible=True))
+        add_meta(
+            container,
+            f"**Treasury:** {treasury_coins} coins · **Court deck:** {len(self.deck)} cards",
+        )
+        add_divider(container)
 
-        if self.history:
-            history_text = "**Recent Events**\n"
-            history_text += "\n".join(f"-# • {item}" for item in self.history[-5:])
-            container.add_text(TextDisplay(history_text))
-            container.add_separator(Separator(visible=True))
+        block = history_block(self.history, ctx.emoji)
+        if block:
+            add_body(container, block)
+            add_divider(container)
 
         return view, container
 
@@ -786,7 +809,7 @@ class Coup(Game):
                     label="Coup (Forced) -7 coins",
                     value="coup",
                     description="Must launch a Coup when starting with 10+ coins",
-                    emoji="💥",
+                    emoji="explosion",
                     default=True
                 ))
             else:
@@ -794,21 +817,21 @@ class Coup(Game):
                     label="Income (+1 coin)",
                     value="income",
                     description="Take 1 coin from the Treasury",
-                    emoji="💵",
+                    emoji="success",
                     default=(self.selected_action == "income")
                 ))
                 action_choices.append(SelectChoice(
                     label="Foreign Aid (+2 coins)",
                     value="foreign_aid",
                     description="Take 2 coins (Can be blocked by Duke)",
-                    emoji="🪙",
+                    emoji="public",
                     default=(self.selected_action == "foreign_aid")
                 ))
                 action_choices.append(SelectChoice(
                     label="Tax (Duke) (+3 coins)",
                     value="tax",
                     description="Take 3 coins claiming Duke",
-                    emoji=self._role_emoji(ctx, "duke"),
+                    emoji="coup_duke",
                     default=(self.selected_action == "tax")
                 ))
                 if self.coins[actor] >= 7:
@@ -816,7 +839,7 @@ class Coup(Game):
                         label="Coup (-7 coins)",
                         value="coup",
                         description="Force another player to lose influence",
-                        emoji="💥",
+                        emoji="explosion",
                         default=(self.selected_action == "coup")
                     ))
                 if self.coins[actor] >= 3:
@@ -824,21 +847,21 @@ class Coup(Game):
                         label="Assassinate (-3 coins)",
                         value="assassinate",
                         description="Assassinate another player (Can be blocked by Contessa)",
-                        emoji=self._role_emoji(ctx, "assassin"),
+                        emoji="coup_assassin",
                         default=(self.selected_action == "assassinate")
                     ))
                 action_choices.append(SelectChoice(
                     label="Steal (Captain)",
                     value="steal",
                     description="Steal 2 coins from another player (Can be blocked by Captain/Ambassador)",
-                    emoji=self._role_emoji(ctx, "captain"),
+                    emoji="coup_captain",
                     default=(self.selected_action == "steal")
                 ))
                 action_choices.append(SelectChoice(
                     label="Exchange (Ambassador)",
                     value="exchange",
                     description="Draw 2 cards and choose which to keep",
-                    emoji=self._role_emoji(ctx, "ambassador"),
+                    emoji="coup_ambassador",
                     default=(self.selected_action == "exchange")
                 ))
 
@@ -973,8 +996,9 @@ class Coup(Game):
             prefix_emoji="success",
         )
 
-        history_text = "**Final Match Logs:**\n" + "\n".join(f"-# • {item}" for item in self.history)
-        container.add_text(TextDisplay(history_text))
+        block = history_block(self.history, ctx.emoji, limit=10)
+        if block:
+            add_body(container, block)
         view.add_container(container)
         return view
 
@@ -1301,30 +1325,47 @@ class Coup(Game):
     ) -> bool:
         if source == "peek":
             cards = self.hands.get(seat, [])
-            peek_text = (
-                "You have no active cards left."
-                if not cards
-                else f"🎴 **Your Secret Cards:** {self._format_hand(ctx, seat, private=True)} | Coins: {self.coins.get(seat, 0)}"
-            )
-            await interaction.response.send_message(peek_text, ephemeral=True)
+            if not cards:
+                view = query_panel(
+                    ctx,
+                    title="Your cards",
+                    prefix_emoji="peek",
+                    body="You have no active cards left.",
+                )
+            else:
+                view = query_panel(
+                    ctx,
+                    title="Your cards",
+                    prefix_emoji="peek",
+                    body=f"{self._format_hand(ctx, seat, private=True)}\n-# {self.coins.get(seat, 0)} coins",
+                )
+            await respond_query(interaction, surface, view)
             return True
 
         if source == "lose_influence_open":
             if self.state_phase != "lose_influence" or getattr(self, "current_loser", None) != seat:
-                await interaction.response.send_message("You cannot act right now — influence loss is not pending for you.", ephemeral=True)
+                notice = query_panel(
+                    ctx,
+                    title="You cannot act right now",
+                    prefix_emoji="error",
+                    body="Influence loss is not pending for you.",
+                )
+                await respond_query(interaction, surface, notice)
                 return True
-            view = self.get_lose_influence_view(seat, ctx)
-            compiled = surface.compiler.compile(view, resource_id=surface.resource_id, prefix=surface.prefix)
-            await interaction.response.send_message(view=compiled, ephemeral=True)
+            await respond_query(interaction, surface, self.get_lose_influence_view(seat, ctx))
             return True
 
         if source == "exchange_open":
             if self.state_phase != "exchange" or getattr(self, "current_actor", None) != seat:
-                await interaction.response.send_message("You cannot act right now — card exchange is not available to you.", ephemeral=True)
+                notice = query_panel(
+                    ctx,
+                    title="You cannot act right now",
+                    prefix_emoji="error",
+                    body="Card exchange is not available to you.",
+                )
+                await respond_query(interaction, surface, notice)
                 return True
-            view = self.get_exchange_view(seat, ctx)
-            compiled = surface.compiler.compile(view, resource_id=surface.resource_id, prefix=surface.prefix)
-            await interaction.response.send_message(view=compiled, ephemeral=True)
+            await respond_query(interaction, surface, self.get_exchange_view(seat, ctx))
             return True
 
         return await super().handle_query(seat, source, interaction, ctx, surface)

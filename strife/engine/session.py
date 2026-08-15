@@ -21,6 +21,7 @@ from strife.persistence.repositories import (
     MoveRecord,
 )
 from strife.presentation.components import LayoutView
+from strife.presentation.feedback import build_feedback_view, send_ephemeral_feedback
 from strife.presentation.game_ui import build_game_thread_header_view
 from strife.presentation.message import ViewSurface
 from strife.lifecycle.timeout import timeout_consequence
@@ -189,7 +190,20 @@ class GameSession:
     async def handle_query(self, source: str, interaction: discord.Interaction) -> bool:
         seat = self._seat_for_user(interaction.user.id)
         if seat is None:
-            await interaction.response.send_message("You are not a player in this game.", ephemeral=True)
+            view = build_feedback_view(
+                icon=self.surface.compiler.emoji.get("error"),
+                title=self.text.get("errors.not_a_player"),
+                body=self.text.get("errors_help.not_a_player"),
+                body_heading=self.text.get("common.error_fix"),
+                text=self.text,
+            )
+            await send_ephemeral_feedback(
+                interaction,
+                view,
+                compiler=self.surface.compiler,
+                prefix=self.surface.prefix,
+                resource_id=self.thread_id,
+            )
             return True
 
         try:

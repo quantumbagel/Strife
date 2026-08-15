@@ -12,9 +12,8 @@ from strife.presentation.components import (
     ButtonStyle,
     Container,
     LayoutView,
-    TextDisplay,
-    TextSize,
 )
+from strife.presentation.style import add_body, add_divider, add_header
 
 
 @dataclass
@@ -37,21 +36,11 @@ def build_feedback_container(
     body_heading: str | None = None,
 ) -> Container:
     container = Container()
-    container.add_text(
-        TextDisplay(
-            markdown_content=f"### {icon} {title}",
-            size_style=TextSize.HEADER,
-        )
-    )
+    add_header(container, title, emoji=icon)
     if body:
-        container.add_separator()
+        add_divider(container)
         content = f"**{body_heading}** {body}" if body_heading else body
-        container.add_text(
-            TextDisplay(
-                markdown_content=content,
-                size_style=TextSize.BODY,
-            )
-        )
+        add_body(container, content)
     return container
 
 

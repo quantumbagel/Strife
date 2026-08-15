@@ -21,9 +21,10 @@ from strife.presentation.components import (
     LayoutView,
     Select,
     SelectChoice,
-    TextDisplay,
 )
-from strife.presentation.game_ui import message_lead
+from strife.presentation.game_ui import message_lead, query_panel, respond_query
+from strife.presentation.roster import member_line
+from strife.presentation.style import add_body, add_section, history_block
 
 
 class LiarsDice(Game):
@@ -169,20 +170,24 @@ class LiarsDice(Game):
                     challenger_name = self.players[challenger].mention
                     bidder_name = self.players[bidder].mention
 
-                    # Build outcome message
-                    reveal_text = f"**The Bid was {bid_q} Fives (⚄) or similar.**\n"
-                    reveal_text = f"**Bid**: {bid_q} × {self._die_emoji(ctx, bid_v)}\n"
-                    reveal_text += f"**Actual Count**: {actual_count} × {self._die_emoji(ctx, bid_v)}\n\n"
-                    
-                    reveal_text += "**All Dice Revealed:**\n"
+                    bullet = ctx.emoji.get("bullet")
+                    reveal_lines = [
+                        f"**Bid:** {bid_q} × {self._die_emoji(ctx, bid_v)}",
+                        f"**Actual count:** {actual_count} × {self._die_emoji(ctx, bid_v)}",
+                        "",
+                        "**All dice revealed**",
+                    ]
                     for s in sorted(self.alive):
-                        reveal_text += f"• {self.players[s].mention}: {self._format_hand(ctx, self.hands[s])}\n"
+                        reveal_lines.append(
+                            f"{bullet} {self.players[s].mention}: {self._format_hand(ctx, self.hands[s])}"
+                        )
+                    reveal_text = "\n".join(reveal_lines)
 
-                    verdict = f"{winner_name} was correct! {loser_name} loses 1 die."
+                    verdict = f"{winner_name} was correct. {loser_name} loses 1 die."
                     if self.dice_counts[loser] == 0:
                         self.alive.remove(loser)
                         self.hands.pop(loser, None)
-                        verdict += f" {loser_name} is eliminated from the game!"
+                        verdict += f" {loser_name} is eliminated."
                         self.history.append(f"{loser_name} was eliminated.")
                     else:
                         self.history.append(f"{loser_name} lost 1 die (remaining: {self.dice_counts[loser]}).")
@@ -211,7 +216,7 @@ class LiarsDice(Game):
                         emoji=ctx.emoji,
                         prefix_emoji="success" if loser == bidder else "error",
                     )
-                    outcome_container.add_text(TextDisplay(reveal_text))
+                    add_body(outcome_container, reveal_text)
                     outcome_view.add_container(outcome_container)
                     await ctx.update(outcome_view)
 
@@ -279,20 +284,34 @@ class LiarsDice(Game):
         container = Container()
         message_lead(container, lead, emoji=ctx.emoji, prefix_emoji=prefix_emoji)
 
-        # Build table status text
-        table_text = "**Roster and Dice Counts:**\n"
+        die_mark = ctx.emoji.get("game_liars_dice")
+        roster_lines = []
         for p in self.players:
-            alive_status = "🎲" * self.dice_counts[p.seat] if p.seat in self.alive else "☠️ (Out)"
-            table_text += f"• {p.mention}: {alive_status}\n"
+            name = member_line(
+                ctx.emoji,
+                user_id=p.user_id,
+                display_name=p.display_name,
+                is_bot=p.is_bot,
+                bot_difficulty=p.bot_difficulty,
+            )
+            if p.seat in self.alive:
+                dice = die_mark * self.dice_counts[p.seat]
+                roster_lines.append(f"{name}: {dice}")
+            else:
+                roster_lines.append(f"{name}: {ctx.emoji.get('error')} Out")
+        add_section(container, "Players", "\n".join(roster_lines))
 
+        pointing = ctx.emoji.get("pointing")
         if self.current_bid is not None:
             bid_q, bid_v = self.current_bid
             bidder_name = self.players[self.last_bidder].mention if self.last_bidder is not None else "?"
-            table_text += f"\n👉 **Current Bid**: {bid_q} × {self._die_emoji(ctx, bid_v)} (by {bidder_name})"
+            add_body(
+                container,
+                f"{pointing} **Current bid:** {bid_q} × {self._die_emoji(ctx, bid_v)} (by {bidder_name})",
+            )
         else:
-            table_text += "\n👉 **Current Bid**: None (Opening bid)"
+            add_body(container, f"{pointing} **Current bid:** none — opening bid")
 
-        container.add_text(TextDisplay(table_text))
         view.add_container(container)
         return view
 
@@ -340,14 +359,14 @@ class LiarsDice(Game):
         pending_text = ""
         if self.pending_quantity is not None and self.pending_value is not None:
             pending_text = (
-                f"\n**Pending bid:** {self.pending_quantity} × "
+                f"**Pending bid:** {self.pending_quantity} × "
                 f"{self._die_emoji(ctx, self.pending_value)}"
             )
         elif self.pending_quantity is not None or self.pending_value is not None:
-            pending_text = "\n**Pending bid:** choose both quantity and value."
+            pending_text = "**Pending bid:** choose both quantity and value."
 
         if pending_text:
-            container.add_text(TextDisplay(pending_text))
+            add_body(container, pending_text)
 
         row1 = ActionRow()
         row1.add_select(
@@ -410,8 +429,9 @@ class LiarsDice(Game):
             prefix_emoji="success",
         )
 
-        history_text = "**Match History:**\n" + "\n".join(f"• {item}" for item in self.history[-10:])
-        container.add_text(TextDisplay(history_text))
+        block = history_block(self.history, ctx.emoji, limit=10)
+        if block:
+            add_body(container, block)
         view.add_container(container)
         return view
 
@@ -499,11 +519,20 @@ class LiarsDice(Game):
     ) -> bool:
         if source == "peek":
             hand = self.hands.get(seat, [])
-            peek_text = (
-                "You have no dice left in this round."
-                if not hand
-                else f"🎲 **Your Secret Dice Hand:** {self._format_hand(ctx, hand)}"
-            )
-            await interaction.response.send_message(peek_text, ephemeral=True)
+            if not hand:
+                view = query_panel(
+                    ctx,
+                    title="Your dice",
+                    prefix_emoji="game_liars_dice",
+                    body="You have no dice left in this round.",
+                )
+            else:
+                view = query_panel(
+                    ctx,
+                    title="Your dice",
+                    prefix_emoji="game_liars_dice",
+                    body=self._format_hand(ctx, hand),
+                )
+            await respond_query(interaction, surface, view)
             return True
         return await super().handle_query(seat, source, interaction, ctx, surface)
