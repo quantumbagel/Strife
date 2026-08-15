@@ -18,6 +18,7 @@ META = GameMetadata(
     version="1.0.0",
     author_link=None,
     source_link=None,
+    how_to_play_link="https://en.wikipedia.org/wiki/Connect_Four",
     time_estimate="5m",
     difficulty=3,
     player_count=PlayerCount(fixed=2),

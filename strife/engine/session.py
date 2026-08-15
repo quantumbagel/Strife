@@ -96,6 +96,7 @@ class GameSession:
         self._match_code: str | None = None
         self._bot = None
         self._finalized = False
+        self._timeout_warned: dict[int, float] = {}
 
     def set_bot(self, bot) -> None:
         self._bot = bot
@@ -112,31 +113,36 @@ class GameSession:
                 outcome = await self.game.play(self.ctx)
                 await self._finalize(outcome, status="completed")
             except asyncio.CancelledError:
+                if not self._finalized:
+                    self._append_log_entry(
+                        "game_end",
+                        {"reason": "cancelled", "cancelled": True},
+                        kind=LogEntryKind.SYSTEM,
+                    )
+                    await self._finalize(
+                        GameOutcome(
+                            results={},
+                            summary={"reason": "cancelled"},
+                            description=self.text.get("match.session_cancelled_description"),
+                            player_descriptions={
+                                player.seat: "Abandoned" for player in self.players
+                            },
+                        ),
+                        status="abandoned",
+                    )
                 return
-            except Exception as e:
+            except Exception:
                 log.exception("Game session crashed", extra={"match_id": self.id})
-                if self._bot:
-                    thread = self._bot.get_channel(self.id)
-                    if not thread:
-                        try:
-                            thread = await self._bot.fetch_channel(self.id)
-                        except Exception:
-                            pass
-                    if isinstance(thread, discord.Thread):
-                        try:
-                            await thread.send(
-                                f"⚠️ **Game Session Error:** An internal error occurred and the game has crashed. Match abandoned.\n"
-                                f"*(Error: `{type(e).__name__}: {e}`)*"
-                            )
-                        except Exception:
-                            pass
+                await self._notify_thread(self.text.get("match.session_crashed"))
                 if not self._finalized:
                     await self._finalize(
                         GameOutcome(
                             results={},
                             summary={"error": True},
-                            description="Game session crashed",
-                            player_descriptions={},
+                            description=self.text.get("match.session_crashed_description"),
+                            player_descriptions={
+                                player.seat: "Abandoned" for player in self.players
+                            },
                         ),
                         status="abandoned",
                     )
@@ -191,13 +197,13 @@ class GameSession:
                 self.game.handle_query(seat, source, interaction, self.ctx, self.surface),
                 timeout=5.0,
             )
-        except Exception as e:
+        except Exception:
             log.exception(
                 "Error or timeout in handle_query for game %s (match_id: %s)",
                 self.game_key,
                 self.id,
             )
-            raise RuntimeError(f"Query handler failed: {e}") from e
+            raise RuntimeError("query_failed") from None
 
     async def force_move(self, seat: int, move: Move) -> None:
         async with self.lock:
@@ -210,8 +216,9 @@ class GameSession:
     async def cancel(self, reason: str, forfeiter_seat: int | None = None) -> None:
         if self._finalized:
             return
-        if self.task and not self.task.done():
-            self.task.cancel()
+        task = self.task
+        if task is not None and not task.done() and task is not asyncio.current_task():
+            task.cancel()
         self._append_log_entry("game_end", {"reason": reason, "cancelled": True}, kind=LogEntryKind.SYSTEM)
         results = {}
         summary = {"reason": reason}
@@ -230,6 +237,11 @@ class GameSession:
             forfeiter_mention = str(self.players[forfeiter_seat])
             action_str = "timed out" if reason == "timeout" else "forfeited"
             description = f"{forfeiter_mention} {action_str}"
+        elif reason == "restart":
+            description = self.text.get("match.session_restarted_description")
+            for player in self.players:
+                player_descriptions[player.seat] = "Abandoned (bot restart)"
+            await self._notify_thread(self.text.get("match.session_restarted"))
         else:
             description = reason.capitalize()
             for player in self.players:
@@ -250,6 +262,22 @@ class GameSession:
             if player.user_id == user_id and not player.is_bot:
                 return player.seat
         return None
+
+    async def _notify_thread(self, content: str) -> None:
+        if self._bot is None or not content:
+            return
+        thread = self._bot.get_channel(self.thread_id)
+        if thread is None:
+            try:
+                thread = await self._bot.fetch_channel(self.thread_id)
+            except Exception:
+                return
+        if not isinstance(thread, discord.Thread):
+            return
+        try:
+            await thread.send(content)
+        except discord.HTTPException:
+            log.exception("Failed to post notice in thread %s", self.thread_id)
 
     async def _update_surface(self, view: LayoutView) -> None:
         if self.surface.message is None:
@@ -349,6 +377,7 @@ class GameSession:
             timeout_consequence=timeout_consequence,
         )
         self.last_move_at = time.monotonic()
+        self._timeout_warned.pop(actor, None)
         await self._update_surface(view)
         await self.refresh_header()
         move = await future
@@ -413,6 +442,8 @@ class GameSession:
                 timeout_consequence=timeout_consequence,
             )
         self.last_move_at = time.monotonic()
+        for seat in humans:
+            self._timeout_warned.pop(seat, None)
         await self._update_surface(view)
         await self.refresh_header()
 
@@ -532,9 +563,10 @@ class GameSession:
         self._append_log_entry(source, arguments, actor_seat=actor_seat, kind=LogEntryKind.SYSTEM)
 
     async def _finalize(self, outcome: GameOutcome, *, status: str) -> None:
-        if self._finalized:
-            return
-        self._finalized = True
+        async with self.lock:
+            if self._finalized:
+                return
+            self._finalized = True
         match_id = 0
         try:
             finished = FinishedMatch(

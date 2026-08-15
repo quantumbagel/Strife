@@ -28,16 +28,31 @@ from strife.presentation.game_ui import message_lead
 
 class Spyfall(Game):
     LOCATIONS = [
+        "Airplane",
+        "Bank",
+        "Beach",
+        "Casino",
+        "Cathedral",
+        "Circus Tent",
+        "Embassy",
+        "Hospital",
+        "Hotel",
+        "Military Base",
+        "Movie Studio",
+        "Ocean Liner",
+        "Passenger Train",
+        "Pirate Ship",
+        "Polar Station",
+        "Police Station",
+        "Restaurant",
+        "School",
+        "Service Station",
         "Space Station",
         "Submarine",
-        "Casino",
         "Supermarket",
-        "Pirate Ship",
-        "Movie Studio",
-        "Polar Station",
-        "Military Base",
-        "Airplane",
-        "Carnival",
+        "Theater",
+        "University",
+        "Zoo",
     ]
 
     def __init__(self, players, settings, rng):
@@ -55,6 +70,7 @@ class Spyfall(Game):
         self.max_turns = 5
         self.pending_accuse: dict[int, int] = {}
         self.pending_guess: dict[int, str] = {}
+        self._passes: set[int] = set()
 
     def _name(self, seat: int) -> str:
         return self.players[seat].mention
@@ -128,14 +144,14 @@ class Spyfall(Game):
                 continue
 
             if move.source == "pass":
-                # A simple pass move from a bot or timer.
-                # If all bots pass, we increment turn counter.
-                self.turn += 1
+                self._passes.add(actor_seat)
+                if self._passes >= self.alive:
+                    self.turn += 1
+                    self._passes.clear()
                 continue
 
             elif move.source == "guess_location":
                 if actor_seat != self.spy:
-                    self.turn += 1
                     continue
 
                 guess = self.pending_guess.get(actor_seat)

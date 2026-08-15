@@ -60,7 +60,7 @@ class GamesConfig(BaseModel):
     def for_game(self, key: str) -> GameConfig:
         if key in self._merged:
             return self._merged[key]
-        return self._merge_config(key, GameConfig())
+        return self._merge_config(key, GameConfig(enabled=False))
 
 
 def load_games_config(path: Path) -> GamesConfig:

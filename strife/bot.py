@@ -146,6 +146,11 @@ class StrifeBot(commands.Bot):
 
         await self.add_cog(AdminCommands(self, self.settings))
         self.lifecycle.start()
+        try:
+            synced = await self.tree.sync()
+            log.info("Synced %s application command(s)", len(synced))
+        except Exception:
+            log.exception("Failed to sync application commands")
         log.info("Strife subsystems wired")
 
     async def on_ready(self) -> None:
@@ -155,24 +160,23 @@ class StrifeBot(commands.Bot):
         if interaction.type is discord.InteractionType.component and self.router:
             await self.router.dispatch(interaction)
 
-
-
     async def close(self) -> None:
         if self.lifecycle:
             await self.lifecycle.stop()
         if self.sessions:
-            pending: list[asyncio.Task] = []
             for session in list(self.sessions.active_games.values()):
+                try:
+                    await session.cancel("restart")
+                except Exception:
+                    log.exception("Failed to abandon session %s during shutdown", session.id)
                 if session.task and not session.task.done():
                     session.task.cancel()
-                    pending.append(session.task)
-            for task in pending:
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-                except Exception:
-                    log.exception("Session task failed during shutdown")
+                    try:
+                        await session.task
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        log.exception("Session task failed during shutdown")
         if self.pool:
             await self.pool.close()
         await super().close()

@@ -17,7 +17,9 @@ RUN pip install --no-cache-dir \
     "msgpack>=1.1" \
     "PyYAML>=6.0" \
     "pydantic>=2" \
-    "pydantic-settings>=2"
+    "pydantic-settings>=2" \
+    "chess>=1.11.2" \
+    "resvg-py>=0.3.3"
 
 COPY config/ ./config/
 COPY migrations/ ./migrations/

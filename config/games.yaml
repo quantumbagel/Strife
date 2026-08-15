@@ -26,4 +26,6 @@ games:
   chess:
     enabled: true
     turn_timeout_seconds: 120
+  test:
+    enabled: false
 

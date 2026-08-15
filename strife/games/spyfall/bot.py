@@ -19,21 +19,20 @@ def choose_move(game: Spyfall, difficulty: str, seat: int) -> Move:
         val = "guilty" if game.rng.random() < 0.6 else "innocent"
         return Move(actor_seat=seat, source="vote", args={"value": val})
 
-    # Otherwise, it's normal gameplay phase
-    # If the bot is the spy, it might decide to guess the location (10% chance per turn)
-    is_spy = (seat == game.spy)
-    if is_spy and game.rng.random() < 0.15:
+    is_spy = seat == game.spy
+    pressure = 0.2 if difficulty == "easy" else 0.35 if difficulty == "medium" else 0.5
+    pressure += 0.12 * max(0, game.turn - 1)
+
+    if is_spy and game.rng.random() < pressure:
         loc = game.rng.choice(game.LOCATIONS)
         game.pending_guess[seat] = loc
         return Move(actor_seat=seat, source="guess_location", args={})
 
-    # Otherwise, choose a player to accuse (10% chance)
-    if game.rng.random() < 0.1:
+    if game.rng.random() < pressure:
         others = [s for s in game.alive if s != seat]
         if others:
             target = game.rng.choice(others)
             game.pending_accuse[seat] = target
             return Move(actor_seat=seat, source="accuse", args={})
 
-    # If nothing triggered, bot passes / does nothing
     return Move(actor_seat=seat, source="pass", args={})

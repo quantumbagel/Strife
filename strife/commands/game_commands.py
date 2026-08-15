@@ -1,11 +1,26 @@
 from __future__ import annotations
 
-import typing
+import inspect
+from typing import Any
+
 import discord
 from discord import app_commands
+
 from strife.engine.metadata import ParamType, SlashMove
-from strife.matchmaking.registries import SessionRegistries
 from strife.engine.registry import GameRegistry
+from strife.matchmaking.registries import SessionRegistries
+
+_KNOWN_ERRORS = {
+    "cannot_act": "It is not your turn or you cannot act right now.",
+    "invalid_action": "Invalid action for this turn.",
+    "not_a_player": "You are not a player in this game.",
+}
+
+
+def _annotation_for(param) -> type:
+    if param.type == ParamType.INT:
+        return int
+    return str
 
 
 def create_slash_command(
@@ -13,72 +28,70 @@ def create_slash_command(
     slash_move: SlashMove,
     sessions: SessionRegistries,
 ) -> app_commands.Command:
-    params_parts = ["interaction: discord.Interaction"]
-    for param in slash_move.params:
-        if param.type == ParamType.INT:
-            t_name = "int"
-        elif param.choices:
-            choices_str = ", ".join(repr(c) for c in param.choices)
-            t_name = f"typing.Literal[{choices_str}]"
-        else:
-            t_name = "str"
+    async def callback(interaction: discord.Interaction, **kwargs: Any) -> None:
+        channel = interaction.channel
+        session = sessions.get_game(channel.id) if channel is not None else None
+        if session is None:
+            await interaction.response.send_message(
+                "No active game in this channel.", ephemeral=True
+            )
+            return
+        args = {param.name: kwargs.get(param.name) for param in slash_move.params}
+        try:
+            await interaction.response.defer(ephemeral=True)
+            await session.handle_slash_command(interaction.user.id, slash_move.name, args)
+            await interaction.followup.send("Move submitted!", ephemeral=True)
+        except Exception as exc:
+            msg = str(exc)
+            friendly = _KNOWN_ERRORS.get(msg, "Could not submit that move. Try again.")
+            if interaction.response.is_done():
+                await interaction.followup.send(friendly, ephemeral=True)
+            else:
+                await interaction.response.send_message(friendly, ephemeral=True)
 
-        default = ""
-        if not param.required:
-            default = " = None"
-        params_parts.append(f"{param.name}: {t_name}{default}")
-
-    params_str = ", ".join(params_parts)
-    func_name = f"dynamic_cmd_{game_key}_{slash_move.name}"
-
-    exec_globals = {
-        **globals(),
-        "discord": discord,
-        "sessions": sessions,
-        "typing": typing,
-    }
-
-    code_lines = [
-        f"async def {func_name}({params_str}):",
-        "    session = sessions.get_game(interaction.channel.id)",
-        "    if session is None:",
-        "        await interaction.response.send_message('No active game in this channel.', ephemeral=True)",
-        "        return",
-        "    args = {" + ", ".join(f"'{p.name}': {p.name}" for p in slash_move.params) + "}",
-        f"    source = '{slash_move.name}'",
-        "    try:",
-        "        await interaction.response.defer(ephemeral=True)",
-        "        await session.handle_slash_command(interaction.user.id, source, args)",
-        "        await interaction.followup.send('Move submitted!', ephemeral=True)",
-        "    except Exception as e:",
-        "        msg = str(e)",
-        "        if msg == 'cannot_act':",
-        "            await interaction.followup.send('It is not your turn or you cannot act right now.', ephemeral=True)",
-        "        elif msg == 'invalid_action':",
-        "            await interaction.followup.send('Invalid action for this turn.', ephemeral=True)",
-        "        else:",
-        "            await interaction.followup.send(f'Error submitting move: {msg}', ephemeral=True)",
+    parameters = [
+        inspect.Parameter(
+            "interaction",
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            annotation=discord.Interaction,
+        )
     ]
+    annotations: dict[str, Any] = {"interaction": discord.Interaction, "return": None}
+    for param in slash_move.params:
+        annotation = _annotation_for(param)
+        default = inspect.Parameter.empty if param.required else None
+        parameters.append(
+            inspect.Parameter(
+                param.name,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=annotation,
+                default=default,
+            )
+        )
+        annotations[param.name] = annotation
 
-    code_str = "\n".join(code_lines)
-    exec(code_str, exec_globals)
-    callback = exec_globals[func_name]
+    callback.__signature__ = inspect.Signature(parameters)
+    callback.__annotations__ = annotations
+    callback.__name__ = f"slash_{game_key}_{slash_move.name}"
+    callback.__qualname__ = callback.__name__
 
-    cmd = discord.app_commands.Command(
+    cmd = app_commands.Command(
         name=slash_move.name,
         description=slash_move.description,
         callback=callback,
     )
 
-    descriptions = {}
-    for param in slash_move.params:
-        if param.description:
-            descriptions[param.name] = param.description
-    cmd._params_description = descriptions
+    descriptions = {
+        param.name: param.description for param in slash_move.params if param.description
+    }
+    if descriptions:
+        cmd._params_description = descriptions
 
     for param in slash_move.params:
         if param.autocomplete:
-            async def autocomplete_wrapper(interaction: discord.Interaction, current: str, p=param):
+            async def autocomplete_wrapper(
+                interaction: discord.Interaction, current: str, p=param
+            ):
                 try:
                     choices = await p.autocomplete(interaction, current)
                     return [discord.app_commands.Choice(name=c, value=c) for c in choices][:25]

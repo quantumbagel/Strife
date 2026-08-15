@@ -48,6 +48,7 @@ class Mafia(Game):
         self.history: list[str] = []
         self._phase = "night"
         self.death_reason: dict[int, str] = {}
+        self._night_views: dict[int, LayoutView] = {}
 
     def _name(self, seat: int) -> str:
         return self.players[seat].mention
@@ -208,6 +209,7 @@ class Mafia(Game):
             private_views[seat] = private
             per_seat_sources[seat] = {source}
 
+        self._night_views = private_views
         await asyncio.gather(
             *(ctx.send_private(seat, private_views[seat]) for seat in acting)
         )
@@ -224,6 +226,7 @@ class Mafia(Game):
             until="all",
             record=False,
         )
+        self._night_views = {}
         for move in moves.values():
             self._normalize_target(move)
 
@@ -564,6 +567,15 @@ class Mafia(Game):
         container = view.containers[0]
         row = ActionRow()
         row.add_button(Button(source="peek", label="Peek Role", emoji="peek", style=ButtonStyle.SECONDARY))
+        if self._phase == "night" and self._night_views:
+            row.add_button(
+                Button(
+                    source="night_act",
+                    label="Night Action",
+                    emoji="configure",
+                    style=ButtonStyle.PRIMARY,
+                )
+            )
         container.add_action_row(row)
         return view
 
@@ -696,5 +708,18 @@ class Mafia(Game):
                 if teammates:
                     text += f"\n\n**Mafia teammates:** {', '.join(teammates)}"
             await interaction.response.send_message(text, ephemeral=True)
+            return True
+        if source == "night_act":
+            view = self._night_views.get(seat)
+            if view is None:
+                await interaction.response.send_message(
+                    "You have no night action right now. Villagers can Peek Role if DMs are closed.",
+                    ephemeral=True,
+                )
+                return True
+            compiled = surface.compiler.compile(
+                view, resource_id=surface.resource_id, prefix=surface.prefix
+            )
+            await interaction.response.send_message(view=compiled, ephemeral=True)
             return True
         return await super().handle_query(seat, source, interaction, ctx, surface)

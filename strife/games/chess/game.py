@@ -89,6 +89,7 @@ def parse_user_move(board: chess.Board, text: str) -> chess.Move | None:
     version="1.0.0",
     author_link=None,
     source_link=None,
+    how_to_play_link="https://en.wikipedia.org/wiki/Rules_of_chess",
     time_estimate="15m",
     difficulty=4,
     player_count=PlayerCount(fixed=2),
@@ -411,8 +412,9 @@ class Chess(TurnBasedGame):
         view, container = self._render_base(
             ctx, title=title, status=status, status_emoji=status_emoji, lead=lead
         )
-        legal_moves_str = ", ".join(self.board.san(m) for m in self.board.legal_moves)
-        container.add_text(TextDisplay(f"**Legal moves:** {legal_moves_str}"))
+        container.add_text(
+            TextDisplay("Use `/chess move` with SAN or UCI, for example `e4`, `Nf3`, or `e2e4`.")
+        )
         view.add_container(container)
         return view
 

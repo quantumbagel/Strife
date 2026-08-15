@@ -39,8 +39,32 @@ forward:
   id: 1525857728256409690
   animated: false
 game_mafia:
-  fallback: null
+  fallback: 🐺
   id: 1525857729300664452
+  animated: false
+game_tictactoe:
+  fallback: ⭕
+  id: null
+  animated: false
+game_connect_four:
+  fallback: 🔴
+  id: null
+  animated: false
+game_chess:
+  fallback: ♟️
+  id: null
+  animated: false
+game_coup:
+  fallback: 🃏
+  id: null
+  animated: false
+game_spyfall:
+  fallback: 🕵️
+  id: null
+  animated: false
+game_liars_dice:
+  fallback: 🎲
+  id: null
   animated: false
 github:
   fallback: null

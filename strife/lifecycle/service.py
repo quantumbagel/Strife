@@ -74,6 +74,16 @@ class LifecycleService:
                 if session.players[seat].is_bot:
                     continue
                 timeout = pending.timeout_seconds if pending.timeout_seconds is not None else game_cfg.turn_timeout_seconds
+                warning = game_cfg.turn_warning_seconds
+                if (
+                    warning
+                    and warning > 0
+                    and idle >= max(0, timeout - warning)
+                    and idle < timeout
+                    and session._timeout_warned.get(seat) != session.last_move_at
+                ):
+                    session._timeout_warned[seat] = session.last_move_at
+                    await self._send_turn_warning(session, seat, timeout - idle)
                 if idle >= timeout:
                     try:
                         await self._resolve_timeout(session, seat)
@@ -88,6 +98,29 @@ class LifecycleService:
                             await session.cancel("error")
                         except Exception:
                             log.exception("Failed to cancel session %s after timeout crash", session.id)
+
+    async def _send_turn_warning(self, session, seat: int, remaining: float) -> None:
+        player = session.players[seat]
+        thread = self.bot.get_channel(session.thread_id)
+        if not thread:
+            try:
+                thread = await self.bot.fetch_channel(session.thread_id)
+            except Exception:
+                thread = None
+        if thread is None:
+            return
+        seconds = max(1, int(remaining))
+        try:
+            await thread.send(
+                self.text.get(
+                    "match.turn_warning",
+                    player=player.mention,
+                    seconds=seconds,
+                )
+            )
+        except Exception:
+            log.exception("Failed to send turn warning for session %s", session.id)
+
     async def _resolve_timeout(self, session, seat: int) -> None:
         consequence = determine_consequence(session, seat, reason="timeout")
         await self._execute_consequence(session, seat, consequence, reason="timeout")

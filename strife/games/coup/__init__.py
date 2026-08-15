@@ -13,6 +13,7 @@ META = GameMetadata(
     version="1.0.0",
     author_link=None,
     source_link=None,
+    how_to_play_link="https://en.wikipedia.org/wiki/Coup_(card_game)",
     time_estimate="15m",
     difficulty=5,
     player_count=PlayerCount(minimum=2, maximum=6),

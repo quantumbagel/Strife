@@ -1074,6 +1074,42 @@ class LobbyService:
         if revoked_name:
             await self._success(interaction, "lobby.approval_revoked", name=revoked_name)
 
+    async def _open_public_game_thread(
+        self,
+        channel,
+        *,
+        name: str,
+        game_name: str,
+        players: list[Player],
+    ) -> discord.Thread:
+        starter_text = self.text.get("lobby.thread_starter", game_name=game_name)
+        parent = channel
+        if isinstance(channel, discord.Thread):
+            parent = channel.parent or channel
+
+        if isinstance(parent, discord.ForumChannel):
+            thread = await parent.create_thread(
+                name=name,
+                content=starter_text,
+                auto_archive_duration=1440,
+            )
+        else:
+            starter = await parent.send(starter_text)
+            thread = await starter.create_thread(name=name, auto_archive_duration=1440)
+
+        for player in players:
+            if not player.user_id or player.is_bot:
+                continue
+            try:
+                await thread.add_user(discord.Object(id=player.user_id))
+            except discord.HTTPException:
+                log.warning(
+                    "Could not add user %s to game thread %s",
+                    player.user_id,
+                    thread.id,
+                )
+        return thread
+
     async def _start(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
@@ -1141,8 +1177,11 @@ class LobbyService:
             if channel is None:
                 channel = interaction.channel
             thread_name = f"{meta.name} (#{match_code})"
-            thread = await channel.create_thread(
-                name=thread_name, auto_archive_duration=1440
+            thread = await self._open_public_game_thread(
+                channel,
+                name=thread_name,
+                game_name=meta.name,
+                players=players,
             )
 
             ended_view = LayoutView()

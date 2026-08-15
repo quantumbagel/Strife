@@ -41,19 +41,16 @@ def _validate_capabilities(game_cls: type[Game], metadata: GameMetadata) -> bool
     return ok
 
 
-def check_dependencies(dependencies: list[str]) -> None:
+def check_dependencies(dependencies: list[str]) -> bool:
+    """Return True when every requirement is already installed. Never installs packages."""
     import importlib.metadata
     import importlib.util
-    import subprocess
-    import sys
 
     if not dependencies:
-        return
+        return True
 
-    log.info("Checking dependencies: %s", dependencies)
     missing = []
     for dep in dependencies:
-        # Strip version constraint operators (e.g. >=, ==, <=, >, <, !=, ~=)
         dep_name = dep
         for op in (">=", "==", "<=", ">", "<", "!=", "~="):
             if op in dep_name:
@@ -73,23 +70,12 @@ def check_dependencies(dependencies: list[str]) -> None:
                 missing.append(dep)
 
     if missing:
-        log.info("Installing missing dependencies: %s", missing)
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", *missing],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            log.info("Successfully installed dependencies: %s", missing)
-        except subprocess.CalledProcessError as e:
-            log.error(
-                "Failed to install dependencies %s: %s\nStdout: %s\nStderr: %s",
-                missing,
-                e,
-                e.stdout,
-                e.stderr,
-            )
+        log.error(
+            "Missing game dependencies (install them at deploy time, not at runtime): %s",
+            ", ".join(missing),
+        )
+        return False
+    return True
 
 
 class GameRegistry:
