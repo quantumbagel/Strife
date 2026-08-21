@@ -6,6 +6,8 @@ import time
 import discord
 
 from strife.config.text import TextConfig
+from strife.engine.errors import SessionError
+from strife.engine.log import LogEntryKind
 from strife.engine.players import Move
 from strife.engine.registry import GameRegistry
 from strife.lifecycle.rematch import RematchManager
@@ -37,7 +39,6 @@ class LifecycleService:
         self.emoji = emoji
         self.rematch = RematchManager(registries, lobby, text)
         self._task: asyncio.Task | None = None
-        self._session_meta: dict[int, dict] = {}
 
     def register_session_end(self, thread_id: int, match_id: int, outcome, players) -> None:
         humans = [p.user_id for p in players if p.user_id and not p.is_bot]
@@ -66,12 +67,17 @@ class LifecycleService:
         await self.rematch.expire_stale()
         now = time.monotonic()
         for session in list(self.registries.active_games.values()):
-            if session._finalized:
+            async with session.lock:
+                finalized = session._finalized
+                pending_snapshot = list(session.pending.items())
+                last_move_at = session.last_move_at
+                last_progress_at = session.last_progress_at
+            if finalized:
                 continue
             game_cfg = self.config.games.for_game(session.game_key)
-            if not session.pending:
+            if not pending_snapshot:
                 hang = game_cfg.play_hang_seconds
-                last = max(session.last_progress_at, session.last_move_at)
+                last = max(last_progress_at, last_move_at)
                 if hang and hang > 0 and now - last >= hang:
                     log.error(
                         "Play hung for session %s (no GameContext progress for %ss)",
@@ -84,8 +90,8 @@ class LifecycleService:
                     except Exception:
                         log.exception("Failed to cancel hung session %s", session.id)
                 continue
-            idle = now - session.last_move_at
-            for seat, pending in list(session.pending.items()):
+            idle = now - last_move_at
+            for seat, pending in pending_snapshot:
                 if session.players[seat].is_bot:
                     continue
                 timeout = pending.timeout_seconds if pending.timeout_seconds is not None else game_cfg.turn_timeout_seconds
@@ -95,9 +101,10 @@ class LifecycleService:
                     and warning > 0
                     and idle >= max(0, timeout - warning)
                     and idle < timeout
-                    and session._timeout_warned.get(seat) != session.last_move_at
+                    and session._timeout_warned.get(seat) != last_move_at
                 ):
-                    session._timeout_warned[seat] = session.last_move_at
+                    async with session.lock:
+                        session._timeout_warned[seat] = last_move_at
                     await self._send_turn_warning(session, seat, timeout - idle)
                 if idle >= timeout:
                     try:
@@ -143,7 +150,7 @@ class LifecycleService:
     async def forfeit(self, thread_id: int, user_id: int) -> None:
         session = self.registries.get_game(thread_id)
         if session is None:
-            raise RuntimeError("no_session")
+            raise SessionError("no_session")
         seat = session._seat_for_user(user_id)
         if seat is None:
             raise PermissionError
@@ -168,7 +175,10 @@ class LifecycleService:
 
         # 2. Execute the consequence action
         if consequence == TimeoutConsequence.SKIP:
-            await session.force_move(seat, Move(actor_seat=seat, source="timeout", args={}))
+            await session.force_move(
+                seat,
+                Move(actor_seat=seat, source="timeout", args={}, kind=LogEntryKind.SYSTEM),
+            )
 
         elif consequence == TimeoutConsequence.AUTO_PASS:
             await session.force_move(seat, Move(actor_seat=seat, source="pass", args={}))
@@ -203,11 +213,13 @@ class LifecycleService:
                 except Exception:
                     log.exception("Failed to send strike warning message")
 
-            source = "pass"
             if pending and pending.allowed_sources is not None and "pass" not in pending.allowed_sources:
-                source = "timeout"
-
-            await session.force_move(seat, Move(actor_seat=seat, source=source, args={}))
+                await session.force_move(
+                    seat,
+                    Move(actor_seat=seat, source="timeout", args={}, kind=LogEntryKind.SYSTEM),
+                )
+            else:
+                await session.force_move(seat, Move(actor_seat=seat, source="pass", args={}))
 
         elif consequence == TimeoutConsequence.BOT_TAKEOVER:
             difficulty = getattr(session.game.metadata, "bot_takeover_difficulty", "hard")
@@ -240,7 +252,13 @@ class LifecycleService:
                 session.game.remove_player(seat)
                 args = {"reason": "timeout"} if reason == "timeout" else {}
                 await session.force_move(
-                    seat, Move(actor_seat=seat, source="forfeit", args=args)
+                    seat,
+                    Move(
+                        actor_seat=seat,
+                        source="forfeit",
+                        args=args,
+                        kind=LogEntryKind.SYSTEM,
+                    ),
                 )
             except Exception as e:
                 log.exception(

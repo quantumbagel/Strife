@@ -6,6 +6,9 @@ from strife.config.text import TextConfig
 from strife.persistence.repositories import GuildRepository
 from strife.presentation.compiler import Compiler
 from strife.presentation.components import (
+    ActionRow,
+    Button,
+    ButtonStyle,
     ChannelSelect,
     Container,
     DescribedSelect,
@@ -82,6 +85,18 @@ class ServerSettingsService:
                 ),
             )
         )
+        if channel_id is not None:
+            row = ActionRow()
+            row.add_button(
+                Button(
+                    source="clear",
+                    label=self.text.get("server.clear_channel_btn"),
+                    style=ButtonStyle.SECONDARY,
+                    route_prefix=P.SERVER_CLEAR,
+                    resource_id=guild_id,
+                )
+            )
+            container.add_action_row(row)
         view.add_container(container)
         return view
 
@@ -116,3 +131,15 @@ class ServerSettingsService:
             "guild.channel_set",
             format_kwargs={"mention": f"<#{channel_id}>"},
         )
+
+    async def clear_channel(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            await self.user_errors.send(interaction, "common.error")
+            return
+        await self.guilds.upsert(interaction.guild_id)
+        await self.guilds.clear_default_channel(interaction.guild_id)
+        await interaction.response.defer(ephemeral=True)
+        view = self._build_view(interaction.guild_id, None)
+        compiled = self.compiler.compile(view, resource_id=interaction.guild_id, prefix=P.SERVER_NAV)
+        await interaction.edit_original_response(view=compiled)
+        await self.user_success.send(interaction, "guild.channel_cleared")

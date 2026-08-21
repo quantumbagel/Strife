@@ -11,7 +11,7 @@ class LogEntryKind(StrEnum):
     SYSTEM = "system"
 
 
-SYSTEM_SOURCES = frozenset({"forfeit", "game_end", "bot_takeover"})
+SYSTEM_SOURCES = frozenset({"forfeit", "game_end", "bot_takeover", "timeout"})
 
 
 def reject_system_source(source: str) -> None:

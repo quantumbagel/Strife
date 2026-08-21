@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from strife.engine.metadata import (
+from strife.engine import (
     BotSpec,
+    GameContext,
+    GameOutcome,
+    Move,
     OptionType,
     PlayerCount,
     PlayerOrder,
     SettingOption,
+    TurnBasedGame,
     game_metadata_from,
+    run_cpu,
 )
-from strife.engine.context import GameContext
-from strife.engine.players import GameOutcome, Move
-from strife.engine.workers import run_cpu
-from strife.engine.turn_based import TurnBasedGame
-from strife.persistence.repositories import MoveRecord
 from strife.games.tictactoe.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -103,24 +103,25 @@ class TicTacToe(TurnBasedGame):
             return "Draw — the board is full.", "hmm"
         return "Game over.", "error"
 
-    def apply_move(self, move: MoveRecord) -> None:
-        if move.source.startswith("tile_") and move.actor_seat is not None:
-            col, row = int(move.source[5]), int(move.source[6])
-            self.board[self._idx(col, row)] = move.actor_seat
+    def apply_move(self, move: Move) -> None:
+        if not move.source.startswith("tile_") or move.actor_seat is None:
+            return
+        col, row = int(move.source[5]), int(move.source[6])
+        self.board[self._idx(col, row)] = move.actor_seat
+        self.current = 1 - move.actor_seat
 
     async def play(self, ctx: GameContext) -> GameOutcome:
         while True:
             seat = self.current
-            view = self.render(ctx)
             empties = {
                 f"tile_{c}{r}"
                 for r in range(3)
                 for c in range(3)
                 if self.board[self._idx(c, r)] is None
             }
-            move = await ctx.request_input(view, actor=seat, sources=empties)
-            col, row = int(move.source[5]), int(move.source[6])
-            self.board[self._idx(col, row)] = seat
+            move = await self.take_turn(ctx, empties)
+            if not move.source.startswith("tile_"):
+                continue
             line = self._winning_line(seat)
             if line is not None:
                 winner_mention = str(self.players[seat])
@@ -137,7 +138,6 @@ class TicTacToe(TurnBasedGame):
                     description="Draw",
                     player_descriptions={0: "Draw", 1: "Draw"},
                 )
-            self.current = 1 - seat
 
     def render_final(self, ctx: GameContext) -> LayoutView:
         winner_seat = None
@@ -178,43 +178,11 @@ class TicTacToe(TurnBasedGame):
         ctx: GameContext,
         *,
         lead: str | None = None,
-        status: str | None = None,
-        status_emoji: str | None = None,
-        title: str | None = None,
+        prefix_emoji: str | None = None,
     ) -> LayoutView:
         if lead is None:
-            if status is not None:
-                lead = status
-            elif title is not None:
-                lead = title
-            else:
-                lead = self._action_status(ctx, self.current)
-        return self._board_view(
-            ctx,
-            lead=lead,
-            prefix_emoji=status_emoji,
-        )
-
-    def render_replay(
-        self,
-        ctx: GameContext,
-        *,
-        lead: str | None = None,
-        status: str | None = None,
-        status_emoji: str | None = None,
-        title: str | None = None,
-    ) -> LayoutView:
-        if lead is None:
-            if status is not None:
-                lead = status
-            elif title is not None:
-                lead = title
-        return self._board_view(
-            ctx,
-            lead=lead,
-            prefix_emoji=status_emoji,
-            controls=False,
-        )
+            lead = self._action_status(ctx, self.current)
+        return self._board_view(ctx, lead=lead, prefix_emoji=prefix_emoji)
 
     def _board_view(
         self,
@@ -225,6 +193,7 @@ class TicTacToe(TurnBasedGame):
         highlight: list[int] | None = None,
         controls: bool = True,
     ) -> LayoutView:
+        interactive = controls and not ctx.is_replay
         view = LayoutView()
         container = Container()
         message_lead(container, lead, emoji=ctx.emoji, prefix_emoji=prefix_emoji)
@@ -239,7 +208,7 @@ class TicTacToe(TurnBasedGame):
                             source=f"tile_{col}{row}",
                             label="\u200b",
                             style=ButtonStyle.SECONDARY,
-                            disabled=not controls,
+                            disabled=not interactive,
                         )
                     )
                 else:

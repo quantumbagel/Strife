@@ -6,11 +6,9 @@ from typing import Any
 
 from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
-from strife.engine.players import GameOutcome, Move, Player
-from strife.persistence.repositories import MoveRecord
 from strife.engine.outcomes import forfeit_outcome
-from strife.engine.replay import system_replay_info
-from strife.presentation.compiler import clone_and_disable
+from strife.engine.players import GameOutcome, Move, Player
+from strife.engine.replay import ReplayBuilder, iter_replay
 from strife.presentation.components import (
     ActionRow,
     Align,
@@ -42,6 +40,9 @@ class TestGame(Game):
         self.phase3_confirmed: set[int] = set()
         self.secrets: dict[int, str] = {}
         self.removed_players: set[int] = set()
+
+    def active_seats(self) -> set[int]:
+        return set(self.alive)
 
     def remove_player(self, seat: int) -> None:
         self.alive.discard(seat)
@@ -416,7 +417,7 @@ class TestGame(Game):
         view.add_container(container)
         return view
 
-    async def parse_replay(self, moves: list[MoveRecord], ctx: GameContext) -> list[ReplayFrame]:
+    async def parse_replay(self, moves: list[Move], ctx: GameContext) -> list[ReplayFrame]:
         self.alive = set(p.seat for p in self.players)
         self.phase = 1
         self.last_interacted_source = None
@@ -426,50 +427,40 @@ class TestGame(Game):
         self.secrets = {}
         self.removed_players = set()
 
-        frames: list[ReplayFrame] = []
+        builder = ReplayBuilder(ctx)
+        builder.initial(self._phase1_view(ctx), label="Start")
 
-        initial_view = self._phase1_view(ctx)
-        frames.append(
-            ReplayFrame(
-                index=len(frames),
-                turn_label="Start",
-                actor_seat=None,
-                view=clone_and_disable(initial_view),
-                timestamp=ctx.started_at,
-            )
-        )
-
-        for move in moves:
-            takeover_info = system_replay_info(self.players, move)
-
-            # Replicate state transitions based on move source
+        for step in iter_replay(moves, self.players):
+            move = step.move
+            args = move.args
             if move.source == "btn_next_1":
                 self.phase = 2
             elif move.source == "vote_resolve":
-                self.phase2_votes = {int(k): v for k, v in move.arguments.get("votes", {}).items()}
+                self.phase2_votes = {int(k): v for k, v in args.get("votes", {}).items()}
                 self.phase = 2
             elif move.source == "cast_vote":
-                seat = move.arguments.get("seat")
-                vote = move.arguments.get("vote")
+                seat = args.get("seat")
+                vote = args.get("vote")
                 if seat is not None:
                     self.phase2_votes[seat] = vote
             elif move.source == "send_private_secret":
-                seat = move.arguments.get("seat")
-                secret = move.arguments.get("secret")
+                seat = args.get("seat")
+                secret = args.get("secret")
                 if seat is not None:
                     self.secrets[seat] = secret
                 self.phase = 3
             elif move.source == "confirm_secret":
-                seat = move.arguments.get("seat")
+                seat = args.get("seat")
                 if seat is not None:
                     self.phase3_confirmed.add(seat)
             elif move.source == "btn_finish":
                 self.phase = 4
-            else:
-                if self.phase == 1:
-                    self.last_interacted_source = move.source
-                    self.last_interacted_args = move.arguments
+            elif step.frame and self.phase == 1:
+                self.last_interacted_source = move.source
+                self.last_interacted_args = args
 
+            if not step.frame:
+                continue
             if self.phase == 1:
                 view = self._phase1_view(ctx)
             elif self.phase == 2:
@@ -478,19 +469,9 @@ class TestGame(Game):
                 view = self._phase3_public_view(ctx)
             else:
                 view = self._phase4_view(ctx)
+            builder.add(step, view, label=f"Action {move.turn_index + 1}")
 
-            frames.append(
-                ReplayFrame(
-                    index=len(frames),
-                    turn_label=f"Action {move.turn_index + 1}",
-                    actor_seat=move.actor_seat,
-                    view=clone_and_disable(view),
-                    takeover_info=takeover_info,
-                    timestamp=move.created_at,
-                )
-            )
-
-        return frames
+        return builder.build()
 
     async def bot_move(self, difficulty: str, seat: int) -> Move:
         if self.phase == 1:

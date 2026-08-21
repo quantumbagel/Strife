@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     database_min_size: int = 2
     database_max_size: int = 20
     cpu_pool_size: int = 8
+    sync_on_start: bool = False
 
     @field_validator("owner_ids", mode="before")
     @classmethod

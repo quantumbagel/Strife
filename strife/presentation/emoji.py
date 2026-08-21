@@ -32,15 +32,6 @@ class EmojiResolver:
             return f"<{prefix}:{name}:{entry.id}>"
         return entry.fallback if entry.fallback is not None else "❓"
 
-    def resolve(self, name: str) -> str:
-        return self.get(name)
-
-    def general(self, name: str) -> str:
-        return self.get(name)
-
-    def button(self, name: str) -> str:
-        return self.get(name)
-
     def game(self, key: str, name: str) -> str:
         if name in self._config.entries:
             return self.get(name)

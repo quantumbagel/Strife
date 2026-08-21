@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import io
 from typing import TYPE_CHECKING
 
@@ -143,11 +142,3 @@ class ViewSurface:
             except discord.HTTPException:
                 pass
             self._message = None
-
-
-_BACKGROUND_TASKS: set[asyncio.Task] = set()
-
-
-def _track_task(task: asyncio.Task) -> None:
-    _BACKGROUND_TASKS.add(task)
-    task.add_done_callback(_BACKGROUND_TASKS.discard)

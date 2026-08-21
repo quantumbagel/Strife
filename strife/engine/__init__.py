@@ -1,0 +1,93 @@
+"""Public game-plugin API.
+
+Authors should import from ``strife.engine`` and ``strife.presentation`` —
+not persistence, compiler, or routing modules.
+
+Typical imports::
+
+    from strife.engine import (
+        Game,
+        TurnBasedGame,
+        GameContext,
+        Move,
+        GameOutcome,
+        Player,
+        game_metadata_from,
+        PlayerCount,
+        PlayerOrder,
+        ReplayBuilder,
+        iter_replay,
+        select_value,
+        run_cpu,
+    )
+    from strife.presentation.components import ActionRow, Button, ButtonStyle, LayoutView
+    from strife.presentation.game_ui import add_controls, game_container, query_panel
+"""
+
+from strife.engine.context import GameContext, ReplayFrame
+from strife.engine.game import Game
+from strife.engine.metadata import (
+    BotSpec,
+    GameMetadata,
+    MoveParam,
+    OptionType,
+    ParamType,
+    PlayerCount,
+    PlayerOrder,
+    RoleFlow,
+    RoleMode,
+    RoleSpec,
+    SettingOption,
+    SlashMove,
+    game_metadata,
+    game_metadata_from,
+)
+from strife.engine.outcomes import forfeit_outcome
+from strife.engine.players import GameOutcome, Move, Player, select_value
+from strife.engine.replay import (
+    ReplayBuilder,
+    ReplayStep,
+    freeze_view,
+    iter_replay,
+    is_terminal_replay_move,
+    system_replay_info,
+)
+from strife.engine.turn_based import TurnBasedGame
+from strife.engine.workers import run_cpu
+
+# Compatibility alias: recorded log rows are ``Move`` values.
+MoveRecord = Move
+
+__all__ = [
+    "BotSpec",
+    "Game",
+    "GameContext",
+    "GameMetadata",
+    "GameOutcome",
+    "Move",
+    "MoveParam",
+    "MoveRecord",
+    "OptionType",
+    "ParamType",
+    "Player",
+    "PlayerCount",
+    "PlayerOrder",
+    "ReplayBuilder",
+    "ReplayFrame",
+    "ReplayStep",
+    "RoleFlow",
+    "RoleMode",
+    "RoleSpec",
+    "SettingOption",
+    "SlashMove",
+    "TurnBasedGame",
+    "forfeit_outcome",
+    "freeze_view",
+    "game_metadata",
+    "game_metadata_from",
+    "is_terminal_replay_move",
+    "iter_replay",
+    "run_cpu",
+    "select_value",
+    "system_replay_info",
+]

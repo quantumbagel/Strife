@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
+
+from strife.engine.log import LogEntryKind
 
 
 @dataclass
@@ -42,10 +45,8 @@ class Player:
     ) -> str:
         prefix = ""
         if emoji:
-            # 1. Creator prefix
             if creator_id is not None and self.user_id == creator_id:
                 prefix += f"{emoji.get('creator')} "
-            # 2. Admin prefix
             if owner_ids is not None and self.user_id in owner_ids:
                 prefix += f"{emoji.get('admin')} "
 
@@ -58,13 +59,52 @@ class Player:
 @dataclass
 class GameOutcome:
     results: dict[int, str]
-    summary: dict
+    summary: dict[str, Any]
     description: str
     player_descriptions: dict[int, str]
 
 
 @dataclass
 class Move:
+    """A live input or a recorded log entry.
+
+    Live ``request_input`` results and replay log rows share this type so
+    ``play()`` and ``apply_move()`` / ``parse_replay()`` read the same fields.
+    Prefer ``args``; ``arguments`` is a compatibility alias.
+    """
+
     actor_seat: int | None
     source: str
-    args: dict
+    args: dict[str, Any] = field(default_factory=dict)
+    kind: LogEntryKind = LogEntryKind.GAME
+    turn_index: int = 0
+    created_at: datetime | None = None
+
+    @property
+    def is_game(self) -> bool:
+        return self.kind == LogEntryKind.GAME
+
+    @property
+    def is_system(self) -> bool:
+        return self.kind == LogEntryKind.SYSTEM
+
+    @property
+    def arguments(self) -> dict[str, Any]:
+        return self.args
+
+
+def select_value(move: Move, *keys: str) -> Any:
+    """Read a select/button argument.
+
+    Checks *keys* first, then ``value``, then ``values[0]``. Discord single
+    selects arrive as ``{"value": ...}``; multi-selects as ``{"values": [...]}``.
+    """
+    for key in keys:
+        if key in move.args and move.args[key] is not None:
+            return move.args[key]
+    if move.args.get("value") is not None:
+        return move.args["value"]
+    values = move.args.get("values")
+    if isinstance(values, (list, tuple)) and values:
+        return values[0]
+    return None

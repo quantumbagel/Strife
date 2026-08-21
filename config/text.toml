@@ -46,6 +46,7 @@ left = "You left the lobby."
 bot_added = "Added {count} bot(s)."
 bot_removed = "Removed bot {name}."
 game_started = "Game started in {mention}!"
+created_in_channel = "Lobby posted in {mention}."
 thread_starter = "Starting **{game_name}**. Join the thread to play."
 game_in_progress = "Match in progress. Good luck!"
 awaiting_actions = "Awaiting action"
@@ -355,9 +356,11 @@ jump_modal_placeholder = "Enter an action number..."
 
 [guild]
 channel_set = "Default channel set to {mention}"
+channel_cleared = "Default lobby channel cleared."
 
 [guild_success]
 channel_set = "New public lobbies will default to posting in {mention}."
+channel_cleared = "New public lobbies will post in the channel where /play is used."
 
 [server]
 title = "### {logo} Strife {forward} {settings_emoji} Server Settings"
@@ -365,6 +368,7 @@ current_channel = "Default lobby channel: {mention}"
 no_channel = "No default lobby channel is set."
 channel_placeholder = "Select default lobby channel..."
 channel_select_desc = "New public lobbies will post in this channel."
+clear_channel_btn = "Clear default channel"
 
 
 [about]

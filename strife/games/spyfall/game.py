@@ -4,8 +4,7 @@ from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
 from strife.engine.workers import run_cpu
 from strife.engine.players import GameOutcome, Move
-from strife.persistence.repositories import MoveRecord
-from strife.engine.replay import system_replay_info
+from strife.engine.replay import ReplayBuilder, iter_replay
 from strife.games.spyfall.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -66,6 +65,9 @@ class Spyfall(Game):
         self.pending_accuse: dict[int, int] = {}
         self.pending_guess: dict[int, str] = {}
         self._passes: set[int] = set()
+
+    def active_seats(self) -> set[int]:
+        return set(self.alive)
 
     def _name(self, seat: int) -> str:
         return self.players[seat].mention
@@ -389,6 +391,7 @@ class Spyfall(Game):
                 label="Peek Info",
                 emoji="peek",
                 style=ButtonStyle.SECONDARY,
+                query=True,
             )
         )
         container.add_action_row(row3)
@@ -442,6 +445,7 @@ class Spyfall(Game):
                 label="Peek Info",
                 emoji="peek",
                 style=ButtonStyle.SECONDARY,
+                query=True,
             )
         )
         container.add_action_row(row2)
@@ -465,7 +469,7 @@ class Spyfall(Game):
         view.add_container(container)
         return view
 
-    async def parse_replay(self, moves: list[MoveRecord], ctx: GameContext) -> list[ReplayFrame]:
+    async def parse_replay(self, moves: list[Move], ctx: GameContext) -> list[ReplayFrame]:
         self.alive = {p.seat for p in self.players}
         self.history = []
         self.accused_player = None
@@ -473,75 +477,34 @@ class Spyfall(Game):
         self.votes = {}
         self.turn = 1
 
-        frames: list[ReplayFrame] = []
-        from strife.presentation.compiler import clone_and_disable
-
-        for move in moves:
-            takeover_info = system_replay_info(self.players, move)
-
+        builder = ReplayBuilder(ctx)
+        for step in iter_replay(moves, self.players):
+            move = step.move
+            args = move.args
             if move.source == "setup":
-                self.location = move.arguments["location"]
-                self.spy = move.arguments["spy"]
-                view = self._discussion_view_replay(ctx)
-                frames.append(ReplayFrame(
-                    index=len(frames),
-                    turn_label="Setup",
-                    actor_seat=None,
-                    view=clone_and_disable(view),
-                    takeover_info=takeover_info,
-                    timestamp=move.created_at,
-                ))
-
+                self.location = args["location"]
+                self.spy = args["spy"]
+                builder.add(step, self._discussion_view_replay(ctx), label="Setup")
             elif move.source == "accusation_start":
-                self.accuser = move.arguments.get("accuser", move.actor_seat)
-                self.accused_player = move.arguments["accused"]
+                self.accuser = args.get("accuser", move.actor_seat)
+                self.accused_player = args["accused"]
                 self.votes = {}
-                view = self._voting_view_replay(ctx)
-                frames.append(ReplayFrame(
-                    index=len(frames),
-                    turn_label="Accusation",
-                    actor_seat=move.actor_seat,
-                    view=clone_and_disable(view),
-                    takeover_info=takeover_info,
-                    timestamp=move.created_at,
-                ))
-
+                builder.add(step, self._voting_view_replay(ctx), label="Accusation")
             elif move.source == "accusation_resolve":
-                self.votes = {int(k): v for k, v in move.arguments["votes"].items()}
-                self.history = move.arguments.get("history", [])
+                self.votes = {int(k): v for k, v in args["votes"].items()}
+                self.history = args.get("history", [])
                 self.accused_player = None
                 self.accuser = None
                 self.turn += 1
-                view = self._discussion_view_replay(ctx)
-                frames.append(ReplayFrame(
-                    index=len(frames),
-                    turn_label="Accusation Resolved",
-                    actor_seat=None,
-                    view=clone_and_disable(view),
-                    takeover_info=takeover_info,
-                    timestamp=move.created_at,
-                ))
-
+                builder.add(step, self._discussion_view_replay(ctx), label="Accusation Resolved")
             elif move.source == "spy_guess":
-                self.history = move.arguments.get("history", [])
+                self.history = args.get("history", [])
                 view = LayoutView()
                 container = Container()
-                message_lead(
-                    container,
-                    f"Guess: {move.arguments['location']}",
-                    emoji=ctx.emoji,
-                )
+                message_lead(container, f"Guess: {args['location']}", emoji=ctx.emoji)
                 view.add_container(container)
-                frames.append(ReplayFrame(
-                    index=len(frames),
-                    turn_label="Spy Guess",
-                    actor_seat=move.actor_seat,
-                    view=clone_and_disable(view),
-                    takeover_info=takeover_info,
-                    timestamp=move.created_at,
-                ))
-
-        return frames
+                builder.add(step, view, label="Spy Guess")
+        return builder.build()
 
     async def bot_move(self, difficulty: str, seat: int) -> Move:
         # A mock turn choose method:

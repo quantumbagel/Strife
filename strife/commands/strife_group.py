@@ -5,6 +5,7 @@ from discord import app_commands
 
 from strife.commands.catalog import CatalogService
 from strife.commands.server_settings import ServerSettingsService
+from strife.engine.errors import SessionError
 from strife.engine.metadata import OptionType, int_setting_bounds
 from strife.lifecycle.service import LifecycleService
 from strife.matchmaking.service import LobbyService
@@ -66,11 +67,9 @@ def register_strife_group(
             try:
                 await lobby.leave_lobby(loc.thread_id, interaction.user.id, interaction)
                 await lobby.user_success.send(interaction, "lobby.left")
-            except RuntimeError as e:
-                if str(e) == "no_session":
-                    await lobby.user_errors.send(interaction, "errors.no_session")
-                else:
-                    await lobby.user_errors.send(interaction, "common.error")
+            except SessionError as e:
+                code = "errors.no_session" if e.code == "no_session" else "common.error"
+                await lobby.user_errors.send(interaction, code)
             except PermissionError:
                 await lobby.user_errors.send(
                     interaction,
@@ -81,11 +80,9 @@ def register_strife_group(
             try:
                 await lifecycle.forfeit(loc.thread_id, interaction.user.id)
                 await lobby.user_success.send(interaction, "match.forfeited")
-            except RuntimeError as e:
-                if str(e) == "no_session":
-                    await lobby.user_errors.send(interaction, "errors.no_session")
-                else:
-                    await lobby.user_errors.send(interaction, "common.error")
+            except SessionError as e:
+                code = "errors.no_session" if e.code == "no_session" else "common.error"
+                await lobby.user_errors.send(interaction, code)
             except PermissionError:
                 await lobby.user_errors.send(
                     interaction,

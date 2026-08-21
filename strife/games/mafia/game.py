@@ -3,12 +3,18 @@ from __future__ import annotations
 import asyncio
 from collections import Counter
 
-from strife.engine.context import GameContext, ReplayFrame
-from strife.engine.game import Game
-from strife.engine.workers import run_cpu
-from strife.engine.players import GameOutcome, Move, Player
-from strife.persistence.repositories import MoveRecord
-from strife.engine.replay import system_replay_info
+from strife.engine import (
+    Game,
+    GameContext,
+    GameOutcome,
+    Move,
+    Player,
+    ReplayBuilder,
+    ReplayFrame,
+    iter_replay,
+    run_cpu,
+    select_value,
+)
 from strife.games.mafia.bot import choose_mafia_move
 from strife.games.mafia.roles import compose_roles
 from strife.presentation.components import (
@@ -119,9 +125,8 @@ class Mafia(Game):
         return self._game_over_view(ctx, winner)
 
     def _normalize_target(self, move: Move) -> str | int | None:
-        target = move.args.get("target")
-        if target is None and move.args.get("value") is not None:
-            target = move.args["value"]
+        target = select_value(move, "target")
+        if target is not None:
             move.args["target"] = target
         return target
 
@@ -298,63 +303,42 @@ class Mafia(Game):
             "votes": {seat: m.args.get("target") for seat, m in votes.items()}
         })
 
-    async def parse_replay(self, moves: list[MoveRecord], ctx: GameContext) -> list[ReplayFrame]:
-        def _get_name(seat: int) -> str:
-            player = self.players[seat]
+    async def parse_replay(self, moves: list[Move], ctx: GameContext) -> list[ReplayFrame]:
+        def _get_name(seat: int | None) -> str:
+            if seat is None:
+                return "Unknown"
             return self.players[seat].mention
 
-        roles = {}
+        roles: dict[int, str] = {}
         alive = set(p.seat for p in self.players)
         history: list[str] = []
-        frames: list[ReplayFrame] = []
-        from strife.presentation.compiler import clone_and_disable
-        pending_takeover_info = None
+        builder = ReplayBuilder(ctx)
 
-        for move in moves:
-            info = system_replay_info(self.players, move)
-            if info:
-                pending_takeover_info = info
+        for step in iter_replay(moves, self.players):
+            move = step.move
             if move.source == "forfeit" and move.actor_seat is not None:
                 alive.discard(move.actor_seat)
+            if not step.frame:
+                continue
+            args = move.args
 
             if move.source == "roles_assigned":
-                roles = {int(k): v for k, v in move.arguments["roles"].items()}
+                roles = {int(k): v for k, v in args["roles"].items()}
                 for p in self.players:
                     p.role_key = roles.get(p.seat)
-
                 view = LayoutView()
                 container = Container()
-                message_lead(
-                    container,
-                    "The game is about to begin.",
-                    emoji=ctx.emoji,
-                    prefix_emoji="user",
-                )
+                message_lead(container, "The game is about to begin.", emoji=ctx.emoji, prefix_emoji="user")
                 forward = ctx.emoji.get("forward")
-                role_lines = []
-                for p in self.players:
-                    role = roles.get(p.seat, "unknown")
-                    role_emoji = self._role_emoji(ctx, role)
-                    role_lines.append(
-                        f"{ctx.emoji.get('bullet')} {_get_name(p.seat)} {forward} {role_emoji} **{role.title()}**"
-                    )
+                role_lines = [
+                    f"{ctx.emoji.get('bullet')} {_get_name(p.seat)} {forward} {self._role_emoji(ctx, roles.get(p.seat, 'unknown'))} **{roles.get(p.seat, 'unknown').title()}**"
+                    for p in self.players
+                ]
                 container.add_text(TextDisplay(markdown_content="\n".join(role_lines)))
                 view.add_container(container)
-
-                frames.append(
-                    ReplayFrame(
-                        index=len(frames),
-                        turn_label="Setup",
-                        actor_seat=None,
-                        view=clone_and_disable(view),
-                        takeover_info=pending_takeover_info,
-                        timestamp=move.created_at,
-                    )
-                )
-                pending_takeover_info = None
+                builder.add(step, view, label="Setup")
 
             elif move.source == "night_start":
-                day_num = move.arguments["day"]
                 view = self._public_view_replay(
                     ctx,
                     lead="Night falls across the town...",
@@ -362,85 +346,44 @@ class Mafia(Game):
                     alive=alive,
                     history=history,
                 )
-                frames.append(
-                    ReplayFrame(
-                        index=len(frames),
-                        turn_label=f"Night {day_num}",
-                        actor_seat=None,
-                        view=clone_and_disable(view),
-                        takeover_info=pending_takeover_info,
-                        timestamp=move.created_at,
-                    )
-                )
-                pending_takeover_info = None
+                builder.add(step, view, label=f"Night {args['day']}")
 
             elif move.source in ("kill", "protect", "investigate"):
                 actor_seat = move.actor_seat
                 role = roles.get(actor_seat, "unknown") if actor_seat is not None else "unknown"
-                target_val = move.arguments.get("target")
+                target_val = args.get("target")
                 target_seat = int(target_val) if (target_val is not None and target_val != "skip") else None
-                target_str = _get_name(target_seat) if target_seat is not None else "no one"
-
                 view = LayoutView()
                 container = Container()
                 message_lead(
                     container,
-                    f"{_get_name(actor_seat) if actor_seat is not None else 'Unknown'} chose to **{move.source}** {target_str}",
+                    f"{_get_name(actor_seat)} chose to **{move.source}** {_get_name(target_seat) if target_seat is not None else 'no one'}",
                     emoji=ctx.emoji,
                     prefix_emoji=self._ROLE_EMOJI.get(role, "user"),
                 )
                 view.add_container(container)
-
-                frames.append(
-                    ReplayFrame(
-                        index=len(frames),
-                        turn_label="Night Action",
-                        actor_seat=actor_seat,
-                        view=clone_and_disable(view),
-                        takeover_info=pending_takeover_info,
-                        timestamp=move.created_at,
-                    )
-                )
-                pending_takeover_info = None
+                builder.add(step, view, label="Night Action", actor_seat=actor_seat)
 
             elif move.source == "detective_reveal":
-                detective_seat = int(move.arguments["detective"])
-                target_seat = int(move.arguments["target"])
-                alignment = move.arguments["alignment"]
-
                 view = LayoutView()
                 container = Container()
                 message_lead(
                     container,
-                    f"{_get_name(detective_seat)} found {_get_name(target_seat)} is **{alignment.upper()}**",
+                    f"{_get_name(int(args['detective']))} found {_get_name(int(args['target']))} is **{args['alignment'].upper()}**",
                     emoji=ctx.emoji,
                     prefix_emoji="enable_detective",
                 )
                 view.add_container(container)
-
-                frames.append(
-                    ReplayFrame(
-                        index=len(frames),
-                        turn_label="Investigation",
-                        actor_seat=detective_seat,
-                        view=clone_and_disable(view),
-                        takeover_info=pending_takeover_info,
-                        timestamp=move.created_at,
-                    )
-                )
-                pending_takeover_info = None
+                builder.add(step, view, label="Investigation", actor_seat=int(args["detective"]))
 
             elif move.source == "night_outcome":
-                victim = move.arguments.get("victim")
-                history = move.arguments.get("history", [])
+                victim = args.get("victim")
+                history = args.get("history", [])
                 if victim is not None:
                     alive.discard(int(victim))
-
-                if victim is not None:
                     status = f"{_get_name(int(victim))} was eliminated during the night."
                 else:
                     status = "No one was eliminated during the night."
-
                 view = LayoutView()
                 container = Container()
                 message_lead(
@@ -452,26 +395,14 @@ class Mafia(Game):
                 container.add_separator()
                 container.add_text(TextDisplay(markdown_content=self._alive_roster(ctx, alive)))
                 view.add_container(container)
-
-                frames.append(
-                    ReplayFrame(
-                        index=len(frames),
-                        turn_label="Morning",
-                        actor_seat=None,
-                        view=clone_and_disable(view),
-                        takeover_info=pending_takeover_info,
-                        timestamp=move.created_at,
-                    )
-                )
-                pending_takeover_info = None
+                builder.add(step, view, label="Morning")
 
             elif move.source == "day_outcome":
-                lynched = move.arguments.get("lynched")
-                history = move.arguments.get("history", [])
-                votes_cast = move.arguments.get("votes", {})
+                lynched = args.get("lynched")
+                history = args.get("history", [])
+                votes_cast = args.get("votes", {})
                 if lynched is not None:
                     alive.discard(int(lynched))
-
                 view = LayoutView()
                 container = Container()
                 if lynched is not None:
@@ -481,51 +412,28 @@ class Mafia(Game):
                     status = "The vote was skipped or tied. No one was lynched."
                     status_emoji = "hmm"
                 message_lead(container, status, emoji=ctx.emoji, prefix_emoji=status_emoji)
-
                 vote_lines = []
                 for voter_str, target_str in votes_cast.items():
                     voter_seat = int(voter_str)
                     target_seat = int(target_str) if (target_str is not None and target_str != "skip") else None
-                    target_display = _get_name(target_seat) if target_seat is not None else "Skip"
                     vote_lines.append(
-                        f"{ctx.emoji.get('bullet')} {_get_name(voter_seat)} voted for **{target_display}**"
+                        f"{ctx.emoji.get('bullet')} {_get_name(voter_seat)} voted for **{_get_name(target_seat) if target_seat is not None else 'Skip'}**"
                     )
                 if vote_lines:
                     container.add_text(TextDisplay(markdown_content="\n".join(vote_lines)))
                     container.add_separator()
-
                 container.add_text(TextDisplay(markdown_content=self._alive_roster(ctx, alive)))
                 view.add_container(container)
-
-                frames.append(
-                    ReplayFrame(
-                        index=len(frames),
-                        turn_label="Lynch Vote",
-                        actor_seat=None,
-                        view=clone_and_disable(view),
-                        takeover_info=pending_takeover_info,
-                        timestamp=move.created_at,
-                    )
-                )
-                pending_takeover_info = None
+                builder.add(step, view, label="Lynch Vote")
 
             elif move.is_game and move.source in ("winner", "game_end"):
-                winning_faction = move.arguments.get("winning_faction", "unknown")
-                view = self._game_over_view(ctx, winning_faction, roles)
-
-                frames.append(
-                    ReplayFrame(
-                        index=len(frames),
-                        turn_label="Game Over",
-                        actor_seat=None,
-                        view=clone_and_disable(view),
-                        takeover_info=pending_takeover_info,
-                        timestamp=move.created_at,
-                    )
+                builder.add(
+                    step,
+                    self._game_over_view(ctx, args.get("winning_faction", "unknown"), roles),
+                    label="Game Over",
                 )
-                pending_takeover_info = None
 
-        return frames
+        return builder.build()
 
     def _public_view_replay(
         self,
@@ -560,7 +468,15 @@ class Mafia(Game):
         view = self._public_view_replay(ctx, lead=lead, prefix_emoji=prefix_emoji, alive=alive, history=history)
         container = view.containers[0]
         row = ActionRow()
-        row.add_button(Button(source="peek", label="Peek Role", emoji="peek", style=ButtonStyle.SECONDARY))
+        row.add_button(
+            Button(
+                source="peek",
+                label="Peek Role",
+                emoji="peek",
+                style=ButtonStyle.SECONDARY,
+                query=True,
+            )
+        )
         if self._phase == "night" and self._night_views:
             row.add_button(
                 Button(
@@ -568,6 +484,7 @@ class Mafia(Game):
                     label="Night Action",
                     emoji="configure",
                     style=ButtonStyle.PRIMARY,
+                    query=True,
                 )
             )
         container.add_action_row(row)
@@ -604,7 +521,15 @@ class Mafia(Game):
         container.add_action_row(row)
 
         row2 = ActionRow()
-        row2.add_button(Button(source="peek", label="Peek Role", emoji="peek", style=ButtonStyle.SECONDARY))
+        row2.add_button(
+            Button(
+                source="peek",
+                label="Peek Role",
+                emoji="peek",
+                style=ButtonStyle.SECONDARY,
+                query=True,
+            )
+        )
         container.add_action_row(row2)
         return view
 
@@ -671,6 +596,9 @@ class Mafia(Game):
             description=description,
             player_descriptions=player_descriptions,
         )
+
+    def active_seats(self) -> set[int]:
+        return set(self.alive)
 
     def remove_player(self, seat: int) -> None:
         self.alive.discard(seat)

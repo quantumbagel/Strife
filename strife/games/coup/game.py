@@ -6,8 +6,7 @@ from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
 from strife.engine.workers import run_cpu
 from strife.engine.players import GameOutcome, Move, Player
-from strife.persistence.repositories import MoveRecord
-from strife.engine.replay import system_replay_info
+from strife.engine.replay import ReplayBuilder, iter_replay
 from strife.games.coup.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -59,6 +58,9 @@ class Coup(Game):
         # Interactive form selection state
         self.selected_action: str | None = None
         self.selected_target: str | None = None
+
+    def active_seats(self) -> set[int]:
+        return set(self.alive)
 
     def _next_player(self, current: int) -> int:
         n = len(self.players)
@@ -956,6 +958,7 @@ class Coup(Game):
                     source="lose_influence_open",
                     label=f"Choose card to reveal ({self.players[self.current_loser].display_name})",
                     style=ButtonStyle.DANGER,
+                    query=True,
                 )
             )
             container.add_action_row(row)
@@ -967,13 +970,16 @@ class Coup(Game):
                     source="exchange_open",
                     label=f"Select cards to keep ({self.players[self.current_actor].display_name})",
                     style=ButtonStyle.PRIMARY,
+                    query=True,
                 )
             )
             container.add_action_row(row)
 
         # Ephemeral Card Peek Button
         row_peek = ActionRow()
-        row_peek.add_button(Button(source="peek", label="Peek Cards", emoji="peek", style=ButtonStyle.SECONDARY))
+        row_peek.add_button(
+            Button(source="peek", label="Peek Cards", emoji="peek", style=ButtonStyle.SECONDARY, query=True)
+        )
         container.add_action_row(row_peek)
 
         view.add_container(container)
@@ -998,9 +1004,9 @@ class Coup(Game):
         view.add_container(container)
         return view
 
-    def _replay_seat(self, move: MoveRecord, *keys: str) -> int | None:
+    def _replay_seat(self, move: Move, *keys: str) -> int | None:
         for key in keys:
-            seat = move.arguments.get(key)
+            seat = move.args.get(key)
             if seat is not None:
                 return int(seat)
         return move.actor_seat
@@ -1058,21 +1064,11 @@ class Coup(Game):
             self.alive.discard(seat)
             self.coins[seat] = 0
 
-    async def parse_replay(self, moves: list[MoveRecord], ctx: GameContext) -> list[ReplayFrame]:
+    async def parse_replay(self, moves: list[Move], ctx: GameContext) -> list[ReplayFrame]:
         self._replay_reset()
 
-        frames: list[ReplayFrame] = []
-        from strife.presentation.compiler import clone_and_disable
-
-        frames.append(
-            ReplayFrame(
-                index=0,
-                turn_label="Start",
-                actor_seat=None,
-                view=clone_and_disable(self._public_board_view_replay(ctx, status="Match start")),
-                timestamp=ctx.started_at,
-            )
-        )
+        builder = ReplayBuilder(ctx)
+        builder.initial(self._public_board_view_replay(ctx, status="Match start"), label="Start")
 
         pending_actor: int | None = None
         pending_action: str | None = None
@@ -1100,16 +1096,16 @@ class Coup(Game):
             self.current_block_claim = None
             self.state_phase = "turn"
 
-        for move in moves:
-            takeover_info = system_replay_info(self.players, move)
+        for step in iter_replay(moves, self.players):
+            move = step.move
 
             if move.source == "action_declare":
                 _resolve_pending_action()
                 actor = self._replay_seat(move, "player")
                 if actor is None:
                     continue
-                action_type = move.arguments.get("type")
-                target = move.arguments.get("target")
+                action_type = move.args.get("type")
+                target = move.args.get("target")
                 if target is not None:
                     target = int(target)
 
@@ -1129,16 +1125,7 @@ class Coup(Game):
                 block_pending = False
 
                 view = self._public_board_view_replay(ctx)
-                frames.append(
-                    ReplayFrame(
-                        index=len(frames),
-                        turn_label="Action",
-                        actor_seat=actor,
-                        view=clone_and_disable(view),
-                        takeover_info=takeover_info,
-                        timestamp=move.created_at,
-                    )
-                )
+                builder.add(step, view, label="Action", actor_seat=actor)
                 continue
 
             if move.source == "challenge_declare":
@@ -1154,69 +1141,38 @@ class Coup(Game):
                         else "Challenge declared"
                     ),
                 )
-                frames.append(
-                    ReplayFrame(
-                        index=len(frames),
-                        turn_label="Challenge",
-                        actor_seat=challenger,
-                        view=clone_and_disable(view),
-                        takeover_info=takeover_info,
-                        timestamp=move.created_at,
-                    )
-                )
+                builder.add(step, view, label="Challenge", actor_seat=challenger)
                 continue
 
             if move.source == "block_declare":
                 self.state_phase = "block_window"
                 blocker = self._replay_seat(move, "blocker")
-                claim = move.arguments.get("claim")
+                claim = move.args.get("claim")
                 self.current_blocker = blocker
                 self.current_block_claim = claim
                 block_pending = True
                 view = self._public_board_view_replay(ctx)
-                frames.append(
-                    ReplayFrame(
-                        index=len(frames),
-                        turn_label="Block",
-                        actor_seat=blocker,
-                        view=clone_and_disable(view),
-                        takeover_info=takeover_info,
-                        timestamp=move.created_at,
-                    )
-                )
+                builder.add(step, view, label="Block", actor_seat=blocker)
                 continue
 
             if move.source == "block_challenge":
                 self.state_phase = "block_challenge_window"
                 view = self._public_board_view_replay(ctx, status="Block challenged")
-                frames.append(
-                    ReplayFrame(
-                        index=len(frames),
-                        turn_label="Block Challenge",
-                        actor_seat=self._replay_seat(move, "challenger"),
-                        view=clone_and_disable(view),
-                        takeover_info=takeover_info,
-                        timestamp=move.created_at,
-                    )
+                builder.add(
+                    step,
+                    view,
+                    label="Block Challenge",
+                    actor_seat=self._replay_seat(move, "challenger"),
                 )
                 continue
 
             if move.source == "exchange_resolve":
                 actor = self._replay_seat(move, "player")
                 if actor is not None:
-                    keep = move.arguments.get("keep", [])
+                    keep = move.args.get("keep", [])
                     self.hands[actor] = list(keep)
                 view = self._public_board_view_replay(ctx, status="Cards exchanged")
-                frames.append(
-                    ReplayFrame(
-                        index=len(frames),
-                        turn_label="Exchange",
-                        actor_seat=actor,
-                        view=clone_and_disable(view),
-                        takeover_info=takeover_info,
-                        timestamp=move.created_at,
-                    )
-                )
+                builder.add(step, view, label="Exchange", actor_seat=actor)
                 continue
 
             if move.source == "pass" and block_pending:
@@ -1232,23 +1188,14 @@ class Coup(Game):
                         self.coins[actor] -= 1
                     self.current = self._next_player(actor)
                 view = self._public_board_view_replay(ctx, status="Turn timed out")
-                frames.append(
-                    ReplayFrame(
-                        index=len(frames),
-                        turn_label="Timeout",
-                        actor_seat=actor,
-                        view=clone_and_disable(view),
-                        takeover_info=takeover_info,
-                        timestamp=move.created_at,
-                    )
-                )
+                builder.add(step, view, label="Timeout", actor_seat=actor)
                 continue
 
             if move.source == "lose_influence_resolve":
                 seat = self._replay_seat(move, "player")
                 if seat is None:
                     continue
-                card = move.arguments.get("card")
+                card = move.args.get("card")
                 if not card:
                     continue
 
@@ -1267,20 +1214,11 @@ class Coup(Game):
                 self.current_loser = seat
 
                 view = self._public_board_view_replay(ctx, status="Influence lost")
-                frames.append(
-                    ReplayFrame(
-                        index=len(frames),
-                        turn_label="Influence Lost",
-                        actor_seat=seat,
-                        view=clone_and_disable(view),
-                        takeover_info=takeover_info,
-                        timestamp=move.created_at,
-                    )
-                )
+                builder.add(step, view, label="Influence Lost", actor_seat=seat)
                 continue
 
         _resolve_pending_action()
-        return frames
+        return builder.build()
 
     async def bot_move(self, difficulty: str, seat: int) -> Move:
         move = await run_cpu(choose_move, self, difficulty, seat)

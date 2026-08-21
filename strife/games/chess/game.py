@@ -8,23 +8,26 @@ import chess
 import chess.svg
 import resvg_py
 
-from strife.engine.context import GameContext
-from strife.engine.workers import run_cpu
-from strife.engine.metadata import (
+from strife.engine import (
     BotSpec,
+    GameContext,
+    GameOutcome,
+    Move,
+    MoveParam,
+    OptionType,
+    ParamType,
+    Player,
     PlayerCount,
     PlayerOrder,
-    game_metadata_from,
-    SlashMove,
-    MoveParam,
-    ParamType,
+    ReplayBuilder,
+    ReplayFrame,
     SettingOption,
-    OptionType,
+    SlashMove,
+    TurnBasedGame,
+    game_metadata_from,
+    iter_replay,
+    run_cpu,
 )
-from strife.engine.players import GameOutcome, Move, Player
-from strife.engine.turn_based import TurnBasedGame
-from strife.persistence.repositories import MoveRecord
-from strife.engine.replay import ReplayBuilder, is_terminal_replay_move, system_replay_info
 import time
 from datetime import datetime, timezone
 from strife.presentation.components import (
@@ -162,7 +165,7 @@ class Chess(TurnBasedGame):
     def _format_clocks(self) -> str:
         return f"White: `{self._format_time(self.clocks[0])}` | Black: `{self._format_time(self.clocks[1])}`"
 
-    def apply_move(self, move: MoveRecord) -> None:
+    def apply_move(self, move: Move) -> None:
         if self.time_control_active and move.actor_seat is not None:
             if self.last_move_time is not None and move.created_at is not None:
                 t1 = self.last_move_time
@@ -180,16 +183,16 @@ class Chess(TurnBasedGame):
                 self.last_move_time = move.created_at
 
         if move.source == "move":
-            move_text = move.arguments.get("move") or ""
+            move_text = move.args.get("move") or ""
         else:
             move_text = move.source
         m = parse_user_move(self.board, move_text)
         if m is not None:
             self.board.push(m)
-        self.current = 1 - self.current
+            self.current = 1 - self.current
 
-    def _apply_system_timeout(self, move: MoveRecord) -> None:
-        if self.time_control_active and move.source == "game_end" and move.arguments.get("reason") == "timeout":
+    def _apply_system_timeout(self, move: Move) -> None:
+        if self.time_control_active and move.source == "game_end" and move.args.get("reason") == "timeout":
             if self.last_move_time is not None and move.created_at is not None:
                 t1 = self.last_move_time
                 t2 = move.created_at
@@ -302,6 +305,9 @@ class Chess(TurnBasedGame):
                 elapsed = time.monotonic() - start_time
                 self.clocks[seat] = max(0.0, self.clocks[seat] - elapsed) + self.increment
 
+            if move.is_system:
+                continue
+
             if move.source == "move":
                 move_text = move.args.get("move", "")
             else:
@@ -309,55 +315,49 @@ class Chess(TurnBasedGame):
 
             m = parse_user_move(self.board, move_text)
             if m is not None:
-                self.board.push(m)
-                self.current = 1 - seat
+                self.apply_move(move)
                 error_msg = None
             else:
                 error_msg = f"Invalid or illegal move: '{move_text}'. Try again."
 
-    async def parse_replay(self, moves: list[MoveRecord], ctx: GameContext) -> list[ReplayFrame]:
+    async def parse_replay(self, moves: list[Move], ctx: GameContext) -> list[ReplayFrame]:
         self.reset()
         if ctx.started_at:
             t = ctx.started_at
             if t.tzinfo is not None:
                 t = t.astimezone(timezone.utc).replace(tzinfo=None)
             self.last_move_time = t
-            
+
         builder = ReplayBuilder(ctx)
-        builder.initial_frame(
-            self.render_replay(
+        builder.initial(
+            self.render(
                 ctx,
-                title="Start",
-                status=self.replay_initial_status(ctx, moves),
-                status_emoji="loading",
+                lead=self.replay_initial_status(ctx, moves),
+                prefix_emoji="loading",
             ),
             label="Start",
         )
 
-        for index, move in enumerate(moves):
-            system_info = system_replay_info(self.players, move)
-            if move.is_game:
-                self.apply_move(move)
+        turn = 0
+        for step in iter_replay(moves, self.players):
+            if step.move.is_game:
+                self.apply_move(step.move)
             else:
-                self._apply_system_timeout(move)
-
-            if is_terminal_replay_move(move, index, len(moves)):
-                builder.after_move(
-                    move,
-                    self.render_final_replay(ctx),
-                    label="Final",
-                    actor_seat=move.actor_seat,
-                    takeover_info=system_info,
-                )
+                self._apply_system_timeout(step.move)
+            if not step.frame:
+                continue
+            turn += 1
+            if step.terminal:
+                builder.add(step, self.render_final(ctx), label="Final")
                 break
-
-            action = index + 1
-            builder.after_move(
-                move,
-                self.render_replay(ctx, title=f"Action {action}"),
-                label=f"Action {action}",
-                actor_seat=move.actor_seat,
-                takeover_info=system_info,
+            builder.add(
+                step,
+                self.render(
+                    ctx,
+                    lead=self.replay_action_status(ctx, self.current),
+                    prefix_emoji="loading",
+                ),
+                label=self.replay_label(turn),
             )
 
         return builder.build()
@@ -393,13 +393,18 @@ class Chess(TurnBasedGame):
         self,
         ctx: GameContext,
         *,
+        lead: str | None = None,
+        prefix_emoji: str | None = None,
         title: str | None = None,
         status: str | None = None,
         status_emoji: str | None = None,
-        lead: str | None = None,
     ) -> LayoutView:
         view, container = self._render_base(
-            ctx, title=title, status=status, status_emoji=status_emoji, lead=lead
+            ctx,
+            title=title,
+            status=status,
+            status_emoji=status_emoji or prefix_emoji,
+            lead=lead,
         )
         add_meta(container, "Use `/chess move` with SAN or UCI — `e4`, `Nf3`, or `e2e4`.")
         view.add_container(container)

@@ -7,6 +7,7 @@ import discord
 from strife.config.text import TextConfig
 from strife.logging import get_logger
 from strife.routing import prefixes as P
+from strife.engine.errors import SessionError
 from strife.routing.custom_id import CustomIdEncoder, CustomIdError, PayloadExpired
 from strife.presentation.feedback import disable_feedback_actions
 from strife.presentation.user_error import ErrorContext, UserErrorPresenter
@@ -125,13 +126,12 @@ class InteractionRouter:
                 await self._error(interaction, "common.error")
         except PermissionError:
             await self._error(interaction, "common.forbidden")
-        except RuntimeError as exc:
-            err_str = str(exc)
-            code = _RUNTIME_ERROR_CODES.get(err_str)
+        except SessionError as exc:
+            code = _RUNTIME_ERROR_CODES.get(exc.code)
             if code:
                 await self._error(interaction, code)
             else:
-                log.exception("Router error")
+                log.exception("Router session error")
                 await self._error(interaction, "common.error")
         except Exception:
             log.exception("Unhandled router error")
@@ -252,6 +252,9 @@ class InteractionRouter:
                 return
             await self.server_settings.set_channel(interaction, int(values[0]))
             return
+        if route.prefix == P.SERVER_CLEAR:
+            await self.server_settings.clear_channel(interaction)
+            return
         await self.server_settings.open(interaction, edit=True)
 
     async def _handle_about(self, route, interaction: discord.Interaction) -> None:
@@ -303,10 +306,8 @@ class InteractionRouter:
             if self.lobby is not None:
                 await self.lobby.user_success.send(interaction, "match.forfeited")
             return
-        except RuntimeError as e:
-            if str(e) == "no_session":
-                await self._error(interaction, "errors.no_session")
-            else:
-                await self._error(interaction, "common.error")
+        except SessionError as e:
+            code = "errors.no_session" if e.code == "no_session" else "common.error"
+            await self._error(interaction, code)
         except PermissionError:
             await self._error(interaction, "errors.not_in_game")

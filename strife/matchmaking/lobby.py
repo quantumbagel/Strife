@@ -23,7 +23,7 @@ class LobbyMember:
 
 @dataclass
 class Lobby:
-    thread_id: int
+    thread_id: int  # lobby id used as component resource_id (not a Discord thread)
     guild_id: int
     channel_id: int
     game_key: str
@@ -42,6 +42,10 @@ class Lobby:
     surface: ViewSurface | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     starting: bool = False
+
+    @property
+    def lobby_id(self) -> int:
+        return self.thread_id
 
     @property
     def total_players(self) -> int:

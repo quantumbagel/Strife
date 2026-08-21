@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import time
 import asyncio
 from collections import OrderedDict
@@ -9,6 +8,7 @@ from dataclasses import dataclass
 import discord
 
 from strife.config.text import TextConfig
+from strife.logging import get_logger
 from strife.persistence.repositories import MatchDetail, MatchRepository, MoveRepository
 from strife.presentation.compiler import Compiler
 from strife.presentation.user_error import UserErrorPresenter
@@ -19,7 +19,7 @@ from strife.engine.registry import GameRegistry
 from strife.replay.view import build_replay_view
 from strife.routing import prefixes as P
 
-log = logging.getLogger(__name__)
+log = get_logger("replay.service")
 
 
 class ReplayLoadError(Exception):

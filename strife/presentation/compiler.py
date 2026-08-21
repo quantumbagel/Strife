@@ -18,7 +18,6 @@ from strife.presentation.components import (
     TextDisplay,
     TextSize,
     UserSelect,
-    disable_all,
     small_text,
 )
 from strife.presentation.emoji import EmojiResolver
@@ -66,10 +65,10 @@ class Compiler:
 
     def _prefix_text(self, text: TextDisplay) -> str:
         content = text.markdown_content
-        if text.size_style == TextSize.HEADER and not content.startswith("### "):
+        if text.size_style == TextSize.HEADER and not content.startswith("#"):
             content = f"### {content}"
-        elif text.size_style == TextSize.SUBHEADER and not content.startswith("### "):
-            content = f"### {content}"
+        elif text.size_style == TextSize.SUBHEADER and not content.startswith(("#", "-#", "**")):
+            content = f"**{content}**"
         if len(content) > 4000:
             raise LayoutError("TextDisplay exceeds 4000 characters")
         self._text_chars += len(content)
@@ -330,6 +329,4 @@ class Compiler:
         raise LayoutError(f"Unsupported node type: {type(node)}")
 
 
-def clone_and_disable(view: LayoutView) -> LayoutView:
-    disable_all(view)
-    return view
+

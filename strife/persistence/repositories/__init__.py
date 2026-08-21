@@ -7,24 +7,7 @@ from typing import Any
 import asyncpg
 
 from strife.engine.log import LogEntryKind, infer_log_kind
-
-
-@dataclass
-class MoveRecord:
-    turn_index: int
-    actor_seat: int | None
-    source: str
-    arguments: dict[str, Any]
-    kind: LogEntryKind = LogEntryKind.GAME
-    created_at: datetime | None = None
-
-    @property
-    def is_game(self) -> bool:
-        return self.kind == LogEntryKind.GAME
-
-    @property
-    def is_system(self) -> bool:
-        return self.kind == LogEntryKind.SYSTEM
+from strife.engine.players import Move as MoveRecord
 
 
 @dataclass
@@ -137,6 +120,13 @@ class GuildRepository:
                     channel_id,
                 )
 
+    async def clear_default_channel(self, guild_id: int) -> None:
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE guilds SET default_channel_id = NULL, updated_at = now() WHERE guild_id = $1",
+                guild_id,
+            )
+
     async def get_default_channel(self, guild_id: int) -> int | None:
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -220,12 +210,31 @@ class MatchRepository:
                                         move.turn_index,
                                         move.actor_seat,
                                         move.source,
-                                        move.arguments,
+                                        move.args,
                                         move.kind.value,
                                         move.created_at or datetime.now(timezone.utc),
                                     )
                                     for move in record.moves
                                 ],
+                            )
+
+                        stats_rows = [
+                            player
+                            for player in record.players
+                            if player.user_id and not player.is_bot and player.result
+                        ]
+                        if stats_rows:
+                            await UserRepository(self._pool).apply_results(
+                                [
+                                    PlayerResult(
+                                        user_id=p.user_id,  # type: ignore[arg-type]
+                                        display_name=p.display_name,
+                                        result=p.result or "loss",
+                                    )
+                                    for p in stats_rows
+                                ],
+                                record.game_key,
+                                conn=conn,
                             )
                     break
                 except asyncpg.UniqueViolationError:
@@ -414,7 +423,7 @@ class MoveRepository:
                         turn_index=row["turn_index"],
                         actor_seat=row["actor_seat"],
                         source=row["source"],
-                        arguments=arguments,
+                        args=arguments,
                         kind=kind,
                         created_at=row["created_at"],
                     )
@@ -439,34 +448,46 @@ class UserRepository:
         async with self._pool.acquire() as owned:
             await owned.execute(query, user_id, display_name)
 
-    async def apply_results(self, results: list[PlayerResult], game_key: str) -> None:
-        async with self._pool.acquire() as conn:
-            async with conn.transaction():
-                for result in results:
-                    await self.touch(result.user_id, result.display_name, conn=conn)
-                    wins = losses = draws = 0
-                    if result.result == "win":
-                        wins = 1
-                    elif result.result == "loss":
-                        losses = 1
-                    elif result.result == "draw":
-                        draws = 1
-                    await conn.execute(
-                        """
-                        INSERT INTO user_game_stats(user_id, game_key, wins, losses, draws, played)
-                        VALUES($1, $2, $3, $4, $5, 1)
-                        ON CONFLICT (user_id, game_key) DO UPDATE SET
-                            wins = user_game_stats.wins + EXCLUDED.wins,
-                            losses = user_game_stats.losses + EXCLUDED.losses,
-                            draws = user_game_stats.draws + EXCLUDED.draws,
-                            played = user_game_stats.played + 1
-                        """,
-                        result.user_id,
-                        game_key,
-                        wins,
-                        losses,
-                        draws,
-                    )
+    async def apply_results(
+        self,
+        results: list[PlayerResult],
+        game_key: str,
+        *,
+        conn: asyncpg.Connection | None = None,
+    ) -> None:
+        async def _write(connection: asyncpg.Connection) -> None:
+            for result in results:
+                await self.touch(result.user_id, result.display_name, conn=connection)
+                wins = losses = draws = 0
+                if result.result == "win":
+                    wins = 1
+                elif result.result == "loss":
+                    losses = 1
+                elif result.result == "draw":
+                    draws = 1
+                await connection.execute(
+                    """
+                    INSERT INTO user_game_stats(user_id, game_key, wins, losses, draws, played)
+                    VALUES($1, $2, $3, $4, $5, 1)
+                    ON CONFLICT (user_id, game_key) DO UPDATE SET
+                        wins = user_game_stats.wins + EXCLUDED.wins,
+                        losses = user_game_stats.losses + EXCLUDED.losses,
+                        draws = user_game_stats.draws + EXCLUDED.draws,
+                        played = user_game_stats.played + 1
+                    """,
+                    result.user_id,
+                    game_key,
+                    wins,
+                    losses,
+                    draws,
+                )
+
+        if conn is not None:
+            await _write(conn)
+            return
+        async with self._pool.acquire() as owned:
+            async with owned.transaction():
+                await _write(owned)
 
     async def get_stats(self, user_id: int, game_key: str | None) -> UserStats:
         async with self._pool.acquire() as conn:

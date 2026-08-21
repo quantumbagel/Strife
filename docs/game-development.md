@@ -14,28 +14,26 @@ This guide walks through building a Strife game. For the method reference table,
 The simplest path is `TurnBasedGame` ([`strife/engine/turn_based.py`](../strife/engine/turn_based.py)). See [`strife/games/tictactoe/`](../strife/games/tictactoe/) for a complete example.
 
 ```python
+from strife.engine import TurnBasedGame, game_metadata_from, PlayerCount, PlayerOrder, Move
+
 @game_metadata_from(
     key="my_game",
     name="My Game",
     summary="Short tagline",
-    description="Longer description for the catalog.",
-    tags=("2p",),
-    author="You",
-    version="1.0.0",
-    author_link=None,
-    source_link=None,
-    time_estimate="5m",
-    difficulty=2,
     player_count=PlayerCount(fixed=2),
     player_order=PlayerOrder.RANDOM,
 )
 class MyGame(TurnBasedGame):
     def reset(self) -> None: ...
-    def apply_move(self, move: MoveRecord) -> None: ...
-    def render(self, ctx, *, title, status=None, status_emoji=None) -> LayoutView: ...
-    async def play(self, ctx) -> GameOutcome: ...
+    def apply_move(self, move: Move) -> None: ...
+    def render(self, ctx, *, lead=None, prefix_emoji=None) -> LayoutView: ...
+    async def play(self, ctx) -> GameOutcome:
+        move = await self.take_turn(ctx, {"tile_00"})
+        ...
     async def bot_move(self, difficulty, seat) -> Move: ...
 ```
+
+`take_turn` renders, waits, and calls `apply_move` so live play and replay share one rules path. Hide live controls with `add_controls(container, ctx, row)` — they are omitted when `ctx.is_replay`.
 
 Implement `render_final()` when the finished board looks different from a normal turn.
 
@@ -120,9 +118,7 @@ Query buttons have a `source` string but are **omitted from `sources`**. When cl
 ```python
 # On the board — peek sits next to action buttons
 row.add_button(Button(source="pass", label="Pass", style=ButtonStyle.SECONDARY))
-row.add_button(Button(source="peek", label="Peek Info", emoji="peek", style=ButtonStyle.SECONDARY))
-
-# Waiting for a move — only list action sources
+row.add_button(Button(source="peek", label="Peek Info", emoji="peek", query=True, style=ButtonStyle.SECONDARY))
 move = await ctx.request_input(view, actor=seat, sources={"pass"})
 ```
 
@@ -275,20 +271,23 @@ Implement `reset`, `apply_move`, and `render`. Replay frame building is handled 
 Use helpers from [`strife/engine/replay.py`](../strife/engine/replay.py):
 
 ```python
-from strife.engine.replay import ReplayBuilder, system_replay_info, is_terminal_replay_move
+from strife.engine import ReplayBuilder, iter_replay
 
 builder = ReplayBuilder(ctx)
-builder.initial_frame(self.render(ctx, title="Action 1", ...))
-for index, move in enumerate(moves):
-    takeover = system_replay_info(self.players, move)
-    if move.is_game:
-        self.apply_move(move)
-    if is_terminal_replay_move(move, index, len(moves)):
-        builder.after_move(move, self.render_final(ctx), label="Final", takeover_info=takeover)
+builder.initial(self.render(ctx, lead="Start", prefix_emoji="loading"))
+for step in iter_replay(moves, self.players):
+    if step.move.is_game:
+        self.apply_move(step.move)
+    if not step.frame:
+        continue
+    view = self.render_final(ctx) if step.terminal else self.render(ctx)
+    builder.add(step, view, label="Final" if step.terminal else "Turn")
+    if step.terminal:
         break
-    builder.after_move(move, self.render(...), label=f"Action {index + 2}", takeover_info=takeover)
 return builder.build()
 ```
+
+`iter_replay` walks the log in order, skips metadata-only `bot_takeover` rows, and attaches takeover banners to the next visible frame. Replay views do **not** need to match the live board — a dedicated `_view_replay` is fine. Build frames with `ReplayBuilder`, not by constructing `ReplayFrame` by hand. Test with `python scripts/run_game.py <key> --replay`.
 
 ## Roles, private messages, and simultaneous input
 

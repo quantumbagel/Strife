@@ -144,7 +144,7 @@ Disabled games remain in the registry so replays of old matches can still load `
 | `ctx.settings` | Lobby settings dict |
 | `ctx.emoji` | Resolve application-emoji **keys** to markup |
 | `ctx.started_at` | Match start time |
-| `ctx.is_replay` | Hide action rows during replay renders |
+| `ctx.is_replay` | Hide action rows during replay renders (`add_controls`) |
 | `ctx.is_bot(seat)` | Skip DMs / treat AI seats |
 | `self.setting(key)` | Setting with metadata default fallback |
 
@@ -216,7 +216,7 @@ Live-only concerns stay in the session:
 - Lock the thread when done.
 - Results / rematch UI on the old lobby message.
 
-Replay never runs `play()`. It instantiates the same class with the stored seed, players, and settings, then asks `parse_replay` to rebuild frames. `TurnBasedGame` supplies a default `parse_replay` from `reset` / `apply_move` / `render`.
+Replay never runs `play()`. It instantiates the same class with the stored seed, players, and settings, then asks `parse_replay` to rebuild frames. Log rows are `Move` values (same type as live input). `TurnBasedGame` supplies a default `parse_replay` from `reset` / `apply_move` / `render`. Custom games should use `iter_replay` + `ReplayBuilder` from `strife.engine` — not the presentation compiler.
 
 ## 7. How games are exposed to Discord
 

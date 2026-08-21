@@ -6,6 +6,8 @@ from typing import Any
 import discord
 from discord import app_commands
 
+from strife.config.games import GamesConfig
+from strife.engine.errors import SessionError
 from strife.engine.metadata import ParamType, SlashMove
 from strife.engine.registry import GameRegistry
 from strife.matchmaking.registries import SessionRegistries
@@ -42,9 +44,11 @@ def create_slash_command(
         try:
             await session.handle_slash_command(interaction.user.id, slash_move.name, args)
             await user_success.send(interaction, "game.move_submitted")
-        except Exception as exc:
-            code = _SLASH_ERRORS.get(str(exc), "common.error")
+        except SessionError as exc:
+            code = _SLASH_ERRORS.get(exc.code, "common.error")
             await user_errors.send(interaction, code)
+        except Exception:
+            await user_errors.send(interaction, "common.error")
 
     parameters = [
         inspect.Parameter(
@@ -106,8 +110,11 @@ def register_game_slash_commands(
     sessions: SessionRegistries,
     user_errors: UserErrorPresenter,
     user_success: UserSuccessPresenter,
+    games_config: GamesConfig | None = None,
 ) -> None:
     for meta in registry.all():
+        if games_config is not None and not games_config.for_game(meta.key).enabled:
+            continue
         if meta.slash_moves:
             group = app_commands.Group(name=meta.key, description=f"{meta.name} commands")
             for slash_move in meta.slash_moves:

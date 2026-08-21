@@ -12,7 +12,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from strife.engine.log import reject_system_source
+from strife.engine.context import ReplayContext
+from strife.engine.log import LogEntryKind, reject_system_source
 from strife.engine.players import Move, Player
 from strife.engine.registry import GameRegistry
 from strife.presentation.components import LayoutView
@@ -40,6 +41,8 @@ class MockContext:
         self._scripted = list(scripted_moves or [])
         self._script_index = 0
         self._update_count = 0
+        self.recorded: list[Move] = []
+        self._turn_index = 0
 
     def is_bot(self, seat: int) -> bool:
         return self.players[seat].is_bot
@@ -66,7 +69,11 @@ class MockContext:
             if seat != actor:
                 print(f"Warning: scripted move actor {seat} != expected {actor}", file=sys.stderr)
             print(f"[input] seat {actor} -> {source} {args}")
-            return Move(actor_seat=actor, source=source, args=args)
+            move = Move(actor_seat=actor, source=source, args=args, turn_index=self._turn_index)
+            if record:
+                self.recorded.append(move)
+                self._turn_index += 1
+            return move
 
         label = self.players[actor].display_name
         allowed = sorted(sources) if sources else ["(any)"]
@@ -79,7 +86,11 @@ class MockContext:
             if sources is not None and source not in sources:
                 print(f"Invalid source. Choose from: {', '.join(sorted(sources))}")
                 continue
-            return Move(actor_seat=actor, source=source, args={})
+            move = Move(actor_seat=actor, source=source, args={}, turn_index=self._turn_index)
+            if record:
+                self.recorded.append(move)
+                self._turn_index += 1
+            return move
 
     async def request_inputs(
         self,
@@ -112,6 +123,16 @@ class MockContext:
     async def record_event(self, source: str, arguments: dict) -> None:
         reject_system_source(source)
         print(f"[event] {source} {arguments}")
+        self.recorded.append(
+            Move(
+                actor_seat=None,
+                source=source,
+                args=arguments,
+                kind=LogEntryKind.GAME,
+                turn_index=self._turn_index,
+            )
+        )
+        self._turn_index += 1
 
     async def respond_query(self, view: LayoutView) -> None:
         print(f"[query] view with {len(view.children)} top-level node(s)")
@@ -173,6 +194,19 @@ async def _run(args: argparse.Namespace) -> None:
     if outcome.summary:
         print("Summary:", outcome.summary)
 
+    if args.replay and meta.supports_replay:
+        replay_game = game_cls(list(players), settings, random.Random(args.seed))
+        replay_ctx = ReplayContext(
+            rng=random.Random(args.seed),
+            players=list(players),
+            settings=settings,
+            emoji=ctx.emoji,
+        )
+        frames = await replay_game.parse_replay(ctx.recorded, replay_ctx)
+        print(f"\n=== Replay ({len(frames)} frame(s)) ===")
+        for frame in frames:
+            print(f"  [{frame.index}] {frame.turn_label}")
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a Strife game locally")
@@ -185,6 +219,11 @@ def main() -> int:
         action="append",
         default=[],
         help="Scripted move as seat:source:args_json (repeatable)",
+    )
+    parser.add_argument(
+        "--replay",
+        action="store_true",
+        help="After play(), rebuild replay frames from the recorded log",
     )
     args = parser.parse_args()
     asyncio.run(_run(args))

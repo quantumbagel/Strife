@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Any
+
 
 
 class _ContextFilter(logging.Filter):
@@ -36,10 +36,3 @@ def configure_logging(level: str = "INFO") -> None:
 
 def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(f"strife.{name}")
-
-
-def log_extra(*, match_id: int | str | None = None, guild_id: int | str | None = None) -> dict[str, Any]:
-    return {
-        "match_id": match_id if match_id is not None else "-",
-        "guild_id": guild_id if guild_id is not None else "-",
-    }

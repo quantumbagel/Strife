@@ -10,6 +10,8 @@ This document describes the contract for implementing a Strife game.
 
 Runtime interaction uses `GameContext`: request player input, update the board, send private messages, record non-input events, and reply to query buttons. Games never see Discord types.
 
+Import the plugin surface from `strife.engine` and `strife.presentation` — not persistence or the view compiler. Live inputs and replay log rows are the same `Move` type (`args`, `source`, `kind`). `arguments` is a compatibility alias of `args`.
+
 ## Required methods
 
 | Method                       | Required when                      | Purpose                                            |
@@ -39,14 +41,14 @@ Not every control on the board is a game move. Strife supports three kinds of in
 |------|--------------|--------------|------------|
 | **Solo move** | `request_input(..., sources={...})` | Yes (auto, default) | Yes — one frame |
 | **Group input** | `request_inputs(..., record=False)` + `record_event` | One resolution event | Yes — one frame |
-| **Query** | `handle_query`, omitted from `sources` | No | No |
+| **Query** | `Button(..., query=True)` + `handle_query` | No | No |
 | **Link** | `Button(style=ButtonStyle.LINK, url=...)` | No | No |
 
 ### Query buttons (`handle_query`)
 
 Use query buttons for read-only or auxiliary UI that should **not** advance the game: peek at hidden info, open an ephemeral sub-view, or show validation errors.
 
-When a player clicks a game button, the router calls `handle_query(source)` first. If it returns `True`, the interaction is done. Otherwise the click is submitted as a move (and must have been listed in `sources`).
+Mark them `query=True`. That is enough — they are not moves even if listed in `sources`. When a player clicks, the router calls `handle_query`. If it returns `True`, the interaction is done.
 
 ```python
 async def handle_query(self, seat, source, ctx) -> bool:
@@ -58,11 +60,11 @@ async def handle_query(self, seat, source, ctx) -> bool:
 ```
 
 ```python
-# Board: peek button visible alongside actions
-move = await ctx.request_input(view, actor=seat, sources={"pass"})  # peek omitted
+row.add_button(Button(source="peek", label="Peek", query=True, style=ButtonStyle.SECONDARY))
+move = await ctx.request_input(view, actor=seat, sources={"pass"})
 ```
 
-Omit action rows during replay (`if not ctx.is_replay:`) so replays show game state only.
+Hide action rows during replay with `add_controls(container, ctx, row)` (no-op when `ctx.is_replay`).
 
 **Examples:** Mafia (peek role), Spyfall (peek location), Coup (peek cards, `exchange_open` ephemeral launcher).
 
@@ -131,9 +133,10 @@ mode = self.setting("first_move", "random")
 
 The engine may inject these sources into the move log:
 
-- `forfeit` — player forfeited
+- `forfeit` — player forfeited (may also be injected as a live `Move` when `supports_player_removal`)
+- `timeout` — injected live move when the timeout consequence is skip/strike
 - `game_end` — session cancelled or timed out
-- Bot takeover is a **`system`** `bot_takeover` entry, separate from the bot's subsequent **`game`** move
+- Bot takeover is a **`system`** `bot_takeover` entry, separate from the bot's subsequent **`game`** move. Use `iter_replay()` so takeover banners attach to the next real frame.
 
 Replay implementations should handle these via `system_replay_info()` from `strife.engine.replay`.
 

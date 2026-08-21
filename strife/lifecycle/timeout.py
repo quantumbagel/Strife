@@ -14,19 +14,16 @@ class TimeoutConsequence(StrEnum):
 
 def will_removal_end_game(session: object, seat: int) -> bool:
     """Check if removing ``seat`` from the game will cause it to end."""
-    alive = getattr(session.game, "alive", None)  # type: ignore[attr-defined]
-    if isinstance(alive, set):
-        after = alive - {seat}
-        remaining_humans = [
-            player
-            for player in session.players  # type: ignore[attr-defined]
-            if player.seat in after and not player.is_bot
-        ]
-        if not after or not remaining_humans:
-            return True
-        if len(after) < session.game.metadata.player_count.min_players:  # type: ignore[attr-defined]
-            return True
-    return False
+    game = session.game  # type: ignore[attr-defined]
+    after = game.active_seats() - {seat}
+    remaining_humans = [
+        player
+        for player in session.players  # type: ignore[attr-defined]
+        if player.seat in after and not player.is_bot
+    ]
+    if not after or not remaining_humans:
+        return True
+    return len(after) < game.metadata.player_count.min_players
 
 
 def determine_consequence(

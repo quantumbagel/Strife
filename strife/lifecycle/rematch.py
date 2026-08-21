@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import discord
 
 from strife.config.text import TextConfig
+from strife.engine.errors import SessionError
 from strife.lifecycle.results import build_results_view
 from strife.logging import get_logger
 from strife.matchmaking.lobby import Lobby, LobbyMember, QueuedBot
@@ -82,13 +83,13 @@ class RematchManager:
     async def vote(self, thread_id: int, user_id: int) -> None:
         offer = self._offers.get(thread_id)
         if offer is None:
-            raise RuntimeError("rematch_unavailable")
+            raise SessionError("rematch_unavailable")
         if user_id not in offer.eligible:
-            raise RuntimeError("rematch_not_eligible")
+            raise SessionError("rematch_not_eligible")
         if time.monotonic() > offer.expires:
             if self._offers.pop(thread_id, None) is not None:
                 await self._disable_offer(thread_id, offer)
-            raise RuntimeError("rematch_expired")
+            raise SessionError("rematch_expired")
         offer.votes.add(user_id)
         if offer.votes >= offer.eligible:
             if self._offers.pop(thread_id, None) is not None:

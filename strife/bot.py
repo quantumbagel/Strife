@@ -106,6 +106,8 @@ class StrifeBot(commands.AutoShardedBot):
             self.config,
             self.emoji,
             finalizer,
+            user_errors=user_errors,
+            user_success=user_success,
         )
         self.lifecycle = LifecycleService(
             self,
@@ -117,6 +119,7 @@ class StrifeBot(commands.AutoShardedBot):
             self.emoji,
         )
         self.lobby.lifecycle = self.lifecycle
+        finalizer.lifecycle = self.lifecycle
 
         self.replay = ReplayService(
             matches, moves, self.game_registry, compiler, self.config.text, user_errors
@@ -155,16 +158,24 @@ class StrifeBot(commands.AutoShardedBot):
         )
         from strife.commands.game_commands import register_game_slash_commands
         register_game_slash_commands(
-            self.tree, self.game_registry, self.sessions, user_errors, user_success
+            self.tree,
+            self.game_registry,
+            self.sessions,
+            user_errors,
+            user_success,
+            games_config=self.config.games,
         )
 
         await self.add_cog(AdminCommands(self, self.settings))
         self.lifecycle.start()
-        try:
-            synced = await self.tree.sync()
-            log.info("Synced %s application command(s)", len(synced))
-        except Exception:
-            log.exception("Failed to sync application commands")
+        if self.settings.sync_on_start:
+            try:
+                synced = await self.tree.sync()
+                log.info("Synced %s application command(s)", len(synced))
+            except Exception:
+                log.exception("Failed to sync application commands")
+        else:
+            log.info("Skipping command tree sync (set STRIFE_SYNC_ON_START=true or run strife/sync)")
         log.info("Strife subsystems wired")
 
     async def on_ready(self) -> None:

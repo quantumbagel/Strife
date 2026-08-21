@@ -6,8 +6,7 @@ from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
 from strife.engine.workers import run_cpu
 from strife.engine.players import GameOutcome, Move
-from strife.persistence.repositories import MoveRecord
-from strife.engine.replay import system_replay_info
+from strife.engine.replay import ReplayBuilder, iter_replay
 from strife.games.liars_dice.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -37,6 +36,9 @@ class LiarsDice(Game):
         self.history: list[str] = []
         self.pending_quantity: int | None = None
         self.pending_value: int | None = None
+
+    def active_seats(self) -> set[int]:
+        return set(self.alive)
 
     def _total_alive_dice(self) -> int:
         return sum(self.dice_counts[s] for s in self.alive)
@@ -407,6 +409,7 @@ class LiarsDice(Game):
                 label="Peek Hand",
                 emoji="peek",
                 style=ButtonStyle.SECONDARY,
+                query=True,
             )
         )
         container.add_action_row(row3)
@@ -431,72 +434,45 @@ class LiarsDice(Game):
         view.add_container(container)
         return view
 
-    async def parse_replay(self, moves: list[MoveRecord], ctx: GameContext) -> list[ReplayFrame]:
+    async def parse_replay(self, moves: list[Move], ctx: GameContext) -> list[ReplayFrame]:
         self.dice_counts = {p.seat: self.settings.get("dice_count", 5) for p in self.players}
         self.hands = {}
         self.alive = {p.seat for p in self.players}
         self.current_bid = None
         self.last_bidder = None
-        frames: list[ReplayFrame] = []
-        from strife.presentation.compiler import clone_and_disable
-
-        for i, move in enumerate(moves):
-            takeover_info = system_replay_info(self.players, move)
-
+        builder = ReplayBuilder(ctx)
+        for step in iter_replay(moves, self.players):
+            move = step.move
+            args = move.args
             if move.source == "round_start":
-                self.hands = {int(k): v for k, v in move.arguments["hands"].items()}
-                self.dice_counts = {int(k): v for k, v in move.arguments["dice_counts"].items()}
+                self.hands = {int(k): v for k, v in args["hands"].items()}
+                self.dice_counts = {int(k): v for k, v in args["dice_counts"].items()}
                 self.current_bid = None
                 self.last_bidder = None
-                view = self._round_view_replay(ctx, lead="Dice rolled!")
-                frames.append(ReplayFrame(
-                    index=len(frames),
-                    turn_label="Round Start",
-                    actor_seat=None,
-                    view=clone_and_disable(view),
-                    takeover_info=takeover_info,
-                    timestamp=move.created_at,
-                ))
-
+                builder.add(step, self._round_view_replay(ctx, lead="Dice rolled!"), label="Round Start")
             elif move.source == "bid":
-                self.current_bid = (move.arguments["quantity"], move.arguments["value"])
+                self.current_bid = (args["quantity"], args["value"])
                 self.last_bidder = move.actor_seat
-                view = self._round_view_replay(
-                    ctx,
-                    lead=f"Bid submitted by {self.players[move.actor_seat].mention}",
+                builder.add(
+                    step,
+                    self._round_view_replay(
+                        ctx,
+                        lead=f"Bid submitted by {self.players[move.actor_seat].mention}",
+                    ),
+                    label="Bid",
                 )
-                frames.append(ReplayFrame(
-                    index=len(frames),
-                    turn_label="Bid",
-                    actor_seat=move.actor_seat,
-                    view=clone_and_disable(view),
-                    takeover_info=takeover_info,
-                    timestamp=move.created_at,
-                ))
-
             elif move.source == "challenge_resolve":
-                self.history = move.arguments.get("history", [])
-                loser = move.arguments["loser"]
+                self.history = args.get("history", [])
+                loser = args["loser"]
                 self.dice_counts[loser] -= 1
                 if self.dice_counts[loser] == 0:
                     self.alive.discard(loser)
-                
-                # Show challenge resolution view
-                verdict = move.arguments["verdict"]
                 view = LayoutView()
                 container = Container()
-                message_lead(container, verdict, emoji=ctx.emoji)
+                message_lead(container, args["verdict"], emoji=ctx.emoji)
                 view.add_container(container)
-                frames.append(ReplayFrame(
-                    index=len(frames),
-                    turn_label="Challenge",
-                    actor_seat=move.actor_seat,
-                    view=clone_and_disable(view),
-                    takeover_info=takeover_info,
-                    timestamp=move.created_at,
-                ))
-
-        return frames
+                builder.add(step, view, label="Challenge")
+        return builder.build()
 
     async def bot_move(self, difficulty: str, seat: int) -> Move:
         move = await run_cpu(choose_move, self, difficulty, seat)

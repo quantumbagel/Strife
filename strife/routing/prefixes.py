@@ -12,6 +12,7 @@ FORFEIT = "forfeit:"
 
 SERVER_NAV = "server_nav:"
 SERVER_CHANNEL = "server_channel:"
+SERVER_CLEAR = "server_clear:"
 
 LOBBY_JOIN = "lobby_join:"
 LOBBY_LEAVE = "lobby_leave:"
@@ -39,7 +40,7 @@ LOBBY_REVOKE_APPROVAL = "lobby_revoke_approval:"
 
 ABOUT_NAV = "about_nav:"
 
-SERVER_PREFIXES = {SERVER_NAV, SERVER_CHANNEL}
+SERVER_PREFIXES = {SERVER_NAV, SERVER_CHANNEL, SERVER_CLEAR}
 
 GAME_PREFIXES = {G_MOVE, G_SELECT}
 LOBBY_PREFIXES = {

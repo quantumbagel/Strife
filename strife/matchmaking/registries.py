@@ -38,29 +38,36 @@ class SessionRegistries:
         return self.user_location.get(user_id)
 
     def add_lobby(self, lobby: Lobby) -> None:
-        self.lobbies[lobby.thread_id] = lobby
-        self.guild_lobbies.setdefault(lobby.guild_id, set()).add(lobby.thread_id)
+        self.lobbies[lobby.lobby_id] = lobby
+        self.guild_lobbies.setdefault(lobby.guild_id, set()).add(lobby.lobby_id)
 
-    def remove_lobby(self, thread_id: int) -> None:
-        lobby = self.lobbies.pop(thread_id, None)
-        if lobby:
-            guild_set = self.guild_lobbies.get(lobby.guild_id)
-            if guild_set:
-                guild_set.discard(thread_id)
-
-    def get_lobby(self, thread_id: int) -> Lobby | None:
-        return self.lobbies.get(thread_id)
-
-    def get_game(self, thread_id: int) -> GameSession | None:
-        return self.active_games.get(thread_id)
-
-    def promote(self, lobby_id: int, session: GameSession) -> None:
+    def remove_lobby(self, lobby_id: int) -> None:
         lobby = self.lobbies.pop(lobby_id, None)
         if lobby:
             guild_set = self.guild_lobbies.get(lobby.guild_id)
             if guild_set:
                 guild_set.discard(lobby_id)
-        self.active_games[session.thread_id] = session
-        for member in session.players:
-            if member.user_id and not member.is_bot:
-                self.user_location[member.user_id] = UserLocation("game", session.thread_id, session.guild_id)
+
+    def get_lobby(self, lobby_id: int) -> Lobby | None:
+        return self.lobbies.get(lobby_id)
+
+    def get_game(self, thread_id: int) -> GameSession | None:
+        return self.active_games.get(thread_id)
+
+    async def drop_game(self, thread_id: int) -> None:
+        async with self._lock:
+            self.active_games.pop(thread_id, None)
+
+    async def promote(self, lobby_id: int, session: GameSession) -> None:
+        async with self._lock:
+            lobby = self.lobbies.pop(lobby_id, None)
+            if lobby:
+                guild_set = self.guild_lobbies.get(lobby.guild_id)
+                if guild_set:
+                    guild_set.discard(lobby_id)
+            self.active_games[session.thread_id] = session
+            for member in session.players:
+                if member.user_id and not member.is_bot:
+                    self.user_location[member.user_id] = UserLocation(
+                        "game", session.thread_id, session.guild_id
+                    )

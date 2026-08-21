@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
@@ -204,17 +204,17 @@ class BotSpec:
 class GameMetadata:
     key: str
     name: str
-    summary: str
-    description: str
-    tags: tuple[str, ...]
-    author: str
-    version: str
-    author_link: str | None
-    source_link: str | None
-    time_estimate: str
-    difficulty: int
-    player_count: PlayerCount
-    player_order: PlayerOrder
+    summary: str = ""
+    description: str = ""
+    tags: tuple[str, ...] = ()
+    author: str = "Unknown"
+    version: str = "0.1.0"
+    author_link: str | None = None
+    source_link: str | None = None
+    time_estimate: str = "?"
+    difficulty: int = 1
+    player_count: PlayerCount = field(default_factory=lambda: PlayerCount(fixed=2))
+    player_order: PlayerOrder = PlayerOrder.RANDOM
     bots: tuple[BotSpec, ...] = ()
     bot_takeover_difficulty: str = "hard"
     settings: tuple[SettingOption, ...] = ()

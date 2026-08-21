@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-from strife.engine.context import GameContext
-from strife.engine.players import GameOutcome, Move
-from strife.engine.workers import run_cpu
-from strife.engine.turn_based import TurnBasedGame
-from strife.persistence.repositories import MoveRecord
+from strife.engine import GameContext, GameOutcome, Move, TurnBasedGame, run_cpu
 from strife.games.connectfour.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -98,28 +94,22 @@ class ConnectFour(TurnBasedGame):
     def _check_win_for_player(self, seat: int) -> list[int] | None:
         return self._winning_line(seat)
 
-    def apply_move(self, move: MoveRecord) -> None:
-        if move.source.startswith("col_") and move.actor_seat is not None:
-            col = int(move.source.split("_")[1])
-            row = self.get_next_open_row(col)
-            if row is not None:
-                self.board[row * 7 + col] = move.actor_seat
+    def apply_move(self, move: Move) -> None:
+        if not move.source.startswith("col_") or move.actor_seat is None:
+            return
+        col = int(move.source.split("_")[1])
+        row = self.get_next_open_row(col)
+        if row is not None:
+            self.board[row * 7 + col] = move.actor_seat
+            self.current = 1 - move.actor_seat
 
     async def play(self, ctx: GameContext) -> GameOutcome:
         while True:
             seat = self.current
-            view = self.render(ctx)
-            valid_cols = self.get_valid_moves()
-            sources = {f"col_{c}" for c in valid_cols}
-
-            move = await ctx.request_input(view, actor=seat, sources=sources)
-            col = int(move.source.split("_")[1])
-            row = self.get_next_open_row(col)
-            if row is None:
+            sources = {f"col_{c}" for c in self.get_valid_moves()}
+            move = await self.take_turn(ctx, sources)
+            if not move.source.startswith("col_"):
                 continue
-
-            self.board[row * 7 + col] = seat
-
             line = self._winning_line(seat)
             if line is not None:
                 winner_mention = str(self.players[seat])
@@ -137,8 +127,6 @@ class ConnectFour(TurnBasedGame):
                     description="Draw",
                     player_descriptions={0: "Draw", 1: "Draw"},
                 )
-
-            self.current = 1 - seat
 
     def render_final(self, ctx: GameContext) -> LayoutView:
         winner_seat = None
@@ -179,34 +167,11 @@ class ConnectFour(TurnBasedGame):
         ctx: GameContext,
         *,
         lead: str | None = None,
-        status: str | None = None,
-        status_emoji: str | None = None,
-        title: str | None = None,
+        prefix_emoji: str | None = None,
     ) -> LayoutView:
         if lead is None:
-            if status is not None:
-                lead = status
-            elif title is not None:
-                lead = title
-            else:
-                lead = self._action_status(ctx, self.current)
-        return self._board_view(ctx, lead=lead, prefix_emoji=status_emoji)
-
-    def render_replay(
-        self,
-        ctx: GameContext,
-        *,
-        lead: str | None = None,
-        status: str | None = None,
-        status_emoji: str | None = None,
-        title: str | None = None,
-    ) -> LayoutView:
-        if lead is None:
-            if status is not None:
-                lead = status
-            elif title is not None:
-                lead = title
-        return self._board_view(ctx, lead=lead, prefix_emoji=status_emoji, controls=False)
+            lead = self._action_status(ctx, self.current)
+        return self._board_view(ctx, lead=lead, prefix_emoji=prefix_emoji)
 
     def _board_view(
         self,
@@ -244,7 +209,7 @@ class ConnectFour(TurnBasedGame):
 
         add_body(container, board_text)
 
-        if controls:
+        if controls and not ctx.is_replay:
             valid_cols = self.get_valid_moves()
 
             row1 = ActionRow()

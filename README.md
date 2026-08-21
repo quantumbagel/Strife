@@ -68,7 +68,7 @@ python -m strife
 
 After the bot is online, in a server where you are listed in `STRIFE_OWNER_IDS`:
 
-- `strife/sync` — register slash commands (also happens automatically on startup)
+- `strife/sync` — register slash commands (set `STRIFE_SYNC_ON_START=true` to sync on every boot)
 - `strife/emoji` — upload application emoji from `assets/emoji/`
 
 ## Owner commands

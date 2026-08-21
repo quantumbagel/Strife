@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from strife.config.text import TextConfig
 from strife.engine.players import Player
-from strife.presentation.components import Container, LayoutView, Separator, TextDisplay, TextSize
+from strife.presentation.components import ActionRow, Container, LayoutView, Separator, TextDisplay, TextSize
 from strife.presentation.emoji import EmojiResolver
 from strife.presentation.roster import member_line
 from strife.presentation.style import add_header, add_spacer, notice_view
@@ -49,6 +49,13 @@ def game_container(
     container = Container()
     message_lead(container, lead, emoji=emoji_resolver, prefix_emoji=prefix_emoji)
     return container
+
+
+def add_controls(container: Container, ctx: object, row: ActionRow) -> None:
+    """Add an action row only when the view is live (hidden in replay)."""
+    if getattr(ctx, "is_replay", False):
+        return
+    container.add_action_row(row)
 
 
 def discord_relative_timestamp(unix_seconds: int) -> str:

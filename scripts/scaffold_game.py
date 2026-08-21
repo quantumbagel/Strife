@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GAMES_DIR = ROOT / "strife" / "games"
+GAMES_YAML = ROOT / "config" / "games.yaml"
 
 
 def slugify(name: str) -> str:
@@ -23,21 +24,18 @@ def class_name(key: str) -> str:
 
 GAME_PY = '''from __future__ import annotations
 
-import asyncio
-import random
-
-from strife.engine.context import GameContext
-from strife.engine.metadata import (
+from strife.engine import (
     BotSpec,
+    GameContext,
+    GameOutcome,
+    Move,
     PlayerCount,
     PlayerOrder,
+    TurnBasedGame,
     game_metadata_from,
 )
-from strife.engine.players import GameOutcome, Move, Player
-from strife.engine.turn_based import TurnBasedGame
-from strife.persistence.repositories import MoveRecord
-from strife.presentation.components import ActionRow, Button, ButtonStyle, Container, LayoutView
-from strife.presentation.game_ui import game_container, action_status
+from strife.presentation.components import ActionRow, Button, ButtonStyle, LayoutView
+from strife.presentation.game_ui import action_status, add_controls, game_container
 
 
 @game_metadata_from(
@@ -47,9 +45,6 @@ from strife.presentation.game_ui import game_container, action_status
     description="TODO: longer description for the catalog.",
     tags=("dev",),
     author="Strife",
-    version="0.1.0",
-    author_link=None,
-    source_link=None,
     time_estimate="5m",
     difficulty=1,
     player_count=PlayerCount(fixed=2),
@@ -57,7 +52,7 @@ from strife.presentation.game_ui import game_container, action_status
     bots=(BotSpec("easy", "Random legal move"),),
 )
 class {cls}(TurnBasedGame):
-    def __init__(self, players: list[Player], settings, rng: random.Random):
+    def __init__(self, players, settings, rng):
         super().__init__(players, settings, rng)
         self.current = 0
         self.reset()
@@ -65,7 +60,7 @@ class {cls}(TurnBasedGame):
     def reset(self) -> None:
         self.current = 0
 
-    def apply_move(self, move: MoveRecord) -> None:
+    def apply_move(self, move: Move) -> None:
         if move.source == "pass" and move.actor_seat is not None:
             self.current = 1 - move.actor_seat
 
@@ -75,12 +70,12 @@ class {cls}(TurnBasedGame):
     async def play(self, ctx: GameContext) -> GameOutcome:
         while True:
             seat = self.current
-            view = self.render(
+            move = await self.take_turn(
                 ctx,
+                {{"pass"}},
                 lead=action_status(ctx, self.players[seat]),
                 prefix_emoji="loading",
             )
-            move = await ctx.request_input(view, actor=seat, sources={{"pass"}})
             if move.source == "pass":
                 opponent = 1 - seat
                 return GameOutcome(
@@ -101,12 +96,11 @@ class {cls}(TurnBasedGame):
         container = game_container(ctx, lead=lead, prefix_emoji=prefix_emoji)
         row = ActionRow()
         row.add_button(Button(source="pass", label="Pass", style=ButtonStyle.PRIMARY))
-        container.add_action_row(row)
+        add_controls(container, ctx, row)
         view.add_container(container)
         return view
 
     async def bot_move(self, difficulty: str, seat: int) -> Move:
-        await asyncio.sleep(0)
         return Move(actor_seat=seat, source="pass", args={{}})
 '''
 
@@ -114,6 +108,20 @@ INIT_PY = '''from {module}.game import {cls}
 
 __all__ = ["{cls}"]
 '''
+
+
+def _ensure_games_yaml(key: str) -> None:
+    if not GAMES_YAML.exists():
+        return
+    text = GAMES_YAML.read_text(encoding="utf-8")
+    marker = f"  {key}:"
+    if marker in text:
+        return
+    addition = f"  {key}:\n    enabled: true\n"
+    if not text.endswith("\n"):
+        text += "\n"
+    GAMES_YAML.write_text(text + addition, encoding="utf-8")
+    print(f"  Added {key} to {GAMES_YAML.relative_to(ROOT)} (enabled: true)")
 
 
 def main() -> int:
@@ -145,9 +153,11 @@ def main() -> int:
         INIT_PY.format(module=module, cls=cls),
         encoding="utf-8",
     )
+    _ensure_games_yaml(key)
 
     print(f"Created {game_dir}")
     print(f"  Run: python scripts/run_game.py {key}")
+    print(f"  Replay: python scripts/run_game.py {key} --replay")
     return 0
 
 

@@ -73,6 +73,7 @@ class Button:
     payload: dict | None = None
     route_prefix: str | None = None
     resource_id: int | None = None
+    query: bool = False
 
 
 @dataclass
@@ -95,6 +96,7 @@ class Select:
     payload: dict | None = None
     route_prefix: str | None = None
     resource_id: int | None = None
+    query: bool = False
 
 
 @dataclass
@@ -223,9 +225,7 @@ class LayoutView:
         return self
 
     def header(self, emoji_name: str, title: str, *, emoji_resolver: object | None = None) -> LayoutView:
-        emoji = emoji_name
-        if emoji_resolver is not None and hasattr(emoji_resolver, "general"):
-            emoji = emoji_resolver.general(emoji_name)  # type: ignore[union-attr]
+        emoji = emoji_resolver.get(emoji_name) if emoji_resolver is not None else emoji_name  # type: ignore[union-attr]
         self.children.append(
             TextDisplay(
                 markdown_content=f"### {emoji} {title}",
@@ -265,3 +265,27 @@ def walk_interactive(view: LayoutView) -> list[Button | Select | ChannelSelect |
 def disable_all(view: LayoutView) -> None:
     for item in walk_interactive(view):
         item.disabled = True
+
+
+def _is_query_control(item: Button | Select | ChannelSelect | UserSelect) -> bool:
+    if isinstance(item, Button):
+        return item.query or item.style == ButtonStyle.LINK or not item.source
+    return bool(getattr(item, "query", False))
+
+
+def query_sources(view: LayoutView) -> set[str]:
+    """Sources marked as query (or link) controls — never submitted as moves."""
+    sources: set[str] = set()
+    for item in walk_interactive(view):
+        if _is_query_control(item) and item.source:
+            sources.add(item.source)
+    return sources
+
+
+def move_sources(view: LayoutView) -> set[str]:
+    """Interactive sources that should resolve ``request_input``."""
+    sources: set[str] = set()
+    for item in walk_interactive(view):
+        if item.source and not _is_query_control(item):
+            sources.add(item.source)
+    return sources
