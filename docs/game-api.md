@@ -12,6 +12,29 @@ Runtime interaction uses `GameContext`: request player input, update the board, 
 
 Import the plugin surface from `strife.engine` and `strife.presentation` — not persistence, the view compiler, or the live host (`strife.session`). Live inputs and replay log rows are the same `Move` type (`args`, `source`, `kind`). `arguments` is a compatibility alias of `args`.
 
+## Versions
+
+This host is **platform 1.0.0** (`PLATFORM_VERSION` in `strife.engine`).
+
+Each game declares two independent semver strings on `GameMetadata`:
+
+| Field | Meaning |
+|-------|---------|
+| `version` | The plugin's own version (Tic-Tac-Toe 1.0.0 vs Coup 1.0.0 are unrelated) |
+| `platform_version` | The game API this plugin was written for |
+
+Registration skips a game when `platform_version` is not compatible with the host: same major, and the host is greater than or equal to the target (minor, then patch). A 1.0.0 game runs on 1.2.0; a 1.2.0 game does not run on 1.0.0; a 2.0.0 game does not run on 1.x.
+
+```python
+@game_metadata_from(
+    key="my_game",
+    name="My Game",
+    version="1.0.0",
+    platform_version="1.0.0",
+    ...
+)
+```
+
 ## Required methods
 
 | Method                       | Required when                      | Purpose                                            |

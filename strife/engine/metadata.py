@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from strife.engine.platform import PLATFORM_VERSION
+
 
 class PlayerOrder(StrEnum):
     RANDOM = "random"
@@ -186,6 +188,12 @@ class BotSpec:
 
 @dataclass(frozen=True)
 class GameMetadata:
+    """Plugin listing and capabilities.
+
+    ``version`` is this game's own semver. ``platform_version`` is the Strife
+    game API (``PLATFORM_VERSION``) the plugin was written for.
+    """
+
     key: str
     name: str
     summary: str = ""
@@ -193,6 +201,7 @@ class GameMetadata:
     tags: tuple[str, ...] = ()
     author: str = "Unknown"
     version: str = "0.1.0"
+    platform_version: str = PLATFORM_VERSION
     author_link: str | None = None
     source_link: str | None = None
     time_estimate: str = "?"

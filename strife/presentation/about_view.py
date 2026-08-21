@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from strife import __platform_version__, __version__
 from strife.config.text import TextConfig
 from strife.presentation.components import LayoutView, Container, Separator, TextDisplay, TextSize, ActionRow, Button, \
     ButtonStyle
@@ -27,6 +28,15 @@ def build_about_view(emoji: EmojiResolver, text: TextConfig, active_tab: str = "
             )
         )
         container.add_separator()
+        container.add_text(
+            TextDisplay(
+                markdown_content=text.get(
+                    "about.version_line",
+                    platform=__platform_version__,
+                    version=__version__,
+                )
+            )
+        )
         container.add_text(
             TextDisplay(
                 markdown_content=text.get("about.developer")

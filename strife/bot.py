@@ -7,6 +7,7 @@ import asyncpg
 import discord
 from discord.ext import commands
 
+from strife import __platform_version__, __version__
 from strife.commands.admin import AdminCommands
 from strife.commands.catalog import CatalogService
 from strife.commands.play import register_play
@@ -73,6 +74,7 @@ class StrifeBot(commands.AutoShardedBot):
         if applied:
             log.info("Applied migrations: %s", ", ".join(applied))
 
+        log.info("Strife %s (platform %s)", __version__, __platform_version__)
         self.game_registry = GameRegistry()
         self.game_registry.discover()
 

@@ -33,7 +33,7 @@ Everything above the wall can change (Discord library, thread model, storage) wi
 | Layer | Package | Role |
 |-------|---------|------|
 | Plugin | `strife/games/<key>/` | Rules, metadata, bots, board `LayoutView`s |
-| Contract | `strife/engine/game.py`, `context.py`, `metadata.py` | `Game`, `GameContext`, `GameMetadata` |
+| Contract | `strife/engine/game.py`, `context.py`, `metadata.py`, `platform.py` | `Game`, `GameContext`, `GameMetadata`, `PLATFORM_VERSION` |
 | Registry | `strife/engine/registry.py` | Discover, validate, instantiate |
 | Operator config | `config/games.yaml` | Enable/disable, timeouts, setting overrides |
 | Presentation | `strife/presentation/` | Discord-free components → compiled Discord views |
@@ -84,6 +84,7 @@ GameRegistry.discover("strife.games")
 `register()` is fail-soft:
 
 - Missing `metadata` or `metadata.key` → log and skip.
+- Invalid `version` / `platform_version`, or a `platform_version` the host cannot satisfy → log error and skip.
 - Capability mismatch (e.g. `supports_replay` but no `parse_replay`) → log error and skip.
 - Duplicate key → log warning and skip the second class.
 - Import error (missing extra, syntax error) → log exception and skip that package.
@@ -229,7 +230,7 @@ Catalog “Play” buttons are **not** game moves. They use prefix `cat_nav:` an
 
 ### Metadata as the public listing
 
-Catalog cards are built only from `GameMetadata`: name, summary, player count, time estimate, difficulty, `game_<key>` emoji. The game class is not instantiated until a lobby actually starts.
+Catalog cards are built only from `GameMetadata`: name, summary, player count, time estimate, difficulty, plugin `version`, `game_<key>` emoji. The game class is not instantiated until a lobby actually starts.
 
 Lobby settings UI is generated from `metadata.settings` (`SettingOption`). Games read values later with `self.setting("key")`.
 
@@ -400,7 +401,7 @@ The same `Game` class is constructed three more times without Discord:
 Authoring steps live in [game-development.md](game-development.md). From the **host** side, a game is exposed when:
 
 1. Package exists under `strife/games/<key>/` and exports the `Game` subclass.
-2. Metadata `key` is unique and capabilities match implementations.
+2. Metadata `key` is unique, `version` / `platform_version` are valid, `platform_version` is compatible with this host, and capabilities match implementations.
 3. Optional extras: `check_dependencies` in `__init__.py` so a missing library skips the game instead of failing startup.
 4. `config/games.yaml` has `games.<key>.enabled: true` (otherwise it stays registered-but-hidden).
 5. Optional `game_<key>` (and piece/role) entries in `config/emoji.yaml`; upload with `strife/emoji`.

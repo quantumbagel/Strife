@@ -1,6 +1,6 @@
 # Strife
 
-A thread-based Discord gaming platform. Start a lobby with `/play`, play in a public game thread, then rematch, replay, or check your profile.
+A thread-based Discord gaming platform (**platform 1.0.0**). Start a lobby with `/play`, play in a public game thread, then rematch, replay, or check your profile.
 
 This is the rewrite of [PlayCord](https://github.com/PlayCord/bot).
 
@@ -83,7 +83,7 @@ Message the bot (or mention it) as an owner:
 
 ## Write a game
 
-See [docs/game-development.md](docs/game-development.md) and [docs/game-api.md](docs/game-api.md). How games are discovered, isolated from Discord, and exposed in the catalog is in [docs/game-architecture.md](docs/game-architecture.md). Scaffold with `python scripts/scaffold_game.py <key> "Title"` and try it with `python scripts/run_game.py <key>`.
+See [docs/game-development.md](docs/game-development.md) and [docs/game-api.md](docs/game-api.md). How games are discovered, isolated from Discord, and exposed in the catalog is in [docs/game-architecture.md](docs/game-architecture.md). Each plugin has its own `version` and a `platform_version` targeting this game API. Scaffold with `python scripts/scaffold_game.py <key> "Title"` and try it with `python scripts/run_game.py <key>`.
 
 ## License
 

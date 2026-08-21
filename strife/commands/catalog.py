@@ -100,7 +100,7 @@ class CatalogService:
                     markdown_content=(
                         f"{entry_emoji} **{meta.name}**\n"
                         f"{meta.summary}\n"
-                        f"-# {user_emoji} {meta.player_count.describe()} • {time_emoji} {meta.time_estimate} • {diff_emoji} {diff_display}"
+                        f"-# {user_emoji} {meta.player_count.describe()} • {time_emoji} {meta.time_estimate} • {diff_emoji} {diff_display} • v{meta.version}"
                     ),
                     size_style=TextSize.BODY,
                 )

@@ -45,6 +45,8 @@ from strife.presentation.game_ui import action_status, add_controls, game_contai
     description="TODO: longer description for the catalog.",
     tags=("dev",),
     author="Strife",
+    version="1.0.0",
+    platform_version="{platform_version}",
     time_estimate="5m",
     difficulty=1,
     player_count=PlayerCount(fixed=2),
@@ -145,8 +147,15 @@ def main() -> int:
         return 1
 
     game_dir.mkdir(parents=True)
+    from strife.engine.platform import PLATFORM_VERSION
+
     (game_dir / "game.py").write_text(
-        GAME_PY.format(key=key, title=title, cls=cls),
+        GAME_PY.format(
+            key=key,
+            title=title,
+            cls=cls,
+            platform_version=PLATFORM_VERSION,
+        ),
         encoding="utf-8",
     )
     (game_dir / "__init__.py").write_text(

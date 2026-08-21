@@ -7,6 +7,7 @@ from typing import Any
 
 from strife.engine.game import Game
 from strife.engine.metadata import GameMetadata
+from strife.engine.platform import PLATFORM_VERSION, parse_version, platform_satisfies
 from strife.engine.players import Player
 from strife.logging import get_logger
 
@@ -38,6 +39,34 @@ def _validate_capabilities(game_cls: type[Game], metadata: GameMetadata) -> bool
         )
         ok = False
     return ok
+
+
+def _validate_versions(metadata: GameMetadata) -> bool:
+    if parse_version(metadata.version) is None:
+        log.error(
+            "Game %s has invalid version %r (expected major.minor.patch)",
+            metadata.key,
+            metadata.version,
+        )
+        return False
+    if parse_version(metadata.platform_version) is None:
+        log.error(
+            "Game %s has invalid platform_version %r (expected major.minor.patch)",
+            metadata.key,
+            metadata.platform_version,
+        )
+        return False
+    if not platform_satisfies(metadata.platform_version):
+        log.error(
+            "Game %s (%s) v%s targets platform %s; this host is platform %s",
+            metadata.name,
+            metadata.key,
+            metadata.version,
+            metadata.platform_version,
+            PLATFORM_VERSION,
+        )
+        return False
+    return True
 
 
 def check_dependencies(dependencies: list[str]) -> bool:
@@ -96,6 +125,8 @@ class GameRegistry:
                     game_cls.__name__,
                 )
                 return
+            if not _validate_versions(metadata):
+                return
             if not _validate_capabilities(game_cls, metadata):
                 return
             key = metadata.key
@@ -107,7 +138,13 @@ class GameRegistry:
                 )
                 return
             self._games[key] = game_cls
-            log.info("Successfully registered game module: %s (%s)", metadata.name, key)
+            log.info(
+                "Successfully registered game module: %s (%s) v%s (platform %s)",
+                metadata.name,
+                key,
+                metadata.version,
+                metadata.platform_version,
+            )
         except Exception as e:
             log.exception("Unexpected error registering game class %s: %s", game_cls.__name__, e)
 

@@ -186,7 +186,10 @@ async def _run(args: argparse.Namespace) -> None:
         scripted_moves=_parse_scripted(args.move) if args.move else None,
     )
 
-    print(f"Running {meta.name} ({meta.key}) with seed {args.seed}")
+    print(
+        f"Running {meta.name} ({meta.key}) v{meta.version} "
+        f"[platform {meta.platform_version}] with seed {args.seed}"
+    )
     outcome = await game.play(ctx)  # type: ignore[arg-type]
     print("\n=== Game Over ===")
     print(outcome.description)

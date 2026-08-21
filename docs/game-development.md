@@ -20,6 +20,8 @@ from strife.engine import TurnBasedGame, game_metadata_from, PlayerCount, Player
     key="my_game",
     name="My Game",
     summary="Short tagline",
+    version="1.0.0",
+    platform_version="1.0.0",
     player_count=PlayerCount(fixed=2),
     player_order=PlayerOrder.RANDOM,
 )
@@ -40,6 +42,8 @@ Implement `render_final()` when the finished board looks different from a normal
 ## Metadata and lobby settings
 
 Attach metadata with `@game_metadata_from(...)` or `@game_metadata(META)`.
+
+`version` is this plugin's semver. `platform_version` is the Strife game API it targets (currently `1.0.0`). The host skips games whose `platform_version` is newer than, or a different major from, the running platform. See [game-api.md](game-api.md#versions).
 
 Lobby settings use `SettingOption` entries. Read them at runtime with `self.setting("key")`, which falls back to the metadata default.
 
@@ -331,7 +335,7 @@ If `supports_player_removal` is set, implement `remove_player(seat)` to update a
 
 ## Checklist 
 
-- [ ] Metadata complete (name, summary, player count, tags)
+- [ ] Metadata complete (name, summary, player count, tags, `version`, `platform_version`)
 - [ ] `play()` returns `GameOutcome` with per-seat `results` and `player_descriptions`
 - [ ] Bots work for every declared difficulty
 - [ ] Replays render correctly (including forfeits and bot takeovers)

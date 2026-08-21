@@ -18,6 +18,7 @@ Typical imports::
         game_metadata_from,
         PlayerCount,
         PlayerOrder,
+        PLATFORM_VERSION,
         ReplayBuilder,
         iter_replay,
         select_value,
@@ -44,6 +45,7 @@ from strife.engine.metadata import (
     game_metadata_from,
 )
 from strife.engine.outcomes import forfeit_outcome
+from strife.engine.platform import PLATFORM_VERSION, parse_version, platform_satisfies
 from strife.engine.players import GameOutcome, Move, Player, select_value
 from strife.engine.replay import (
     ReplayBuilder,
@@ -69,6 +71,7 @@ __all__ = [
     "MoveParam",
     "MoveRecord",
     "OptionType",
+    "PLATFORM_VERSION",
     "ParamType",
     "Player",
     "PlayerCount",
@@ -86,6 +89,8 @@ __all__ = [
     "game_metadata_from",
     "is_terminal_replay_move",
     "iter_replay",
+    "parse_version",
+    "platform_satisfies",
     "run_cpu",
     "select_value",
     "system_replay_info",
