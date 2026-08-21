@@ -14,6 +14,7 @@ from strife.commands.server_settings import ServerSettingsService
 from strife.commands.strife_group import register_strife_group
 from strife.config import load_app_config
 from strife.engine.registry import GameRegistry
+from strife.engine.workers import start_workers, shutdown_workers
 from strife.lifecycle.service import LifecycleService
 from strife.logging import configure_logging, get_logger
 from strife.matchmaking.registries import SessionRegistries
@@ -35,13 +36,19 @@ from strife.settings import Settings
 log = get_logger("bot")
 
 
-class StrifeBot(commands.Bot):
+class StrifeBot(commands.AutoShardedBot):
     def __init__(self, settings: Settings):
         intents = discord.Intents.default()
         intents.message_content = True
         intents.guilds = True
         intents.members = True
-        super().__init__(command_prefix=commands.when_mentioned, intents=intents)
+        super().__init__(
+            command_prefix=commands.when_mentioned,
+            intents=intents,
+            chunk_guilds_at_startup=False,
+            member_cache_flags=discord.MemberCacheFlags.none(),
+            max_messages=None,
+        )
         self.settings = settings
         self.pool: asyncpg.Pool | None = None
         self.game_registry: GameRegistry | None = None
@@ -55,7 +62,12 @@ class StrifeBot(commands.Bot):
     async def setup_hook(self) -> None:
         configure_logging(self.settings.log_level)
         self.config = load_app_config(self.settings.config_dir)
-        self.pool = await create_pool(self.settings.database_url)
+        start_workers(max_workers=self.settings.cpu_pool_size)
+        self.pool = await create_pool(
+            self.settings.database_url,
+            min_size=self.settings.database_min_size,
+            max_size=self.settings.database_max_size,
+        )
         migrator = Migrator(self.pool, self.settings.migrations_dir)
         applied = await migrator.run()
         if applied:
@@ -156,7 +168,13 @@ class StrifeBot(commands.Bot):
         log.info("Strife subsystems wired")
 
     async def on_ready(self) -> None:
-        log.info("Ready as %s (%s)", self.user, self.user.id if self.user else "?")
+        log.info(
+            "Ready as %s (%s) shards=%s guilds=%s",
+            self.user,
+            self.user.id if self.user else "?",
+            self.shard_count or 1,
+            len(self.guilds),
+        )
 
     async def on_interaction(self, interaction: discord.Interaction) -> None:
         if interaction.type is discord.InteractionType.component and self.router:
@@ -180,4 +198,5 @@ class StrifeBot(commands.Bot):
                         log.exception("Session task failed during shutdown")
         if self.pool:
             await self.pool.close()
+        shutdown_workers()
         await super().close()

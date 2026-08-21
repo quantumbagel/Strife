@@ -159,6 +159,18 @@ class LobbyService:
             ),
         )
 
+    async def _display_name(self, guild: discord.Guild | None, user_id: int) -> str:
+        if guild is None:
+            return f"User {user_id}"
+        member = guild.get_member(user_id)
+        if member is not None:
+            return member.display_name
+        try:
+            fetched = await guild.fetch_member(user_id)
+        except (discord.NotFound, discord.HTTPException):
+            return f"User {user_id}"
+        return fetched.display_name
+
     def _meta(self, game_key: str) -> GameMetadata:
         try:
             return self.registry.metadata(game_key)
@@ -1055,8 +1067,7 @@ class LobbyService:
             lobby.approved.add(target_id)
             lobby.denied.discard(target_id)
             lobby.pending_requests.pop(target_id, None)
-            member = interaction.guild.get_member(target_id) if interaction.guild else None
-            approved_name = member.display_name if member else f"User {target_id}"
+            approved_name = await self._display_name(interaction.guild, target_id)
         await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="access", edit=True)
         if approved_name:
@@ -1077,8 +1088,7 @@ class LobbyService:
                 await self._error(interaction, "common.error", lobby=lobby)
                 return
             lobby.approved.discard(target_id)
-            member = interaction.guild.get_member(target_id) if interaction.guild else None
-            revoked_name = member.display_name if member else f"User {target_id}"
+            revoked_name = await self._display_name(interaction.guild, target_id)
         await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="access", edit=True)
         if revoked_name:
@@ -1609,8 +1619,7 @@ class LobbyService:
             lobby.approved.add(user_id)
             lobby.denied.discard(user_id)
             lobby.pending_requests.pop(user_id, None)
-            member = interaction.guild.get_member(user_id) if interaction.guild else None
-            approved_name = member.display_name if member else f"User {user_id}"
+            approved_name = await self._display_name(interaction.guild, user_id)
             await self._refresh(lobby, interaction)
             await self._success(interaction, "lobby.player_preapproved", name=approved_name)
 
@@ -1627,8 +1636,7 @@ class LobbyService:
                 await self._error(interaction, "errors.not_preapproved", lobby=lobby)
                 return
             lobby.approved.discard(user_id)
-            member = interaction.guild.get_member(user_id) if interaction.guild else None
-            revoked_name = member.display_name if member else f"User {user_id}"
+            revoked_name = await self._display_name(interaction.guild, user_id)
             await self._refresh(lobby, interaction)
             await self._success(interaction, "lobby.approval_revoked", name=revoked_name)
 
@@ -1651,8 +1659,7 @@ class LobbyService:
                 await self._teardown(lobby, interaction)
                 return
             await self._refresh(lobby, interaction)
-            member = interaction.guild.get_member(user_id) if interaction.guild else None
-            name = member.display_name if member else f"User {user_id}"
+            name = await self._display_name(interaction.guild, user_id)
             await self._success(interaction, "lobby.blacklist_added", name=name)
 
     async def blacklist_remove(self, interaction: discord.Interaction, user_id: int) -> None:
@@ -1667,8 +1674,7 @@ class LobbyService:
                 await self._error(interaction, "errors.not_blacklisted", lobby=lobby)
                 return
             lobby.blacklist.discard(user_id)
-            member = interaction.guild.get_member(user_id) if interaction.guild else None
-            name = member.display_name if member else f"User {user_id}"
+            name = await self._display_name(interaction.guild, user_id)
             await self._success(interaction, "lobby.blacklist_removed", name=name)
 
     async def add_bots(

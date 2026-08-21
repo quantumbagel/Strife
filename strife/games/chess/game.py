@@ -9,6 +9,7 @@ import chess.svg
 import resvg_py
 
 from strife.engine.context import GameContext
+from strife.engine.workers import run_cpu
 from strife.engine.metadata import (
     BotSpec,
     PlayerCount,
@@ -272,7 +273,7 @@ class Chess(TurnBasedGame):
             if error_msg:
                 lead = f"**{error_msg}**\n{lead}"
 
-            view = await asyncio.to_thread(
+            view = await run_cpu(
                 self.render,
                 ctx,
                 lead=lead,

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Any, Mapping
 
 from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
+from strife.engine.workers import run_cpu
 from strife.engine.players import GameOutcome, Move, Player
 from strife.persistence.repositories import MoveRecord
 from strife.engine.replay import system_replay_info
@@ -1283,7 +1283,7 @@ class Coup(Game):
         return frames
 
     async def bot_move(self, difficulty: str, seat: int) -> Move:
-        move = await asyncio.to_thread(choose_move, self, difficulty, seat)
+        move = await run_cpu(choose_move, self, difficulty, seat)
         if move.source == "action":
             action_type = move.args.get("type", "income")
             target_val = move.args.get("target")

@@ -345,7 +345,7 @@ Attachments stay behind the wall: `LayoutView.files` is `list[ViewFile]`. The ho
 
 Because everything shares one process and one event loop:
 
-- A **tight CPU loop** or other non-awaiting work in `play()` / `bot_move` / `handle_query` / `render` freezes every match and every command. `asyncio.wait_for` only cancels if the code yields. First-party bots that do real search call `asyncio.to_thread` themselves; Chess live `render` is offloaded the same way.
+- A **tight CPU loop** or other non-awaiting work in `play()` / `bot_move` / `handle_query` / `render` freezes every match and every command. `asyncio.wait_for` only cancels if the code yields. First-party bots and Chess live `render` run on the dedicated CPU pool (`run_cpu` / `STRIFE_CPU_POOL_SIZE`).
 - A **native crash** (segfault in an extension such as `resvg-py`) or `os._exit()` kills the process. Docker `restart: unless-stopped` brings it back with no live sessions.
 - Unbounded allocation can OOM the process.
 

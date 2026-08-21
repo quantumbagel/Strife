@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import asyncio
-
 from strife.engine.context import GameContext
 from strife.engine.players import GameOutcome, Move
+from strife.engine.workers import run_cpu
 from strife.engine.turn_based import TurnBasedGame
 from strife.persistence.repositories import MoveRecord
 from strife.games.connectfour.bot import choose_move
@@ -276,5 +275,5 @@ class ConnectFour(TurnBasedGame):
         return view
 
     async def bot_move(self, difficulty: str, seat: int) -> Move:
-        col = await asyncio.to_thread(choose_move, self, difficulty, seat)
+        col = await run_cpu(choose_move, self, difficulty, seat)
         return Move(actor_seat=seat, source=f"col_{col}", args={})

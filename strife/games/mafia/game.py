@@ -5,6 +5,7 @@ from collections import Counter
 
 from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
+from strife.engine.workers import run_cpu
 from strife.engine.players import GameOutcome, Move, Player
 from strife.persistence.repositories import MoveRecord
 from strife.engine.replay import system_replay_info
@@ -675,7 +676,7 @@ class Mafia(Game):
         self.alive.discard(seat)
 
     async def bot_move(self, difficulty: str, seat: int) -> Move:
-        source, args = await asyncio.to_thread(choose_mafia_move, self, difficulty, seat)
+        source, args = await run_cpu(choose_mafia_move, self, difficulty, seat)
         return Move(actor_seat=seat, source=source, args=args)
 
     async def handle_query(self, seat: int, source: str, ctx: GameContext) -> bool:

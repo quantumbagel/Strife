@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     config_dir: Path = Path("config")
     migrations_dir: Path = Path("migrations")
+    database_min_size: int = 2
+    database_max_size: int = 20
+    cpu_pool_size: int = 8
 
     @field_validator("owner_ids", mode="before")
     @classmethod

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-
 from strife.engine.metadata import (
     BotSpec,
     OptionType,
@@ -12,6 +10,7 @@ from strife.engine.metadata import (
 )
 from strife.engine.context import GameContext
 from strife.engine.players import GameOutcome, Move
+from strife.engine.workers import run_cpu
 from strife.engine.turn_based import TurnBasedGame
 from strife.persistence.repositories import MoveRecord
 from strife.games.tictactoe.bot import choose_move
@@ -279,5 +278,5 @@ class TicTacToe(TurnBasedGame):
         return None
 
     async def bot_move(self, difficulty: str, seat: int) -> Move:
-        col, row = await asyncio.to_thread(choose_move, self, difficulty, seat)
+        col, row = await run_cpu(choose_move, self, difficulty, seat)
         return Move(actor_seat=seat, source=f"tile_{col}{row}", args={})

@@ -263,7 +263,15 @@ def _add_access_tab(
     if interaction and interaction.guild:
         guild = interaction.guild
 
+        seated_names = {
+            member.user_id: member.display_name
+            for member in lobby.members
+            if member.user_id is not None
+        }
+
         def get_member_name(uid: int) -> str:
+            if uid in seated_names:
+                return seated_names[uid]
             member = guild.get_member(uid)
             return member.display_name if member else f"User ID: {uid}"
 

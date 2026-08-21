@@ -262,7 +262,7 @@ move = await ctx.request_input(view, actor=seat, sources={"pass", "peek"})
 
 Implement `async def bot_move(self, difficulty: str, seat: int) -> Move`. Return a `Move` with the same `source` string your buttons/selects use. The session time-boxes every call to 10s, including `self.bot_move(...)` from `play()`.
 
-Put CPU-heavy search in `asyncio.to_thread` (see tic-tac-toe / mafia). A tight loop on the event loop will freeze the bot; the timeout cannot interrupt it.
+Put CPU-heavy search in `run_cpu` from `strife.engine.workers` (see tic-tac-toe / mafia). That uses the dedicated CPU pool instead of the default asyncio thread pool. A tight loop on the event loop will freeze the bot; the timeout cannot interrupt it.
 
 ## Replays
 

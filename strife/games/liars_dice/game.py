@@ -4,6 +4,7 @@ import asyncio
 
 from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
+from strife.engine.workers import run_cpu
 from strife.engine.players import GameOutcome, Move
 from strife.persistence.repositories import MoveRecord
 from strife.engine.replay import system_replay_info
@@ -498,7 +499,7 @@ class LiarsDice(Game):
         return frames
 
     async def bot_move(self, difficulty: str, seat: int) -> Move:
-        move = await asyncio.to_thread(choose_move, self, difficulty, seat)
+        move = await run_cpu(choose_move, self, difficulty, seat)
         if move.source == "bid":
             self.pending_quantity = move.args.get("quantity")
             self.pending_value = move.args.get("value")
