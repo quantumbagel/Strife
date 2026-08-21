@@ -10,10 +10,8 @@ from strife.engine.metadata import (
     choice_emoji_for,
     int_setting_bounds,
     int_setting_fits_select,
-    supports_role_selection,
 )
 from strife.matchmaking.lobby import Lobby
-from strife.matchmaking.role_validation import is_role_selection_complete
 from strife.presentation.components import (
     ActionRow,
     Button,
@@ -34,7 +32,7 @@ from strife.presentation.roster import bot_label, member_line
 from strife.routing import prefixes as P
 from strife.settings import get_settings
 
-SETTINGS_TABS = ("general", "access", "rules", "roles")
+SETTINGS_TABS = ("general", "access", "rules")
 
 
 def normalize_settings_tab(tab: str | None) -> str:
@@ -49,18 +47,6 @@ def get_option_emoji(resolver: EmojiResolver, option: SettingOption) -> str:
     if option.key in resolver.config.entries:
         return resolver.get(option.key)
     return resolver.get("settings")
-
-
-def _add_select_row(container: Container, select: Select) -> None:
-    row = ActionRow()
-    row.add_select(select)
-    container.add_action_row(row)
-
-
-def _add_user_select_row(container: Container, user_select: UserSelect) -> None:
-    row = ActionRow()
-    row.add_user_select(user_select)
-    container.add_action_row(row)
 
 
 def _add_title(
@@ -289,6 +275,7 @@ def _add_access_tab(
                     size_style=TextSize.SUBHEADER,
                 )
             )
+            container.add_separator()
 
         seated_lines = [
             member_line(
@@ -317,26 +304,28 @@ def _add_access_tab(
 
         kickable = [m for m in lobby.members if m.user_id != lobby.creator_id]
         if kickable:
-            _add_select_row(
-                container,
-                Select(
-                    source="kick",
-                    placeholder=text.get("lobby.kick_player_placeholder"),
-                    choices=[
-                        SelectChoice(
-                            label=member.display_name,
-                            value=str(member.user_id),
-                            description=text.get(
-                                "lobby.kick_player_desc", name=member.display_name
-                            ),
-                            emoji="leave",
-                        )
-                        for member in kickable
-                    ],
-                    route_prefix=P.LOBBY_KICK,
-                    resource_id=lobby.thread_id,
-                    payload=settings_tab_payload,
-                ),
+            container.add_described_select(
+                DescribedSelect(
+                    description=text.get("lobby.kick_player_select_desc"),
+                    select=Select(
+                        source="kick",
+                        placeholder=text.get("lobby.kick_player_placeholder"),
+                        choices=[
+                            SelectChoice(
+                                label=member.display_name,
+                                value=str(member.user_id),
+                                description=text.get(
+                                    "lobby.kick_player_desc", name=member.display_name
+                                ),
+                                emoji="leave",
+                            )
+                            for member in kickable
+                        ],
+                        route_prefix=P.LOBBY_KICK,
+                        resource_id=lobby.thread_id,
+                        payload=settings_tab_payload,
+                    ),
+                )
             )
 
         if lobby.private:
@@ -354,74 +343,90 @@ def _add_access_tab(
                     size_style=TextSize.SUBHEADER,
                 )
             )
-            _add_user_select_row(
-                container,
-                UserSelect(
-                    source="preapprove",
-                    placeholder=text.get("lobby.preapprove_placeholder"),
-                    route_prefix=P.LOBBY_PRE_APPROVE,
-                    resource_id=lobby.thread_id,
-                    payload=settings_tab_payload,
-                ),
-            )
-            if preapproved:
-                _add_select_row(
-                    container,
-                    Select(
-                        source="revoke_approval",
-                        placeholder=text.get("lobby.revoke_approval_placeholder"),
-                        choices=[
-                            SelectChoice(
-                                label=get_member_name(uid),
-                                value=str(uid),
-                                description=text.get(
-                                    "lobby.revoke_approval_desc",
-                                    name=get_member_name(uid),
-                                ),
-                                emoji="error",
-                            )
-                            for uid in preapproved
-                        ],
-                        route_prefix=P.LOBBY_REVOKE_APPROVAL,
+            container.add_described_select(
+                DescribedSelect(
+                    description=text.get("lobby.preapprove_select_desc"),
+                    select=UserSelect(
+                        source="preapprove",
+                        placeholder=text.get("lobby.preapprove_placeholder"),
+                        route_prefix=P.LOBBY_PRE_APPROVE,
                         resource_id=lobby.thread_id,
                         payload=settings_tab_payload,
                     ),
                 )
+            )
+            if preapproved:
+                container.add_described_select(
+                    DescribedSelect(
+                        description=text.get("lobby.revoke_approval_select_desc"),
+                        select=Select(
+                            source="revoke_approval",
+                            placeholder=text.get("lobby.revoke_approval_placeholder"),
+                            choices=[
+                                SelectChoice(
+                                    label=get_member_name(uid),
+                                    value=str(uid),
+                                    description=text.get(
+                                        "lobby.revoke_approval_desc",
+                                        name=get_member_name(uid),
+                                    ),
+                                    emoji="error",
+                                )
+                                for uid in preapproved
+                            ],
+                            route_prefix=P.LOBBY_REVOKE_APPROVAL,
+                            resource_id=lobby.thread_id,
+                            payload=settings_tab_payload,
+                        ),
+                    )
+                )
 
         container.add_separator()
-        bl_names = [get_member_name(uid) for uid in lobby.blacklist]
+        bl_ids = list(lobby.blacklist)
+        bl_names = [get_member_name(uid) for uid in bl_ids]
         bl_str = ", ".join(bl_names) if bl_names else "_None_"
         container.add_text(
             TextDisplay(
                 markdown_content=(
-                    f"{text.get('lobby.access_control_title', user_emoji=emoji.get('user'))}\n"
+                    f"{text.get('lobby.access_control_title', ban_emoji=emoji.get('ban'))}\n"
                     f"{text.get('lobby.blacklisted_label', blacklist=bl_str)}"
                 ),
                 size_style=TextSize.SUBHEADER,
             )
         )
-
-        _add_user_select_row(
-            container,
-            UserSelect(
-                source="add_blacklist",
-                placeholder=text.get("lobby.add_blacklist_placeholder"),
-                route_prefix=P.LOBBY_ADD_BLACKLIST,
-                resource_id=lobby.thread_id,
-                payload=settings_tab_payload,
-            ),
-        )
-
-        if lobby.blacklist:
-            _add_user_select_row(
-                container,
-                UserSelect(
-                    source="remove_blacklist",
-                    placeholder=text.get("lobby.remove_blacklist_placeholder"),
-                    route_prefix=P.LOBBY_REMOVE_BLACKLIST,
+        container.add_described_select(
+            DescribedSelect(
+                description=text.get("lobby.add_blacklist_select_desc"),
+                select=UserSelect(
+                    source="add_blacklist",
+                    placeholder=text.get("lobby.add_blacklist_placeholder"),
+                    route_prefix=P.LOBBY_ADD_BLACKLIST,
                     resource_id=lobby.thread_id,
                     payload=settings_tab_payload,
                 ),
+            )
+        )
+        if bl_ids:
+            container.add_described_select(
+                DescribedSelect(
+                    description=text.get("lobby.remove_blacklist_select_desc"),
+                    select=Select(
+                        source="remove_blacklist",
+                        placeholder=text.get("lobby.remove_blacklist_placeholder"),
+                        choices=[
+                            SelectChoice(
+                                label=get_member_name(uid),
+                                value=str(uid),
+                                description=text.get("lobby.allow_join_again_desc"),
+                                emoji="join",
+                            )
+                            for uid in bl_ids
+                        ],
+                        route_prefix=P.LOBBY_REMOVE_BLACKLIST,
+                        resource_id=lobby.thread_id,
+                        payload=settings_tab_payload,
+                    ),
+                )
             )
     else:
         if lobby.private:
@@ -586,20 +591,13 @@ def _add_int_setting(
         TextDisplay(
             markdown_content=(
                 f"**{opt_emoji} {option.title}**\n"
-                f"{small_text(option.description)}"
+                f"{small_text(option.description)}\n"
+                f"{text.get('lobby.int_option_current', value=current, minimum=minimum, maximum=maximum)}"
             ),
             size_style=TextSize.BODY,
         )
     )
     container.add_separator()
-    container.add_text(
-        TextDisplay(
-            markdown_content=text.get(
-                "lobby.int_option_current", value=current, minimum=minimum, maximum=maximum
-            ),
-            size_style=TextSize.BODY,
-        )
-    )
     row = ActionRow()
     row.add_button(
         Button(
@@ -613,126 +611,6 @@ def _add_int_setting(
         )
     )
     container.add_action_row(row)
-
-
-def _format_role_assignment_lines(
-    lobby: Lobby,
-    meta: GameMetadata,
-    text: TextConfig,
-    emoji: EmojiResolver,
-) -> list[str]:
-    role_names = {role.key: role.name for role in meta.roles}
-    settings = get_settings()
-    lines: list[str] = []
-    for member in lobby.members:
-        role_key = lobby.role_selection.get(member.user_id)
-        role_name = role_names.get(role_key, text.get("lobby.role_unassigned")) if role_key else text.get("lobby.role_unassigned")
-        player = member_line(
-            emoji,
-            user_id=member.user_id,
-            display_name=member.display_name,
-            owner_ids=frozenset(settings.owner_ids),
-            creator_id=lobby.creator_id,
-        )
-        lines.append(f"• {player}: {role_name}")
-    return lines
-
-
-def _add_roles_tab(
-    container: Container,
-    *,
-    lobby: Lobby,
-    meta: GameMetadata,
-    emoji: EmojiResolver,
-    text: TextConfig,
-    is_creator: bool,
-    viewer_user_id: int | None,
-    role_invalid_reason: str | None = None,
-) -> None:
-    container.add_text(
-        TextDisplay(
-            markdown_content=(
-                f"{text.get('lobby.roles_tab_title', user_emoji=emoji.get('user'))}\n"
-                f"{text.get('lobby.roles_tab_summary')}"
-            ),
-            size_style=TextSize.SUBHEADER,
-        )
-    )
-    assignment_lines = _format_role_assignment_lines(lobby, meta, text, emoji)
-    container.add_text(
-        TextDisplay(
-            markdown_content="\n".join(assignment_lines) if assignment_lines else text.get("lobby.empty_roster"),
-            size_style=TextSize.BODY,
-        )
-    )
-    if role_invalid_reason:
-        container.add_text(
-            TextDisplay(
-                markdown_content=(
-                    f"-# {text.get('lobby.waiting_for_role_fix', reason=role_invalid_reason)}"
-                ),
-                size_style=TextSize.BODY,
-            )
-        )
-    elif not is_role_selection_complete(lobby, meta):
-        selected = sum(1 for member in lobby.members if member.user_id in lobby.role_selection)
-        container.add_text(
-            TextDisplay(
-                markdown_content=(
-                    f"-# {text.get('lobby.waiting_for_role_selection', selected=selected, total=len(lobby.members))}"
-                ),
-                size_style=TextSize.BODY,
-            )
-        )
-
-    is_member = viewer_user_id is not None and any(
-        member.user_id == viewer_user_id for member in lobby.members
-    )
-    if is_member:
-        container.add_separator()
-        container.add_text(
-            TextDisplay(
-                markdown_content=text.get(
-                    "lobby.pick_your_role_title", user_emoji=emoji.get("user")
-                ),
-                size_style=TextSize.SUBHEADER,
-            )
-        )
-        current = lobby.role_selection.get(viewer_user_id)
-        _add_select_row(
-            container,
-            Select(
-                source="role",
-                placeholder=text.get("lobby.pick_your_role_placeholder"),
-                choices=[
-                    SelectChoice(
-                        label=role.name,
-                        value=role.key,
-                        default=current == role.key,
-                    )
-                    for role in meta.roles
-                ],
-                payload={"player_id": viewer_user_id, "settings_tab": "roles"},
-                route_prefix=P.LOBBY_ROLE,
-                resource_id=lobby.thread_id,
-            ),
-        )
-
-    if is_creator and lobby.members:
-        container.add_separator()
-        row = ActionRow()
-        row.add_button(
-            Button(
-                source="assign_roles",
-                label=text.get("lobby.assign_roles_button"),
-                style=ButtonStyle.PRIMARY,
-                emoji="user",
-                route_prefix=P.LOBBY_ASSIGN_ROLES,
-                resource_id=lobby.thread_id,
-                payload={"settings_tab": "roles"},
-            )
-        )
-        container.add_action_row(row)
 
 
 def _add_tab_nav(
@@ -751,8 +629,6 @@ def _add_tab_nav(
     ]
     if meta.settings:
         tabs.append(("rules", "lobby.settings_tab_rules", "restart"))
-    if supports_role_selection(meta):
-        tabs.append(("roles", "lobby.settings_tab_roles", "user"))
 
     for tab_key, label_key, tab_emoji in tabs:
         nav.add_button(
@@ -770,9 +646,7 @@ def _add_tab_nav(
     container.add_action_row(nav)
 
 
-def _apply_readonly(view: LayoutView, *, active_tab: str) -> None:
-    if active_tab == "roles":
-        return
+def _apply_readonly(view: LayoutView) -> None:
     for item in walk_interactive(view):
         if isinstance(item, Button) and item.source == "tab":
             continue
@@ -788,21 +662,16 @@ def build_settings_view(
     *,
     tab: str = "general",
     readonly: bool = False,
-    role_invalid_reason: str | None = None,
 ) -> LayoutView:
     active_tab = normalize_settings_tab(tab)
     if active_tab == "rules" and not meta.settings:
         active_tab = "general"
-    if active_tab == "roles" and not supports_role_selection(meta):
-        active_tab = "general"
-
-    is_creator = interaction is not None and interaction.user.id == lobby.creator_id
 
     view = LayoutView()
     container = Container()
     _add_title(container, lobby=lobby, meta=meta, emoji=emoji, text=text, tab=active_tab)
 
-    if readonly and active_tab != "roles":
+    if readonly:
         container.add_text(
             TextDisplay(
                 markdown_content=text.get(
@@ -824,22 +693,11 @@ def build_settings_view(
             text=text,
             interaction=interaction,
         )
-    elif active_tab == "roles":
-        _add_roles_tab(
-            container,
-            lobby=lobby,
-            meta=meta,
-            emoji=emoji,
-            text=text,
-            is_creator=is_creator,
-            viewer_user_id=interaction.user.id if interaction else None,
-            role_invalid_reason=role_invalid_reason,
-        )
     else:
         _add_rules_tab(container, lobby=lobby, meta=meta, emoji=emoji, text=text)
 
     _add_tab_nav(container, lobby=lobby, meta=meta, text=text, active_tab=active_tab)
     view.add_container(container)
     if readonly:
-        _apply_readonly(view, active_tab=active_tab)
+        _apply_readonly(view)
     return view

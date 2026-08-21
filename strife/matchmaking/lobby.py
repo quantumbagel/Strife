@@ -4,8 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 
 from strife.config.text import TextConfig
-from strife.engine.game import Game
-from strife.engine.metadata import GameMetadata, supports_role_selection
+from strife.engine.metadata import GameMetadata
 from strife.presentation.message import ViewSurface
 
 
@@ -33,7 +32,6 @@ class Lobby:
     bots: list[QueuedBot] = field(default_factory=list)
     ready: set[int] = field(default_factory=set)
     settings: dict = field(default_factory=dict)
-    role_selection: dict[int, str] = field(default_factory=dict)
     approved: set[int] = field(default_factory=set)
     pending_requests: dict[int, str] = field(default_factory=dict)
     denied: set[int] = field(default_factory=set)
@@ -61,30 +59,19 @@ class Lobby:
         self,
         meta: GameMetadata,
         text: TextConfig,
-        game_cls: type[Game] | None = None,
     ) -> tuple[bool, str | None, dict | None]:
-        from strife.matchmaking.role_validation import invalid_role_reason, is_role_selection_complete
-
         if not meta.player_count.is_valid(self.total_players):
             return False, "errors.need_players", {
                 "describe": meta.player_count.describe(),
             }
-        if supports_role_selection(meta):
-            if not is_role_selection_complete(self, meta):
-                return False, "errors.role_selection_incomplete", None
-            if game_cls is not None:
-                reason = invalid_role_reason(self, meta, game_cls)
-                if reason is not None:
-                    return False, "errors.invalid_roles", {"detail": reason}
         return True, None, None
 
     def can_start(
         self,
         meta: GameMetadata,
         text: TextConfig,
-        game_cls: type[Game] | None = None,
     ) -> tuple[bool, str | None, dict | None]:
-        ok, reason_key, reason_kwargs = self.can_ready(meta, text, game_cls)
+        ok, reason_key, reason_kwargs = self.can_ready(meta, text)
         if not ok:
             return False, reason_key, reason_kwargs
         if not all(member.user_id in self.ready for member in self.members):

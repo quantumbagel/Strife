@@ -56,8 +56,7 @@ class LobbyCommandsMixin:
                 await self._success(interaction, "lobby.ready_off")
                 return
             meta = self._meta(lobby.game_key)
-            game_cls = self._game_cls(lobby.game_key)
-            ok, reason_key, reason_kwargs = lobby.can_ready(meta, self.text, game_cls=game_cls)
+            ok, reason_key, reason_kwargs = lobby.can_ready(meta, self.text)
             if not ok:
                 await self._error(
                     interaction,
@@ -68,7 +67,7 @@ class LobbyCommandsMixin:
                 )
                 return
             lobby.ready.add(interaction.user.id)
-            ok_start, _, _ = lobby.can_start(meta, self.text, game_cls=game_cls)
+            ok_start, _, _ = lobby.can_start(meta, self.text)
             if ok_start:
                 if not interaction.response.is_done():
                     await interaction.response.defer()
@@ -164,56 +163,6 @@ class LobbyCommandsMixin:
             lobby.settings = self._default_settings(self._meta(lobby.game_key))
             await self._refresh(lobby, interaction)
             await self._success(interaction, "lobby.rules_reset")
-
-    async def set_own_role(self, interaction: discord.Interaction, role_key: str) -> None:
-        lobby = await self._require_caller_lobby(interaction)
-        if lobby is None:
-            return
-        async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
-                return
-            if not any(m.user_id == interaction.user.id for m in lobby.members):
-                await self._error(interaction, "errors.not_a_player", lobby=lobby)
-                return
-            meta = self._meta(lobby.game_key)
-            role = next((r for r in meta.roles if r.key == role_key), None)
-            if role is None:
-                await self._error(interaction, "errors.invalid_roles", lobby=lobby)
-                return
-            lobby.role_selection[interaction.user.id] = role_key
-            self._clear_ready_if_roles_invalid(lobby, meta)
-            await self._refresh(lobby, interaction)
-            await self._success(interaction, "lobby.role_set", role=role.name)
-
-    async def assign_member_role(
-        self, interaction: discord.Interaction, user_id: int, role_key: str
-    ) -> None:
-        lobby = await self._require_caller_lobby(interaction, creator_only=True)
-        if lobby is None:
-            return
-        async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
-                return
-            member = next((m for m in lobby.members if m.user_id == user_id), None)
-            if member is None:
-                await self._error(interaction, "errors.kick_target_not_seated", lobby=lobby)
-                return
-            meta = self._meta(lobby.game_key)
-            role = next((r for r in meta.roles if r.key == role_key), None)
-            if role is None:
-                await self._error(interaction, "errors.invalid_roles", lobby=lobby)
-                return
-            lobby.role_selection[user_id] = role_key
-            self._clear_ready_if_roles_invalid(lobby, meta)
-            await self._refresh(lobby, interaction)
-            await self._success(
-                interaction,
-                "lobby.role_assigned",
-                role=role.name,
-                name=member.display_name,
-            )
 
     async def set_option(
         self, interaction: discord.Interaction, key: str, value: str

@@ -291,7 +291,7 @@ return builder.build()
 
 ## Roles, private messages, and simultaneous input
 
-- Roles: declare `role_mode`, `role_flow`, and `roles` in metadata. Override `validate_roles()` if needed. Assigned roles appear on `player.role_key`.
+- Roles: declare `roles` (named identities, DM copy). Assign in the game class (`__init__` / `play()`) and stamp `player.role_key`. If players choose, collect that with `request_inputs`, not the lobby.
 - Private messages: `await ctx.send_private(seat, view)` sends a DM; record the event for replay.
 - Simultaneous input: `ctx.request_inputs(..., until="all")` waits for every actor; `until="any"` returns on the first response.
 

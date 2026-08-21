@@ -6,8 +6,6 @@ from strife.engine.metadata import (
     OptionType,
     PlayerCount,
     PlayerOrder,
-    RoleFlow,
-    RoleMode,
     RoleSpec,
     SettingOption,
 )
@@ -17,7 +15,7 @@ META = GameMetadata(
     key="test",
     name="API Test",
     summary="A test game to exercise and verify all framework API features.",
-    description="This game guides players through interactive layouts, multiple inputs, private messaging, settings display, and lobby role selection.",
+    description="This game guides players through interactive layouts, multiple inputs, private messaging, settings display, and in-game role assignment.",
     tags=("test", "dev", "utility"),
     author="Strife",
     version="1.0.0",
@@ -67,8 +65,6 @@ META = GameMetadata(
         ),
     ),
     slash_moves=(),
-    role_mode=RoleMode.SECRET,
-    role_flow=RoleFlow.SELECTABLE,
     roles=(
         RoleSpec("tester", "Tester", "You are a tester. Interact with everything to verify features."),
         RoleSpec("observer", "Observer", "You observe and verify that the system runs smoothly."),

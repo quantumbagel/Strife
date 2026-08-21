@@ -35,7 +35,7 @@ If you publish a public invite, set the application's privacy-policy URL to `doc
 | `/strife settings` | Lobby settings |
 | `/strife server` | Default lobby channel (administrators) |
 | `/strife about` | About the project |
-| `/strife lobby …` | Join, leave, ready, kick, privacy, roles |
+| `/strife lobby …` | Join, leave, ready, kick, privacy |
 | `/strife bot add/remove` | Fill empty seats |
 
 Chess uses `/chess move` with SAN or UCI (`e4`, `Nf3`, `e2e4`).

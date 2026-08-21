@@ -8,7 +8,6 @@ from typing import Any
 from strife.engine.game import Game
 from strife.engine.metadata import GameMetadata
 from strife.engine.players import Player
-from strife.engine.roles import assign_roles
 from strife.logging import get_logger
 
 log = get_logger("engine.registry")
@@ -153,14 +152,7 @@ class GameRegistry:
         players: list[Player],
         settings: dict[str, Any],
         seed: int,
-        *,
-        lobby_selection: dict[int, str] | None = None,
     ) -> Game:
         game_cls = self.get(key)
-        meta = game_cls.metadata
         rng = random.Random(seed)
-        role_map = assign_roles(meta, players, lobby_selection or {}, rng)
-        for player in players:
-            if player.seat in role_map:
-                player.role_key = role_map[player.seat]
         return game_cls(players, settings, rng)

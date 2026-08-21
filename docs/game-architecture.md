@@ -90,12 +90,11 @@ GameRegistry.discover("strife.games")
 
 Registered games live in `registry._games: dict[str, type[Game]]`. `get(key)` / `metadata(key)` raise `KeyError` if the game never registered.
 
-`registry.create(key, players, settings, seed, lobby_selection=...)` is the factory the lobby uses at match start:
+`registry.create(key, players, settings, seed)` is the factory the lobby uses at match start:
 
 1. Look up the class.
 2. Build `random.Random(seed)` (replays reconstruct the same RNG).
-3. `assign_roles(...)` from metadata + lobby picks.
-4. `game_cls(players, settings, rng)`.
+3. `game_cls(players, settings, rng)`. The game stamps `player.role_key` if it has named identities.
 
 **Registration is not the same as being playable.** A game can be in the registry and still hidden from players. See [Operator config](#3-operator-config-the-exposure-switch).
 

@@ -20,7 +20,7 @@ class Game(ABC):
     * ``parse_replay(moves, ctx)`` — required when ``metadata.supports_replay``.
     * ``bot_move(difficulty, seat)`` — required when ``metadata.supports_bots``.
     * ``remove_player(seat)`` — required when ``metadata.supports_player_removal``.
-    * ``final_view``, ``handle_query``, ``validate_roles`` — optional hooks.
+    * ``final_view``, ``handle_query`` — optional hooks.
     * Query buttons: set ``query=True`` on the control and handle them in
       ``handle_query()``. They are not moves.
     * Group inputs (votes, etc.): ``request_inputs(..., record=False)`` then one
@@ -64,9 +64,6 @@ class Game(ABC):
 
     def remove_player(self, seat: int) -> None:
         """Called when a player is removed mid-game. Override if ``supports_player_removal``."""
-
-    def validate_roles(self, assignment: dict[int, str]) -> tuple[bool, str | None]:
-        return True, None
 
     async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
         return None

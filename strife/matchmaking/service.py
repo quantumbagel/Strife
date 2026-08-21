@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import discord
 
 from strife.config import AppConfig
@@ -17,14 +15,10 @@ from strife.matchmaking.lobby_flow import LobbyFlowMixin, NeedTextChannel
 from strife.matchmaking.lobby_moderation import LobbyModerationMixin
 from strife.matchmaking.lobby_view import build_lobby_view
 from strife.matchmaking.registries import SessionRegistries
-from strife.matchmaking.role_validation import clear_ready_if_roles_invalid, invalid_role_reason
 from strife.presentation.compiler import Compiler
 from strife.presentation.emoji import EmojiResolver
 from strife.presentation.user_error import ErrorContext, UserErrorPresenter
 from strife.presentation.user_success import UserSuccessPresenter
-
-if TYPE_CHECKING:
-    from strife.engine.game import Game
 
 log = get_logger("matchmaking.service")
 
@@ -139,29 +133,12 @@ class LobbyService(
         return any(member.user_id == user_id for member in lobby.members)
 
 
-    def _game_cls(self, game_key: str) -> type[Game] | None:
-        try:
-            return self.registry.get(game_key)
-        except KeyError:
-            return None
-
-
-    def _role_invalid_reason(self, lobby: Lobby, meta: GameMetadata) -> str | None:
-        return invalid_role_reason(lobby, meta, self._game_cls(lobby.game_key))
-
-
-    def _clear_ready_if_roles_invalid(self, lobby: Lobby, meta: GameMetadata) -> None:
-        clear_ready_if_roles_invalid(lobby, meta, self._game_cls(lobby.game_key))
-
-
     def _build_lobby_view(self, lobby: Lobby, meta: GameMetadata):
         return build_lobby_view(
             lobby,
             meta,
             self.emoji,
             self.text,
-            game_cls=self._game_cls(lobby.game_key),
-            role_invalid_reason=self._role_invalid_reason(lobby, meta),
         )
 
 
@@ -170,7 +147,6 @@ class LobbyService(
             return False
         lobby.members = [member for member in lobby.members if member.user_id != user_id]
         lobby.ready.discard(user_id)
-        lobby.role_selection.pop(user_id, None)
         await self.registries.release_user(user_id)
         return True
 

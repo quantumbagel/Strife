@@ -29,7 +29,6 @@ Registration validates these capabilities and logs warnings for missing implemen
 |---------------------------------------------------------|----------------------------------------------------------|
 | `final_view(ctx, outcome)`                              | Custom end-state UI shown after the game ends            |
 | `handle_query(seat, source, ctx)` | Ephemeral peek / auxiliary UI (return `True` if handled) |
-| `validate_roles(assignment)`                            | Validate lobby role picks before the match starts        |
 
 ## Action buttons vs query buttons vs link buttons
 
@@ -128,6 +127,14 @@ Read lobby settings with `self.setting("key")`, which falls back to the metadata
 ```python
 mode = self.setting("first_move", "random")
 ```
+
+## Roles
+
+Named identities belong to the game class. The lobby does not collect or assign them.
+
+Declare `roles` (`RoleSpec`) for catalog copy and DMs. Assign in `__init__` / `play()` (random deal, composition from settings, or `request_inputs` if players pick) and stamp `player.role_key` for results. Secret per-player data uses `request_inputs` after the match starts, not a lobby form.
+
+Game-wide knobs (mafia count, enable doctor) stay on `SettingOption`.
 
 ## Special move sources
 

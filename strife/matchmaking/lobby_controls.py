@@ -6,7 +6,7 @@ from strife.engine.metadata import OptionType, int_setting_bounds
 from strife.matchmaking.lobby import Lobby
 from strife.matchmaking.settings_view import build_settings_view, normalize_settings_tab
 from strife.presentation.compiler import LayoutError
-from strife.presentation.modals import IntRangeModal, ROLE_ASSIGN_MODAL_BATCH, RoleAssignmentModal
+from strife.presentation.modals import IntRangeModal
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route
 
@@ -34,7 +34,6 @@ class LobbyControlsMixin:
                 interaction,
                 tab=tab,
                 readonly=readonly,
-                role_invalid_reason=self._role_invalid_reason(lobby, meta),
             )
             compiled = self.compiler.compile(
                 view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS
@@ -64,71 +63,6 @@ class LobbyControlsMixin:
             return
         await self._refresh(lobby, interaction)
 
-    async def _assign_roles(
-        self, lobby: Lobby, route: Route, interaction: discord.Interaction
-    ) -> None:
-        if interaction.user.id != lobby.creator_id:
-            await self._error(interaction, "lobby.creator_only", lobby=lobby)
-            return
-        if not lobby.members:
-            await self._error(interaction, "common.error", lobby=lobby)
-            return
-        offset = int(route.payload.get("offset", 0))
-        await self._open_role_assign_modal(lobby, interaction, offset=offset)
-
-    async def _open_role_assign_modal(
-        self,
-        lobby: Lobby,
-        interaction: discord.Interaction,
-        *,
-        offset: int = 0,
-    ) -> None:
-        meta = self._meta(lobby.game_key)
-        members = lobby.members[offset : offset + ROLE_ASSIGN_MODAL_BATCH]
-        if not members:
-            await self._error(interaction, "common.error", lobby=lobby)
-            return
-        roles = [(role.key, role.name) for role in meta.roles]
-        valid_roles = {role.key for role in meta.roles}
-        total = len(lobby.members)
-        start = offset + 1
-        end = offset + len(members)
-        title_key = (
-            "lobby.role_assign_modal_title_paged"
-            if end < total
-            else "lobby.role_assign_modal_title"
-        )
-        title = self.text.get(title_key, start=start, end=end, total=total)
-
-        async def on_submit(
-            modal_interaction: discord.Interaction, assignments: dict[int, str]
-        ) -> None:
-            for user_id, role_key in assignments.items():
-                if role_key not in valid_roles:
-                    await self._error(modal_interaction, "errors.invalid_roles", lobby=lobby)
-                    return
-                lobby.role_selection[user_id] = role_key
-
-            self._clear_ready_if_roles_invalid(lobby, meta)
-
-            next_offset = offset + len(assignments)
-            if next_offset < total:
-                await self._open_role_assign_modal(lobby, modal_interaction, offset=next_offset)
-                return
-
-            await modal_interaction.response.defer(ephemeral=True)
-            await self._send_settings(lobby, modal_interaction, tab="roles", edit=True)
-            await self._refresh(lobby, modal_interaction)
-
-        modal = RoleAssignmentModal(
-            title=title,
-            members=[(member.user_id, member.display_name) for member in members],
-            roles=roles,
-            current=lobby.role_selection,
-            on_submit_cb=on_submit,
-        )
-        await interaction.response.send_modal(modal)
-
     async def _settings(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
@@ -141,31 +75,6 @@ class LobbyControlsMixin:
             await self._send_settings(lobby, interaction, tab=tab, edit=True)
             return
         await self._send_settings(lobby, interaction, tab=tab, edit=False)
-
-    async def _role(
-        self, lobby: Lobby, route: Route, interaction: discord.Interaction
-    ) -> None:
-        player_id = int(route.payload.get("player_id", interaction.user.id))
-        if player_id != interaction.user.id:
-            await self._error(interaction, "errors.not_a_player", lobby=lobby)
-            return
-        if not any(m.user_id == player_id for m in lobby.members):
-            await self._error(interaction, "errors.not_a_player", lobby=lobby)
-            return
-        values = interaction.data.get("values") if interaction.data else []
-        if values:
-            meta = self._meta(lobby.game_key)
-            role_key = values[0]
-            valid_roles = {r.key for r in meta.roles}
-            if role_key not in valid_roles:
-                await self._error(interaction, "errors.invalid_roles", lobby=lobby)
-                return
-            lobby.role_selection[player_id] = role_key
-            self._clear_ready_if_roles_invalid(lobby, meta)
-        if route.payload.get("settings_tab") == "roles":
-            await interaction.response.defer(ephemeral=True)
-            await self._send_settings(lobby, interaction, tab="roles", edit=True)
-        await self._refresh(lobby, interaction)
 
     async def _privacy(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction

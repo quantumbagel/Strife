@@ -17,10 +17,7 @@ SERVER_CLEAR = "server_clear:"
 LOBBY_JOIN = "lobby_join:"
 LOBBY_LEAVE = "lobby_leave:"
 LOBBY_READY = "lobby_ready:"
-LOBBY_ASSIGN = "lobby_assign:"
-LOBBY_ASSIGN_ROLES = "lobby_assign_roles:"
 LOBBY_SETTINGS = "lobby_settings:"
-LOBBY_ROLE = "lobby_role:"
 LOBBY_PRIV = "lobby_priv:"
 LOBBY_RESET_PRIV = "lobby_reset_priv:"
 LOBBY_OPT = "lobby_opt:"
@@ -47,10 +44,7 @@ LOBBY_PREFIXES = {
     LOBBY_JOIN,
     LOBBY_LEAVE,
     LOBBY_READY,
-    LOBBY_ASSIGN,
-    LOBBY_ASSIGN_ROLES,
     LOBBY_SETTINGS,
-    LOBBY_ROLE,
     LOBBY_PRIV,
     LOBBY_RESET_PRIV,
     LOBBY_OPT,

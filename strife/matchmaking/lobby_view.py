@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from strife.config.text import TextConfig
-from strife.engine.metadata import GameMetadata, format_settings_rules, supports_role_selection
+from strife.engine.metadata import GameMetadata, format_settings_rules
 from strife.matchmaking.lobby import Lobby
-from strife.matchmaking.role_validation import is_role_selection_complete
 from strife.presentation.components import (
     ActionRow,
     Button,
@@ -24,18 +21,12 @@ from strife.presentation.roster import member_line
 from strife.routing import prefixes as P
 from strife.settings import get_settings
 
-if TYPE_CHECKING:
-    from strife.engine.game import Game
-
 
 def build_lobby_view(
         lobby: Lobby,
         meta: GameMetadata,
         emoji: EmojiResolver,
         text: TextConfig,
-        *,
-        game_cls: type[Game] | None = None,
-        role_invalid_reason: str | None = None,
 ) -> LayoutView:
     game_emoji = emoji.get_game_emoji(meta.key)
     view = LayoutView()
@@ -77,15 +68,6 @@ def build_lobby_view(
             count=lobby.total_players,
             min=meta.player_count.min_players,
         )
-    elif supports_role_selection(meta) and not is_role_selection_complete(lobby, meta):
-        selected = sum(1 for member in lobby.members if member.user_id in lobby.role_selection)
-        waiting_content = text.get(
-            "lobby.waiting_for_role_selection",
-            selected=selected,
-            total=len(lobby.members),
-        )
-    elif role_invalid_reason:
-        waiting_content = text.get("lobby.waiting_for_role_fix", reason=role_invalid_reason)
     else:
         waiting_content = text.get(
             "lobby.waiting_to_ready",
@@ -175,10 +157,9 @@ def build_lobby_view(
 
     container.add_separator()
 
-    can_r, _, _ = lobby.can_ready(meta, text, game_cls=game_cls)
+    can_r, _, _ = lobby.can_ready(meta, text)
     join_style = ButtonStyle.SECONDARY if can_r else ButtonStyle.SUCCESS
     ready_style = ButtonStyle.SUCCESS if can_r else ButtonStyle.PRIMARY
-    ready_disabled = role_invalid_reason is not None
 
     controls = ActionRow()
     if not lobby_full:
@@ -201,7 +182,6 @@ def build_lobby_view(
                 style=ready_style,
                 emoji="ready",
                 route_prefix=P.LOBBY_READY,
-                disabled=ready_disabled,
             )
         )
 

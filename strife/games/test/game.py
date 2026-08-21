@@ -40,6 +40,18 @@ class TestGame(Game):
         self.phase3_confirmed: set[int] = set()
         self.secrets: dict[int, str] = {}
         self.removed_players: set[int] = set()
+        self._assign_roles()
+
+    def _assign_roles(self) -> None:
+        keys = [role.key for role in self.metadata.roles] or ["tester"]
+        count = len(self.players)
+        if count >= 2 and len(keys) >= 2:
+            assigned = list(keys[:2]) + [self.rng.choice(keys) for _ in range(count - 2)]
+            self.rng.shuffle(assigned)
+        else:
+            assigned = [keys[0]] * count
+        for player, role in zip(self.players, assigned, strict=True):
+            player.role_key = role
 
     def active_seats(self) -> set[int]:
         return set(self.alive)
@@ -57,14 +69,6 @@ class TestGame(Game):
         )
         assert outcome is not None
         return outcome
-
-    def validate_roles(self, assignment: dict[int, str]) -> tuple[bool, str | None]:
-        for role in assignment.values():
-            if role not in {"tester", "observer"}:
-                return False, f"Unknown role assignment: {role}"
-        if len(assignment) >= 2 and len(set(assignment.values())) < 2:
-            return False, "Need at least one Tester and one Observer."
-        return True, None
 
     def _phase1_view(self, ctx: GameContext) -> LayoutView:
         view = LayoutView()

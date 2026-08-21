@@ -30,7 +30,6 @@ _LOBBY_MEMBER_PREFIXES = frozenset({
     P.LOBBY_LEAVE,
     P.LOBBY_READY,
     P.LOBBY_SETTINGS,
-    P.LOBBY_ROLE,
 })
 
 
@@ -133,10 +132,7 @@ class LobbyFlowMixin:
                 P.LOBBY_JOIN: self._join,
                 P.LOBBY_LEAVE: self._leave,
                 P.LOBBY_READY: self._ready,
-                P.LOBBY_ASSIGN: self._assign_roles,
-                P.LOBBY_ASSIGN_ROLES: self._assign_roles,
                 P.LOBBY_SETTINGS: self._settings,
-                P.LOBBY_ROLE: self._role,
                 P.LOBBY_PRIV: self._privacy,
                 P.LOBBY_RESET_PRIV: self._reset_privacy,
                 P.LOBBY_OPT: self._option,
@@ -420,8 +416,7 @@ class LobbyFlowMixin:
             await self._refresh(lobby, interaction)
         else:
             meta = self._meta(lobby.game_key)
-            game_cls = self._game_cls(lobby.game_key)
-            ok, reason_key, reason_kwargs = lobby.can_ready(meta, self.text, game_cls=game_cls)
+            ok, reason_key, reason_kwargs = lobby.can_ready(meta, self.text)
             if not ok:
                 await self._error(
                     interaction,
@@ -432,7 +427,7 @@ class LobbyFlowMixin:
                 )
                 return
             lobby.ready.add(interaction.user.id)
-            ok_start, _, _ = lobby.can_start(meta, self.text, game_cls=game_cls)
+            ok_start, _, _ = lobby.can_start(meta, self.text)
             if ok_start:
                 if not interaction.response.is_done():
                     await interaction.response.defer()
@@ -482,8 +477,7 @@ class LobbyFlowMixin:
         if lobby.starting:
             return
         meta = self._meta(lobby.game_key)
-        game_cls = self._game_cls(lobby.game_key)
-        ok, reason_key, reason_kwargs = lobby.can_start(meta, self.text, game_cls=game_cls)
+        ok, reason_key, reason_kwargs = lobby.can_start(meta, self.text)
         if not ok:
             await self._error(
                 interaction,
@@ -528,7 +522,6 @@ class LobbyFlowMixin:
                 players,
                 game_settings,
                 seed,
-                lobby_selection=lobby.role_selection,
             )
             if lobby.surface is None:
                 await self._error(interaction, "common.error", lobby=lobby)

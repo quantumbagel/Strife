@@ -6,20 +6,6 @@ from enum import StrEnum
 from typing import Any
 
 
-class RoleMode(StrEnum):
-    NONE = "none"
-    RANDOM = "random"
-    CHOSEN = "chosen"
-    SECRET = "secret"
-
-
-class RoleFlow(StrEnum):
-    NONE = "none"
-    SELECTABLE = "selectable"
-    RANDOM = "random"
-    SELECTABLE_RANDOM = "selectable_random"
-
-
 class PlayerOrder(StrEnum):
     RANDOM = "random"
     JOINED = "joined"
@@ -106,10 +92,6 @@ class SettingOption:
 INT_SETTING_SELECT_LIMIT = 25
 
 
-def supports_role_selection(meta: GameMetadata) -> bool:
-    return meta.role_flow.value in {"selectable", "selectable_random"} and bool(meta.roles)
-
-
 def int_setting_bounds(option: SettingOption) -> tuple[int, int]:
     minimum = option.minimum if option.minimum is not None else int(option.default)
     maximum = option.maximum if option.maximum is not None else minimum + 5
@@ -186,6 +168,8 @@ class SlashMove:
 
 @dataclass(frozen=True)
 class RoleSpec:
+    """Named identity for catalog copy and DMs. Not a host assignment deck."""
+
     key: str
     name: str
     instructions: str
@@ -219,8 +203,6 @@ class GameMetadata:
     bot_takeover_difficulty: str = "hard"
     settings: tuple[SettingOption, ...] = ()
     slash_moves: tuple[SlashMove, ...] = ()
-    role_mode: RoleMode = RoleMode.NONE
-    role_flow: RoleFlow = RoleFlow.NONE
     roles: tuple[RoleSpec, ...] = ()
     supports_player_removal: bool = False
     supports_replay: bool = True

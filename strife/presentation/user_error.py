@@ -235,8 +235,6 @@ class UserErrorPresenter:
             "common.match_not_found": lambda p, c: [p._open_profile(c)],
             "common.error": lambda p, c: [p._browse_games(c)],
             "errors.need_players": lambda p, c: p._cannot_ready_actions(c),
-            "errors.role_selection_incomplete": lambda p, c: p._cannot_ready_actions(c),
-            "errors.invalid_roles": lambda p, c: p._cannot_ready_actions(c),
             "errors.not_all_ready": lambda p, c: p._cannot_ready_actions(c),
         }
         builder = builders.get(code)
@@ -300,8 +298,6 @@ class UserErrorPresenter:
         kwargs = dict(ctx.reason_kwargs or {})
         if code in {
             "errors.need_players",
-            "errors.role_selection_incomplete",
-            "errors.invalid_roles",
             "errors.not_all_ready",
         }:
             reason = self.text.get(code, **kwargs)

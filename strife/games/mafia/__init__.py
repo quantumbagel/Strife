@@ -7,8 +7,6 @@ from strife.engine.metadata import (
     OptionType,
     PlayerCount,
     PlayerOrder,
-    RoleFlow,
-    RoleMode,
     RoleSpec,
     SettingOption,
 )
@@ -43,8 +41,6 @@ META = GameMetadata(
         SettingOption("enable_detective", "Detective", "Include a Detective", OptionType.BOOL, default=True, emoji="hmm"),
     ),
     slash_moves=(),
-    role_mode=RoleMode.SECRET,
-    role_flow=RoleFlow.RANDOM,
     roles=(
         RoleSpec("villager", "Villager", "No night action. Find and lynch the mafia."),
         RoleSpec("mafia", "Mafia", "Each night, agree on one victim to eliminate."),

@@ -195,20 +195,6 @@ def register_strife_group(
 
     lobby_group = app_commands.Group(name="lobby", description="Manage game lobbies", parent=group)
 
-    def _role_choices(lobby_obj, current: str) -> list[app_commands.Choice[str]]:
-        if lobby_obj is None:
-            return []
-        try:
-            meta = registry.metadata(lobby_obj.game_key)
-        except KeyError:
-            return []
-        needle = current.lower()
-        return [
-            app_commands.Choice(name=role.name[:100], value=role.key)
-            for role in meta.roles
-            if needle in role.name.lower() or needle in role.key.lower()
-        ][:25]
-
     def _option_key_choices(lobby_obj, current: str) -> list[app_commands.Choice[str]]:
         if lobby_obj is None:
             return []
@@ -304,30 +290,6 @@ def register_strife_group(
     @lobby_group.command(name="reset-rules", description="Reset game rules to defaults")
     async def lobby_reset_rules(interaction: discord.Interaction) -> None:
         await lobby.reset_rules(interaction)
-
-    @lobby_group.command(name="role", description="Choose your role in the lobby")
-    @app_commands.describe(role="Role to select")
-    async def lobby_role(interaction: discord.Interaction, role: str) -> None:
-        await lobby.set_own_role(interaction, role)
-
-    @lobby_role.autocomplete("role")
-    async def lobby_role_autocomplete(
-        interaction: discord.Interaction, current: str
-    ) -> list[app_commands.Choice[str]]:
-        return _role_choices(lobby.lobby_of_user(interaction.user.id), current)
-
-    @lobby_group.command(name="assign-role", description="Assign a role to a lobby member")
-    @app_commands.describe(user="Player to assign", role="Role to assign")
-    async def lobby_assign_role(
-        interaction: discord.Interaction, user: discord.User, role: str
-    ) -> None:
-        await lobby.assign_member_role(interaction, user.id, role)
-
-    @lobby_assign_role.autocomplete("role")
-    async def lobby_assign_role_autocomplete(
-        interaction: discord.Interaction, current: str
-    ) -> list[app_commands.Choice[str]]:
-        return _role_choices(lobby.lobby_of_user(interaction.user.id), current)
 
     @lobby_group.command(name="option", description="Set a game rule option for your lobby")
     @app_commands.describe(key="Option to change", value="New value")
