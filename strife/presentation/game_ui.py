@@ -143,21 +143,10 @@ def query_panel(
     body: str | None = None,
     sections: list[tuple[str, str]] | None = None,
 ) -> LayoutView:
-    """Ephemeral peek / notice panel matching platform command styling."""
+    """Ephemeral peek / notice panel matching platform command styling.
+
+    Send with ``await ctx.respond_query(view)`` from ``handle_query``.
+    """
     emoji_resolver: EmojiResolver = ctx.emoji  # type: ignore[attr-defined]
     icon = emoji_resolver.get(prefix_emoji) if prefix_emoji else None
     return notice_view(title=title, emoji=icon, body=body, sections=sections)
-
-
-async def respond_query(interaction: object, surface: object, view: LayoutView) -> None:
-    """Send a compiled ephemeral view for a game query (peek, notice, error)."""
-    compiled = surface.compiler.compile(  # type: ignore[attr-defined]
-        view,
-        resource_id=surface.resource_id,  # type: ignore[attr-defined]
-        prefix=surface.prefix,  # type: ignore[attr-defined]
-    )
-    response = interaction.response  # type: ignore[attr-defined]
-    if not response.is_done():
-        await response.send_message(view=compiled, ephemeral=True)
-    else:
-        await interaction.followup.send(view=compiled, ephemeral=True)  # type: ignore[attr-defined]

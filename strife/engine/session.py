@@ -23,11 +23,31 @@ from strife.persistence.repositories import (
 from strife.presentation.components import LayoutView
 from strife.presentation.feedback import build_feedback_view, send_ephemeral_feedback
 from strife.presentation.game_ui import build_game_thread_header_view
-from strife.presentation.message import ViewSurface
+from strife.presentation.message import ViewSurface, to_discord_files
 from strife.lifecycle.timeout import timeout_consequence
 from strife.routing.router import InteractionInput
 
 log = get_logger("engine.session")
+
+BOT_MOVE_TIMEOUT_SECONDS = 10.0
+QUERY_TIMEOUT_SECONDS = 5.0
+
+
+def _guard_bot_move(game: Game) -> None:
+    """Wrap ``game.bot_move`` so every call (including from play()) is time-boxed."""
+    original = game.bot_move
+
+    async def guarded(difficulty: str, seat: int) -> Move:
+        try:
+            return await asyncio.wait_for(
+                original(difficulty, seat),
+                timeout=BOT_MOVE_TIMEOUT_SECONDS,
+            )
+        except Exception as e:
+            log.exception("Bot move crashed or timed out for seat %s", seat)
+            raise RuntimeError(f"Bot failed to make a move: {e}") from e
+
+    game.bot_move = guarded  # type: ignore[method-assign]
 
 
 @dataclass
@@ -85,11 +105,14 @@ class GameSession:
         self.turn_timeout_consequence = turn_timeout_consequence
         self._finalize_cb = finalize_cb
         self.game_key = game_key
+        _guard_bot_move(game)
         self.ctx = LiveContext(self)
         self.lock = asyncio.Lock()
         self.pending: dict[int, PendingInput] = {}
         self.recorded_moves: list[RecordedMove] = []
-        self.last_move_at = time.monotonic()
+        now = time.monotonic()
+        self.last_move_at = now
+        self.last_progress_at = now
         self.task: asyncio.Task | None = None
         self._turn_index = 0
         self._started_at = datetime.now(timezone.utc)
@@ -98,6 +121,9 @@ class GameSession:
         self._bot = None
         self._finalized = False
         self._timeout_warned: dict[int, float] = {}
+
+    def mark_progress(self) -> None:
+        self.last_progress_at = time.monotonic()
 
     def set_bot(self, bot) -> None:
         self._bot = bot
@@ -206,10 +232,11 @@ class GameSession:
             )
             return True
 
+        self.ctx._begin_query(interaction)
         try:
-            return await asyncio.wait_for(
-                self.game.handle_query(seat, source, interaction, self.ctx, self.surface),
-                timeout=5.0,
+            handled = await asyncio.wait_for(
+                self.game.handle_query(seat, source, self.ctx),
+                timeout=QUERY_TIMEOUT_SECONDS,
             )
         except Exception:
             log.exception(
@@ -218,6 +245,27 @@ class GameSession:
                 self.id,
             )
             raise RuntimeError("query_failed") from None
+        finally:
+            self.ctx._end_query()
+
+        if handled and not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
+        return handled
+
+    async def _respond_query(self, interaction: discord.Interaction, view: LayoutView) -> None:
+        compiled = self.surface.compiler.compile(
+            view,
+            resource_id=self.surface.resource_id,
+            prefix=self.surface.prefix,
+        )
+        files = to_discord_files(view.files)
+        kwargs: dict[str, Any] = {"view": compiled, "ephemeral": True}
+        if files:
+            kwargs["files"] = files
+        if not interaction.response.is_done():
+            await interaction.response.send_message(**kwargs)
+        else:
+            await interaction.followup.send(**kwargs)
 
     async def force_move(self, seat: int, move: Move) -> None:
         async with self.lock:
@@ -368,14 +416,7 @@ class GameSession:
     ) -> Move:
         if self.players[actor].is_bot:
             difficulty = self.players[actor].bot_difficulty or "medium"
-            try:
-                move = await asyncio.wait_for(
-                    self.game.bot_move(difficulty, actor),
-                    timeout=10.0,
-                )
-            except Exception as e:
-                log.exception("Bot move crashed or timed out for seat %s in match %s", actor, self.id)
-                raise RuntimeError(f"Bot failed to make a move: {e}") from e
+            move = await self.game.bot_move(difficulty, actor)
             await self._update_surface(view)
             if record:
                 self._record_move(move)
@@ -423,14 +464,7 @@ class GameSession:
             # All actors are bots: pick one at random and return only that move.
             bot_seat = self.game.rng.choice(sorted(bots))
             difficulty = self.players[bot_seat].bot_difficulty or "medium"
-            try:
-                move = await asyncio.wait_for(
-                    self.game.bot_move(difficulty, bot_seat),
-                    timeout=10.0,
-                )
-            except Exception as e:
-                log.exception("Bot move crashed or timed out for seat %s in match %s", bot_seat, self.id)
-                raise RuntimeError(f"Bot failed to make a move: {e}") from e
+            move = await self.game.bot_move(difficulty, bot_seat)
             if record:
                 self._record_move(move)
             return {bot_seat: move}
@@ -483,14 +517,7 @@ class GameSession:
         # until == "all": collect bot moves alongside human futures.
         for seat in bots:
             difficulty = self.players[seat].bot_difficulty or "medium"
-            try:
-                move = await asyncio.wait_for(
-                    self.game.bot_move(difficulty, seat),
-                    timeout=10.0,
-                )
-            except Exception as e:
-                log.exception("Bot move crashed or timed out for seat %s in match %s", seat, self.id)
-                raise RuntimeError(f"Bot failed to make a move: {e}") from e
+            move = await self.game.bot_move(difficulty, seat)
             results[seat] = move
             if record:
                 self._record_move(move)

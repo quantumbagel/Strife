@@ -1,11 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import discord
-    from strife.presentation.message import ViewSurface
 from collections import Counter
 
 from strife.engine.context import GameContext, ReplayFrame
@@ -25,7 +20,7 @@ from strife.presentation.components import (
     SelectChoice,
     TextDisplay,
 )
-from strife.presentation.game_ui import message_lead, query_panel, respond_query
+from strife.presentation.game_ui import message_lead, query_panel
 from strife.presentation.roster import member_line
 from strife.presentation.style import history_block
 
@@ -114,7 +109,7 @@ class Mafia(Game):
                 break
             await self._day(ctx)
             winner = self._winner()
-        await ctx.record_event("game_end", {"winning_faction": winner, "roles": self.role})
+        await ctx.record_event("winner", {"winning_faction": winner, "roles": self.role})
         return self._finish(winner)
 
     async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
@@ -513,7 +508,7 @@ class Mafia(Game):
                 )
                 pending_takeover_info = None
 
-            elif move.source == "game_end":
+            elif move.is_game and move.source in ("winner", "game_end"):
                 winning_faction = move.arguments.get("winning_faction", "unknown")
                 view = self._game_over_view(ctx, winning_faction, roles)
 
@@ -683,14 +678,7 @@ class Mafia(Game):
         source, args = await asyncio.to_thread(choose_mafia_move, self, difficulty, seat)
         return Move(actor_seat=seat, source=source, args=args)
 
-    async def handle_query(
-        self,
-        seat: int,
-        source: str,
-        interaction: discord.Interaction,
-        ctx: GameContext,
-        surface: ViewSurface,
-    ) -> bool:
+    async def handle_query(self, seat: int, source: str, ctx: GameContext) -> bool:
         if source == "peek":
             role = self.role.get(seat, "unknown")
             instructions = next((r.instructions for r in self.metadata.roles if r.key == role), "")
@@ -710,7 +698,7 @@ class Mafia(Game):
                 body=instructions or None,
                 sections=sections or None,
             )
-            await respond_query(interaction, surface, view)
+            await ctx.respond_query(view)
             return True
         if source == "night_act":
             view = self._night_views.get(seat)
@@ -721,8 +709,8 @@ class Mafia(Game):
                     prefix_emoji="hmm",
                     body="You have no night action right now. Villagers can peek their role if DMs are closed.",
                 )
-                await respond_query(interaction, surface, notice)
+                await ctx.respond_query(notice)
                 return True
-            await respond_query(interaction, surface, view)
+            await ctx.respond_query(view)
             return True
-        return await super().handle_query(seat, source, interaction, ctx, surface)
+        return await super().handle_query(seat, source, ctx)

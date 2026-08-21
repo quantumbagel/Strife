@@ -32,6 +32,7 @@ _RUNTIME_ERROR_CODES = {
     "rematch_unavailable": "errors.rematch_unavailable",
     "no_session": "errors.no_session",
     "unknown_game": "errors.unknown_game",
+    "query_failed": "common.error",
 }
 
 

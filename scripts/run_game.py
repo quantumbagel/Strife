@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from strife.engine.context import GameContext
+from strife.engine.log import reject_system_source
 from strife.engine.players import Move, Player
 from strife.engine.registry import GameRegistry
 from strife.presentation.components import LayoutView
@@ -110,7 +110,11 @@ class MockContext:
         print(f"[private -> seat {seat}] DM with {len(view.children)} top-level node(s)")
 
     async def record_event(self, source: str, arguments: dict) -> None:
+        reject_system_source(source)
         print(f"[event] {source} {arguments}")
+
+    async def respond_query(self, view: LayoutView) -> None:
+        print(f"[query] view with {len(view.children)} top-level node(s)")
 
 
 def _load_emoji() -> EmojiResolver:

@@ -12,6 +12,7 @@ class GameDefaults(BaseModel):
     turn_warning_seconds: int = 30
     turn_timeout_max_strikes: int = 3
     turn_timeout_consequence: str = "abandon"
+    play_hang_seconds: int = 45
 
 
 class GameConfig(BaseModel):
@@ -20,6 +21,7 @@ class GameConfig(BaseModel):
     turn_warning_seconds: int | None = None
     turn_timeout_max_strikes: int | None = None
     turn_timeout_consequence: str | None = None
+    play_hang_seconds: int | None = None
     settings_overrides: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -53,6 +55,11 @@ class GamesConfig(BaseModel):
                 game.turn_timeout_consequence
                 if game.turn_timeout_consequence is not None
                 else self.defaults.turn_timeout_consequence
+            ),
+            play_hang_seconds=(
+                game.play_hang_seconds
+                if game.play_hang_seconds is not None
+                else self.defaults.play_hang_seconds
             ),
             settings_overrides=dict(game.settings_overrides),
         )

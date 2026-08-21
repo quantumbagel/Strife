@@ -1,6 +1,6 @@
 # Game Development Guide
 
-This guide walks through building a Strife game . For the method reference table, see [game-api.md](game-api.md).
+This guide walks through building a Strife game. For the method reference table, see [game-api.md](game-api.md). For how games are discovered, sandboxed, and exposed on Discord, see [game-architecture.md](game-architecture.md).
 
 ## Quick start
 
@@ -80,6 +80,7 @@ Use `GameContext` inside `play()`:
 | `ctx.update(view)`                                           | Refresh the board without waiting |
 | `ctx.send_private(seat, view)`                               | DM hidden information             |
 | `ctx.record_event(name, args)`                               | Log a non-input event for replays |
+| `ctx.respond_query(view)`                                    | Reply to a peek / query button    |
 
 Player inputs are recorded automatically. Use `record_event` for phase transitions and hidden reveals.
 
@@ -128,18 +129,11 @@ move = await ctx.request_input(view, actor=seat, sources={"pass"})
 Implement the handler on your game class:
 
 ```python
-async def handle_query(
-    self,
-    seat: int,
-    source: str,
-    interaction: discord.Interaction,
-    ctx: GameContext,
-    surface: ViewSurface,
-) -> bool:
+async def handle_query(self, seat: int, source: str, ctx: GameContext) -> bool:
     if source == "peek":
         role = self.role.get(seat, "unknown")
         view = query_panel(ctx, title=f"Your role: {role.title()}", prefix_emoji="user")
-        await respond_query(interaction, surface, view)
+        await ctx.respond_query(view)
         return True
     return False
 ```
@@ -148,11 +142,11 @@ Return `True` when handled. Return `False` to fall through to normal move submis
 
 **Replay:** omit action rows during replay (`if not ctx.is_replay:`) so replays show game state only.
 
-**Ephemeral notices:** use `query_panel` + `respond_query` so peeks and query errors match platform command styling. Do not send bare `send_message("...")` text.
+**Ephemeral notices:** use `query_panel` + `ctx.respond_query` so peeks and query errors match platform command styling. Do not send Discord messages from game code.
 
 ```python
 view = query_panel(ctx, title="Your cards", prefix_emoji="peek", body=hand_text)
-await respond_query(interaction, surface, view)
+await ctx.respond_query(view)
 ```
 
 ### Ephemeral sub-views (query opens, action completes)
@@ -160,7 +154,7 @@ await respond_query(interaction, surface, view)
 Coup uses a two-step pattern for actions that are easier in a private panel:
 
 1. Public board shows a **query** button (e.g. `exchange_open`) — not in `sources`.
-2. `handle_query` sends an ephemeral view containing the real control (e.g. a `Select` with `source="exchange_select"`).
+2. `handle_query` sends an ephemeral view via `ctx.respond_query` containing the real control (e.g. a `Select` with `source="exchange_select"`).
 3. `play()` waits with `sources={"exchange_select"}` — clicks on the ephemeral control submit the move.
 
 The launcher is a query; the control inside the ephemeral message is an action. See [`strife/games/coup/`](../strife/games/coup/) (`exchange_open`, `lose_influence_open`).
@@ -266,7 +260,9 @@ move = await ctx.request_input(view, actor=seat, sources={"pass", "peek"})
 
 ## Bots
 
-Implement `async def bot_move(self, difficulty: str, seat: int) -> Move`. Return a `Move` with the same `source` string your buttons/selects use. The session calls this automatically for bot seats.
+Implement `async def bot_move(self, difficulty: str, seat: int) -> Move`. Return a `Move` with the same `source` string your buttons/selects use. The session time-boxes every call to 10s, including `self.bot_move(...)` from `play()`.
+
+Put CPU-heavy search in `asyncio.to_thread` (see tic-tac-toe / mafia). A tight loop on the event loop will freeze the bot; the timeout cannot interrupt it.
 
 ## Replays
 
@@ -324,7 +320,7 @@ Platform commands (catalog, about, settings, profile, errors) set the visual lan
 - `message_lead(container, text, emoji=..., prefix_emoji=...)` — optional contextual lead above game content
 - `game_container(ctx, lead=..., prefix_emoji=...)` — container with optional lead
 - `query_panel(ctx, title=..., prefix_emoji=..., body=...)` — ephemeral peek / notice
-- `respond_query(interaction, surface, view)` — compile and send that panel
+- `ctx.respond_query(view)` — send that panel (host compiles and replies)
 
 Use `message_lead` for phase-specific context (e.g. "Waiting for votes..."). Omit the lead for self-explanatory boards.
 

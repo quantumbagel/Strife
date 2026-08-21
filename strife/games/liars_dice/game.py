@@ -1,11 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import discord
-    from strife.presentation.message import ViewSurface
 
 from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
@@ -22,7 +17,7 @@ from strife.presentation.components import (
     Select,
     SelectChoice,
 )
-from strife.presentation.game_ui import message_lead, query_panel, respond_query
+from strife.presentation.game_ui import message_lead, query_panel
 from strife.presentation.roster import member_line
 from strife.presentation.style import add_body, add_section, history_block
 
@@ -509,14 +504,7 @@ class LiarsDice(Game):
             self.pending_value = move.args.get("value")
         return move
 
-    async def handle_query(
-        self,
-        seat: int,
-        source: str,
-        interaction: discord.Interaction,
-        ctx: GameContext,
-        surface: ViewSurface,
-    ) -> bool:
+    async def handle_query(self, seat: int, source: str, ctx: GameContext) -> bool:
         if source == "peek":
             hand = self.hands.get(seat, [])
             if not hand:
@@ -533,6 +521,6 @@ class LiarsDice(Game):
                     prefix_emoji="game_liars_dice",
                     body=self._format_hand(ctx, hand),
                 )
-            await respond_query(interaction, surface, view)
+            await ctx.respond_query(view)
             return True
-        return await super().handle_query(seat, source, interaction, ctx, surface)
+        return await super().handle_query(seat, source, ctx)

@@ -14,6 +14,15 @@ class LogEntryKind(StrEnum):
 SYSTEM_SOURCES = frozenset({"forfeit", "game_end", "bot_takeover"})
 
 
+def reject_system_source(source: str) -> None:
+    """Games may not emit engine-owned log sources via ``record_event``."""
+    if source in SYSTEM_SOURCES:
+        raise ValueError(
+            f"record_event source {source!r} is reserved for the engine; "
+            "use a game-specific name"
+        )
+
+
 def infer_log_kind(source: str, arguments: dict[str, Any]) -> LogEntryKind:
     """Infer kind for legacy rows missing an explicit ``kind`` column."""
     if source in SYSTEM_SOURCES:

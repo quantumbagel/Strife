@@ -1,6 +1,7 @@
 defaults:
   turn_timeout_seconds: 90
   turn_warning_seconds: 30
+  play_hang_seconds: 45
 
 games:
   tictactoe:

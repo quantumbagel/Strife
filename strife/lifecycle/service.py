@@ -66,9 +66,24 @@ class LifecycleService:
         await self.rematch.expire_stale()
         now = time.monotonic()
         for session in list(self.registries.active_games.values()):
-            if not session.pending:
+            if session._finalized:
                 continue
             game_cfg = self.config.games.for_game(session.game_key)
+            if not session.pending:
+                hang = game_cfg.play_hang_seconds
+                last = max(session.last_progress_at, session.last_move_at)
+                if hang and hang > 0 and now - last >= hang:
+                    log.error(
+                        "Play hung for session %s (no GameContext progress for %ss)",
+                        session.id,
+                        hang,
+                    )
+                    try:
+                        await session._notify_thread(self.text.get("match.session_crashed"))
+                        await session.cancel("error")
+                    except Exception:
+                        log.exception("Failed to cancel hung session %s", session.id)
+                continue
             idle = now - session.last_move_at
             for seat, pending in list(session.pending.items()):
                 if session.players[seat].is_bot:
@@ -209,7 +224,7 @@ class LifecycleService:
                 },
             )
             try:
-                move = await asyncio.wait_for(session.game.bot_move(difficulty, seat), timeout=10.0)
+                move = await session.game.bot_move(difficulty, seat)
                 await session.force_move(seat, move)
             except Exception as e:
                 log.exception(

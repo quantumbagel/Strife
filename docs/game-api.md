@@ -8,7 +8,7 @@ This document describes the contract for implementing a Strife game.
 2. Attach `GameMetadata` via `@game_metadata(...)` or `GameClass.metadata = META`.
 3. Games under `strife/games/` are auto-discovered at startup.
 
-Runtime interaction uses `GameContext`: request player input, update the board, send private messages, and record non-input events.
+Runtime interaction uses `GameContext`: request player input, update the board, send private messages, record non-input events, and reply to query buttons. Games never see Discord types.
 
 ## Required methods
 
@@ -26,7 +26,7 @@ Registration validates these capabilities and logs warnings for missing implemen
 | Method                                                  | Purpose                                                  |
 |---------------------------------------------------------|----------------------------------------------------------|
 | `final_view(ctx, outcome)`                              | Custom end-state UI shown after the game ends            |
-| `handle_query(seat, source, interaction, ctx, surface)` | Ephemeral peek / auxiliary UI (return `True` if handled) |
+| `handle_query(seat, source, ctx)` | Ephemeral peek / auxiliary UI (return `True` if handled) |
 | `validate_roles(assignment)`                            | Validate lobby role picks before the match starts        |
 
 ## Action buttons vs query buttons vs link buttons
@@ -49,10 +49,10 @@ Use query buttons for read-only or auxiliary UI that should **not** advance the 
 When a player clicks a game button, the router calls `handle_query(source)` first. If it returns `True`, the interaction is done. Otherwise the click is submitted as a move (and must have been listed in `sources`).
 
 ```python
-async def handle_query(self, seat, source, interaction, ctx, surface) -> bool:
+async def handle_query(self, seat, source, ctx) -> bool:
     if source == "peek":
         view = query_panel(ctx, title=f"Role: {self.role[seat]}", prefix_emoji="peek")
-        await respond_query(interaction, surface, view)
+        await ctx.respond_query(view)
         return True
     return False
 ```
@@ -140,5 +140,6 @@ Replay implementations should handle these via `system_replay_info()` from `stri
 ## Further reading
 
 - [Game Development Guide](game-development.md) — tutorial and checklist
+- [Game Exposure and Sandbox Architecture](game-architecture.md) — discovery, GameContext isolation, catalog/slash exposure
 - `strife/games/tictactoe/` — minimal turn-based example
 - `strife/games/test/` — full API integration showcase

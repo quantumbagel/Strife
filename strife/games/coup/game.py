@@ -1,11 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Mapping
-
-if TYPE_CHECKING:
-    import discord
-    from strife.presentation.message import ViewSurface
+from typing import Any, Mapping
 
 from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
@@ -22,7 +18,7 @@ from strife.presentation.components import (
     Select,
     SelectChoice,
 )
-from strife.presentation.game_ui import message_lead, query_panel, respond_query
+from strife.presentation.game_ui import message_lead, query_panel
 from strife.presentation.roster import member_line
 from strife.presentation.style import add_body, add_divider, add_meta, add_section, history_block
 
@@ -1315,14 +1311,7 @@ class Coup(Game):
             return Move(actor_seat=seat, source="exchange_select", args={"values": indices})
         return move
 
-    async def handle_query(
-        self,
-        seat: int,
-        source: str,
-        interaction: discord.Interaction,
-        ctx: GameContext,
-        surface: ViewSurface,
-    ) -> bool:
+    async def handle_query(self, seat: int, source: str, ctx: GameContext) -> bool:
         if source == "peek":
             cards = self.hands.get(seat, [])
             if not cards:
@@ -1339,7 +1328,7 @@ class Coup(Game):
                     prefix_emoji="peek",
                     body=f"{self._format_hand(ctx, seat, private=True)}\n-# {self.coins.get(seat, 0)} coins",
                 )
-            await respond_query(interaction, surface, view)
+            await ctx.respond_query(view)
             return True
 
         if source == "lose_influence_open":
@@ -1350,9 +1339,9 @@ class Coup(Game):
                     prefix_emoji="error",
                     body="Influence loss is not pending for you.",
                 )
-                await respond_query(interaction, surface, notice)
+                await ctx.respond_query(notice)
                 return True
-            await respond_query(interaction, surface, self.get_lose_influence_view(seat, ctx))
+            await ctx.respond_query(self.get_lose_influence_view(seat, ctx))
             return True
 
         if source == "exchange_open":
@@ -1363,9 +1352,9 @@ class Coup(Game):
                     prefix_emoji="error",
                     body="Card exchange is not available to you.",
                 )
-                await respond_query(interaction, surface, notice)
+                await ctx.respond_query(notice)
                 return True
-            await respond_query(interaction, surface, self.get_exchange_view(seat, ctx))
+            await ctx.respond_query(self.get_exchange_view(seat, ctx))
             return True
 
-        return await super().handle_query(seat, source, interaction, ctx, surface)
+        return await super().handle_query(seat, source, ctx)

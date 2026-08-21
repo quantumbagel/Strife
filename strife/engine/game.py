@@ -3,11 +3,8 @@ from __future__ import annotations
 import random
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from typing import Any, ClassVar, TYPE_CHECKING
+from typing import Any, ClassVar
 
-if TYPE_CHECKING:
-    import discord
-    from strife.presentation.message import ViewSurface
 from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.metadata import GameMetadata
 from strife.engine.players import GameOutcome, Move, Player
@@ -71,20 +68,14 @@ class Game(ABC):
     async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
         return None
 
-    async def handle_query(
-        self,
-        seat: int,
-        source: str,
-        interaction: discord.Interaction,
-        ctx: GameContext,
-        surface: ViewSurface,
-    ) -> bool:
+    async def handle_query(self, seat: int, source: str, ctx: GameContext) -> bool:
         """Handle non-move button clicks (peek, open ephemeral UI, etc.).
 
-        Return ``True`` when *source* is handled. Query buttons must be omitted
-        from ``request_input(..., sources=...)`` so they route here instead of
-        submitting a move. Handled queries are not recorded and must not appear
-        in ``parse_replay``. See ``docs/game-development.md``.
+        Return ``True`` when *source* is handled. Respond with
+        ``await ctx.respond_query(view)`` — do not touch Discord. Query buttons
+        must be omitted from ``request_input(..., sources=...)`` so they route
+        here instead of submitting a move. Handled queries are not recorded and
+        must not appear in ``parse_replay``. See ``docs/game-development.md``.
         """
         return False
 

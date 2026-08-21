@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
+from strife.engine.log import reject_system_source
 from strife.engine.players import Move, Player
 from strife.presentation.components import LayoutView
 from strife.presentation.emoji import EmojiResolver
@@ -58,10 +59,24 @@ class GameContext(Protocol):
 
     async def record_event(self, source: str, arguments: dict[str, Any]) -> None: ...
 
+    async def respond_query(self, view: LayoutView) -> None: ...
+
 
 class LiveContext:
     def __init__(self, session: object) -> None:
         self._session = session
+        self._query_interaction: object | None = None
+
+    def _touch(self) -> None:
+        mark = getattr(self._session, "mark_progress", None)
+        if mark is not None:
+            mark()
+
+    def _begin_query(self, interaction: object) -> None:
+        self._query_interaction = interaction
+
+    def _end_query(self) -> None:
+        self._query_interaction = None
 
     @property
     def started_at(self) -> datetime | None:
@@ -91,6 +106,7 @@ class LiveContext:
         return self._session.players[seat].is_bot  # type: ignore[attr-defined]
 
     async def update(self, view: LayoutView) -> None:
+        self._touch()
         await self._session._update_surface(view)  # type: ignore[attr-defined]
 
     async def request_input(
@@ -104,7 +120,8 @@ class LiveContext:
         timeout_seconds: float | None = None,
         timeout_consequence: str | None = None,
     ) -> Move:
-        return await self._session._request_input(  # type: ignore[attr-defined]
+        self._touch()
+        move = await self._session._request_input(  # type: ignore[attr-defined]
             view,
             actor=actor,
             sources=sources,
@@ -113,6 +130,8 @@ class LiveContext:
             timeout_seconds=timeout_seconds,
             timeout_consequence=timeout_consequence,
         )
+        self._touch()
+        return move
 
     async def request_inputs(
         self,
@@ -128,7 +147,8 @@ class LiveContext:
         timeout_seconds: float | None = None,
         timeout_consequence: str | None = None,
     ) -> dict[int, Move]:
-        return await self._session._request_inputs(  # type: ignore[attr-defined]
+        self._touch()
+        moves = await self._session._request_inputs(  # type: ignore[attr-defined]
             view,
             actors=actors,
             sources=sources,
@@ -140,12 +160,24 @@ class LiveContext:
             timeout_seconds=timeout_seconds,
             timeout_consequence=timeout_consequence,
         )
+        self._touch()
+        return moves
 
     async def send_private(self, seat: int, view: LayoutView) -> None:
+        self._touch()
         await self._session._send_private(seat, view)  # type: ignore[attr-defined]
 
     async def record_event(self, source: str, arguments: dict[str, Any]) -> None:
+        self._touch()
+        reject_system_source(source)
         self._session._append_log_entry(source, arguments)  # type: ignore[attr-defined]
+
+    async def respond_query(self, view: LayoutView) -> None:
+        self._touch()
+        interaction = self._query_interaction
+        if interaction is None:
+            raise RuntimeError("respond_query() is only valid inside handle_query")
+        await self._session._respond_query(interaction, view)  # type: ignore[attr-defined]
 
 
 @dataclass
@@ -223,3 +255,5 @@ class ReplayContext:
     async def record_event(self, source: str, arguments: dict[str, Any]) -> None:
         pass
 
+    async def respond_query(self, view: LayoutView) -> None:
+        raise NotImplementedError("Replays do not support respond_query()")

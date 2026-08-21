@@ -1,15 +1,33 @@
 from __future__ import annotations
 
 import asyncio
+import io
 from typing import TYPE_CHECKING
 
 import discord
 
-from strife.presentation.components import LayoutView
+from strife.presentation.components import LayoutView, ViewFile
 from strife.presentation.compiler import Compiler
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+
+
+def to_discord_files(files: list[ViewFile] | None) -> list[discord.File]:
+    converted: list[discord.File] = []
+    for item in files or []:
+        if not isinstance(item, ViewFile):
+            raise TypeError(
+                f"LayoutView.files entries must be ViewFile, got {type(item).__name__}"
+            )
+        kwargs: dict = {
+            "fp": io.BytesIO(item.data),
+            "filename": item.filename,
+        }
+        if item.description:
+            kwargs["description"] = item.description
+        converted.append(discord.File(**kwargs))
+    return converted
 
 
 class ViewSurface:
@@ -49,9 +67,9 @@ class ViewSurface:
         ephemeral: bool = False,
     ) -> discord.Message:
         compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
-        files = getattr(view, "files", [])
+        files = to_discord_files(view.files)
         if isinstance(target, discord.Interaction):
-            kwargs = {"view": compiled}
+            kwargs: dict = {"view": compiled}
             if ephemeral:
                 kwargs["ephemeral"] = True
             if files:
@@ -67,8 +85,8 @@ class ViewSurface:
 
     async def send_to_thread(self, thread: discord.Thread, view: LayoutView) -> discord.Message:
         compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
-        files = getattr(view, "files", [])
-        kwargs = {"view": compiled}
+        files = to_discord_files(view.files)
+        kwargs: dict = {"view": compiled}
         if files:
             kwargs["files"] = files
         self._message = await thread.send(**kwargs)
@@ -78,8 +96,11 @@ class ViewSurface:
         if self._message is None:
             raise RuntimeError("No message bound to surface")
         compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
-        files = getattr(view, "files", [])
-        await self._message.edit(content=None, embeds=[], view=compiled, attachments=files)
+        files = to_discord_files(view.files)
+        kwargs: dict = {"content": None, "embeds": [], "view": compiled}
+        if files:
+            kwargs["attachments"] = files
+        await self._message.edit(**kwargs)
 
 
     async def replace(self, view: LayoutView) -> None:
@@ -103,9 +124,13 @@ class ViewSurface:
         view: LayoutView,
     ) -> None:
         compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
+        files = to_discord_files(view.files)
         try:
             dm = user.dm_channel or await user.create_dm()
-            await dm.send(view=compiled)
+            kwargs: dict = {"view": compiled}
+            if files:
+                kwargs["files"] = files
+            await dm.send(**kwargs)
         except discord.HTTPException:
             interaction = await interaction_factory()
             if interaction and not interaction.response.is_done():

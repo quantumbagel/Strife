@@ -83,7 +83,7 @@ Message the bot (or mention it) as an owner:
 
 ## Write a game
 
-See [docs/game-development.md](docs/game-development.md) and [docs/game-api.md](docs/game-api.md). Scaffold with `python scripts/scaffold_game.py <key> "Title"` and try it with `python scripts/run_game.py <key>`.
+See [docs/game-development.md](docs/game-development.md) and [docs/game-api.md](docs/game-api.md). How games are discovered, isolated from Discord, and exposed in the catalog is in [docs/game-architecture.md](docs/game-architecture.md). Scaffold with `python scripts/scaffold_game.py <key> "Title"` and try it with `python scripts/run_game.py <key>`.
 
 ## License
 

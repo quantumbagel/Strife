@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import io
 import random
 from typing import Any
 
 import chess
 import chess.svg
-import discord
 import resvg_py
 
 from strife.engine.context import GameContext
@@ -32,6 +30,7 @@ from strife.presentation.components import (
     LayoutView,
     MediaGallery,
     MediaGalleryItem,
+    ViewFile,
 )
 from strife.presentation.game_ui import game_container
 from strife.presentation.style import add_meta
@@ -273,7 +272,8 @@ class Chess(TurnBasedGame):
             if error_msg:
                 lead = f"**{error_msg}**\n{lead}"
 
-            view = self.render(
+            view = await asyncio.to_thread(
+                self.render,
                 ctx,
                 lead=lead,
                 status_emoji="loading",
@@ -372,16 +372,10 @@ class Chess(TurnBasedGame):
     ) -> tuple[LayoutView, Container]:
         view = LayoutView()
 
-        # Render SVG board
         svg_data = chess.svg.board(self.board)
-        # Convert to PNG using resvg-py
         png_data = resvg_py.svg_to_bytes(svg_string=svg_data, width=450, height=450)
-
-        # Attach the board as a file attachment
-        move_index = len(self.board.move_stack)
-        filename = f"board_{move_index}.png"
-        file = discord.File(io.BytesIO(png_data), filename=filename)
-        view.files = [file]
+        filename = f"board_{len(self.board.move_stack)}.png"
+        view.files = [ViewFile(data=png_data, filename=filename, description="Chess board")]
 
         container = game_container(ctx, lead=lead or status or title, prefix_emoji=status_emoji or "loading")
 

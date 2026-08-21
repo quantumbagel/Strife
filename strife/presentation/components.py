@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
 
 
 
@@ -191,11 +190,20 @@ class Container:
 
 
 @dataclass
+class ViewFile:
+    """Binary attachment for a layout. Host converts this to a Discord file."""
+
+    data: bytes
+    filename: str
+    description: str | None = None
+
+
+@dataclass
 class LayoutView:
     children: list[Container | ActionRow | TextDisplay | Separator | MediaGallery | Section] = field(
         default_factory=list
     )
-    files: list[Any] = field(default_factory=list)
+    files: list[ViewFile] = field(default_factory=list)
 
 
     def add_container(self, container: Container) -> LayoutView:
