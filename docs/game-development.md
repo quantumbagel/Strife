@@ -7,7 +7,7 @@ This guide walks through building a Strife game. For the method reference table,
 1. Scaffold a game: `python scripts/scaffold_game.py my_game "My Game"`
 2. Implement `play()` in `strife/games/my_game/game.py`
 3. Run locally: `python scripts/run_game.py my_game`
-4. Games under `strife/games/` are auto-discovered at bot startup — no `bot.py` edits needed.
+4. Games under `strife/games/` are auto-discovered at bot startup — no `bot.py` or `strife.session` edits needed.
 
 ## Minimal turn-based game
 

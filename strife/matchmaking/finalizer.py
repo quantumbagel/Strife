@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from strife.engine.session import GameSession
+from strife.session import GameSession
 from strife.matchmaking.registries import SessionRegistries
 from strife.persistence.repositories import (
     FinishedMatch,

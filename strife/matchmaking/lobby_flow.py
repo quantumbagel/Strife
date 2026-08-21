@@ -7,7 +7,7 @@ import discord
 
 from strife.engine.players import Player
 from strife.engine.roles import order_players
-from strife.engine.session import GameSession
+from strife.session import GameSession
 from strife.logging import get_logger
 from strife.matchmaking.lobby import Lobby, LobbyMember, QueuedBot
 from strife.matchmaking.registries import UserLocation

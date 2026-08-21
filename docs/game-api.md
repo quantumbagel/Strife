@@ -10,7 +10,7 @@ This document describes the contract for implementing a Strife game.
 
 Runtime interaction uses `GameContext`: request player input, update the board, send private messages, record non-input events, and reply to query buttons. Games never see Discord types.
 
-Import the plugin surface from `strife.engine` and `strife.presentation` — not persistence or the view compiler. Live inputs and replay log rows are the same `Move` type (`args`, `source`, `kind`). `arguments` is a compatibility alias of `args`.
+Import the plugin surface from `strife.engine` and `strife.presentation` — not persistence, the view compiler, or the live host (`strife.session`). Live inputs and replay log rows are the same `Move` type (`args`, `source`, `kind`). `arguments` is a compatibility alias of `args`.
 
 ## Required methods
 

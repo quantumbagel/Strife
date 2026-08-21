@@ -39,7 +39,7 @@ Everything above the wall can change (Discord library, thread model, storage) wi
 | Presentation | `strife/presentation/` | Discord-free components → compiled Discord views |
 | Routing | `strife/routing/` | Decode `custom_id` → lobby / game / catalog / replay |
 | Matchmaking | `strife/matchmaking/` | Lobbies, start match, promote to session |
-| Live host | `strife/engine/session.py` | `LiveContext` + pending inputs + move log |
+| Live host | `strife/session/` | `LiveContext` + pending inputs + move log |
 | Replay host | `strife/replay/` | `ReplayContext` + `parse_replay` |
 | CLI host | `scripts/run_game.py` | `MockContext` (no Discord) |
 | Exposure | `strife/commands/` | `/play`, `/strife catalog`, per-game slash groups |
@@ -68,7 +68,7 @@ Optional extras:
 - `bot.py` used by `bot_move()`.
 - Game-specific emoji keys in `config/emoji.yaml` (`game_<key>`, piece/role art).
 
-Games may import engine types, presentation components, and third-party libraries. They should not import matchmaking, routing, persistence, or `strife.bot`.
+Games may import engine types, presentation components, and third-party libraries. They should not import matchmaking, routing, persistence, `strife.session`, or `strife.bot`.
 
 ## 2. Discovery and registration
 
@@ -169,7 +169,7 @@ Games should not:
 
 - Import `discord` or call `interaction.response.*`.
 - Encode `custom_id`s or set `route_prefix` / `resource_id` on board controls (the live surface already uses `g_move:` + thread id).
-- Touch `GameSession`, the database, or `SessionRegistries`.
+- Touch `GameSession` (`strife.session`), the database, or `SessionRegistries`.
 - Emit system log sources (`forfeit`, `game_end`, `bot_takeover`) — `record_event` rejects those names.
 
 ## 5. Presentation sandbox
@@ -204,7 +204,7 @@ Because compilation is host-side, `MockContext` can print “view with N nodes�
 
 | Host | Context class | `request_input` | `update` | Used by |
 |------|---------------|-----------------|----------|---------|
-| Live | `LiveContext` | Wait on `GameSession.pending` futures; bots call `bot_move` (10s cap) | Edit board message | `GameSession._run` → `game.play(ctx)` |
+| Live | `LiveContext` (`strife.session`) | Wait on `GameSession.pending` futures; bots call `bot_move` (10s cap) | Edit board message | `GameSession._run` → `game.play(ctx)` |
 | Replay | `ReplayContext` | Raises `NotImplementedError` | Raises | `ReplayService` → `game.parse_replay(moves, ctx)` |
 | CLI | `MockContext` | stdin or `--move seat:source:json` | stdout | `python scripts/run_game.py <key>` |
 
@@ -408,7 +408,7 @@ Authoring steps live in [game-development.md](game-development.md). From the **h
 6. Optional `slash_moves` — registered on the next command tree sync.
 7. Restart (or process start) so `discover()` imports the package.
 
-No edits to `bot.py`, the router, or matchmaking are required for a standard button-driven game.
+No edits to `bot.py`, the router, matchmaking, or `strife.session` are required for a standard button-driven game.
 
 ## Related documents
 

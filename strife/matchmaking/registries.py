@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Literal
 
-from strife.engine.session import GameSession
+from strife.session import GameSession
 from strife.matchmaking.lobby import Lobby
 
 
