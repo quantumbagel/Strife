@@ -49,7 +49,7 @@ Everything above the wall can change (Discord library, thread model, storage) wi
 
 A game is a Python package with a `plugin.toml` at its root. Shipped builtins live under `strife/games/<folder>/`. Third-party plugins live under `plugins/<key>/` after `strife/install <git-url>`. Both are the same kind of plugin; builtins can be uninstalled too.
 
-1. Declares `key`, `version`, `platform_version`, and `dependencies` in `plugin.toml` (read **before** import).
+1. Declares `key`, `version`, `platform_version`, and `dependencies` in `plugin.toml` (read **before** import). Optional `changelog.toml` is shown in `/strife about` → Changes.
 2. Exports a `Game` subclass from the package `__init__.py`.
 3. Attaches `GameMetadata` via `@game_metadata_from(...)`, `@game_metadata(META)`, or `Cls.metadata = META`. `metadata.key` must match `plugin.toml`.
 4. Implements `play(ctx) -> GameOutcome`. Other methods are required only when metadata declares the matching capability.
@@ -59,6 +59,7 @@ Typical layout:
 ```
 strife/games/tictactoe/          # or plugins/my_game/
   plugin.toml     # install-time manifest
+  changelog.toml  # player-facing history (/strife about → Changes)
   __init__.py     # re-export the Game subclass
   game.py         # Game subclass + metadata
   bot.py          # optional bot policy
@@ -74,7 +75,7 @@ Optional extras:
 
 Games may import engine types, presentation components, and third-party libraries listed in `plugin.toml`. They should not import matchmaking, routing, persistence, `strife.session`, or `strife.bot`.
 
-Operator install/uninstall is documented in [plugins.md](plugins.md). The GitHub template is `templates/game-plugin/`.
+Operator install/uninstall is documented in [plugins.md](plugins.md). The GitHub template is `templates/game-plugin/` (Use this template → `strife/install <url>`).
 
 ## 2. Discovery and registration
 
@@ -411,7 +412,7 @@ The same `Game` class is constructed three more times without Discord:
 
 Authoring steps live in [game-development.md](game-development.md). From the **host** side, a game is exposed when:
 
-1. Package has `plugin.toml` (in-tree under `strife/games/` or installed into `plugins/`) and exports the `Game` subclass.
+1. Package has `plugin.toml` (in-tree under `strife/games/` or installed into `plugins/`) and exports the `Game` subclass. `changelog.toml` is shown in `/strife about` → Changes.
 2. Manifest `key` matches metadata, `version` / `platform_version` are valid, `platform_version` is compatible with this host, and capabilities match implementations.
 3. Extras listed in `plugin.toml` are installed (image build / `strife/install` / boot sync). Missing extras skip the game instead of failing startup.
 4. The plugin is not in `config/plugins.yaml` `removed`.
@@ -426,7 +427,8 @@ No edits to `bot.py`, the router, matchmaking, or `strife.session` are required 
 - [game-api.md](game-api.md) — method contract, move log kinds, query vs action
 - [game-development.md](game-development.md) — tutorial, presentation style, checklist
 - `scripts/scaffold_game.py` — in-tree builtin scaffold (writes `plugin.toml`)
-- `templates/game-plugin/` — GitHub template for third-party plugins
+- `templates/game-plugin/` — GitHub template for third-party plugins (`changelog.toml` included)
+- `changelog/bot.toml`, `changelog/platform.toml` — host notes in `/strife about` → Changes
 - `docs/plugins.md` — install, uninstall, overlay
 - `scripts/run_game.py` — third host (CLI sandbox)
 - `strife/games/test/` — API showcase (disabled in `games.yaml` by default)

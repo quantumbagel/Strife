@@ -1,0 +1,8 @@
+[[release]]
+version = "1.0.0"
+date = "2026-09-07"
+summary = "Chess with SAN/UCI slash moves and optional clocks."
+added = [
+  "/chess move for SAN or UCI input",
+  "Board render, time-control setting, random and capture-priority bots",
+]

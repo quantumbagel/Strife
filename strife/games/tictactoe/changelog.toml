@@ -1,0 +1,8 @@
+[[release]]
+version = "1.0.0"
+date = "2026-09-07"
+summary = "Classic 3×3 with bots and replay."
+added = [
+  "Two-player grid, easy/medium/hard bots",
+  "Turn-based replay from the move log",
+]

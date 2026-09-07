@@ -1,5 +1,7 @@
 # Static install manifest. The host reads this *before* importing the package.
 # Keep `key` unique. `platform_version` must match the Strife game API you target.
+# Player-facing history lives in changelog.toml (shown in /strife about → Changes).
+# `version` here, in GameMetadata, and in the latest changelog [[release]] must match.
 
 key = "my_game"
 version = "1.0.0"

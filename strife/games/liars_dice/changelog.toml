@@ -1,0 +1,8 @@
+[[release]]
+version = "1.0.0"
+date = "2026-09-07"
+summary = "Liar's Dice with hidden hands and peek."
+added = [
+  "Bids on dice totals, challenges, and wild ones",
+  "Peek at your dice; DMs when open",
+]

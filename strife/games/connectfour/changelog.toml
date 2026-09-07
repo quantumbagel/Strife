@@ -1,0 +1,8 @@
+[[release]]
+version = "1.0.0"
+date = "2026-09-07"
+summary = "7×6 alignment with three bot strengths."
+added = [
+  "Drop discs to connect four",
+  "Easy, medium, and hard bots",
+]

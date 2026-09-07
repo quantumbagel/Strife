@@ -20,6 +20,21 @@ The host reads this file **before** importing the package. `dependencies` are PE
 
 `key` must match `GameMetadata.key`. `platform_version` must be compatible with this host (same major, host ≥ target).
 
+Player-facing history is a sibling `changelog.toml` (same `[[release]]` shape as `changelog/bot.toml` and `changelog/platform.toml`). Missing files are fine; the plugin still loads. `/strife about` → **Changes** shows bot, platform, and game notes.
+
+```toml
+[[release]]
+version = "1.0.0"
+date = "2026-09-07"
+summary = "Initial release."
+added = ["A thing"]
+changed = []
+fixed = []
+removed = []
+```
+
+Newest first. `version` on the latest release should match `plugin.toml`. Empty arrays may be omitted.
+
 ## Owner commands
 
 | Command | What it does |
@@ -61,5 +76,5 @@ Plugins still run **in-process**. `strife/install` is owner-only. Review a third
 
 ## Authoring
 
-- In-tree builtin: `python scripts/scaffold_game.py my_game "My Game"`
-- Third-party: copy `templates/game-plugin/`, publish as a GitHub template, then `strife/install <url>`
+- In-tree builtin: `python scripts/scaffold_game.py my_game "My Game"` (writes `plugin.toml` and `changelog.toml`)
+- Third-party: publish `templates/game-plugin/` as a **GitHub template repository** (Settings → General → Template repository). Authors click **Use this template**, implement the game, then an owner runs `strife/install https://github.com/you/your-game`

@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     cpu_pool_size: int = 8
     sync_on_start: bool = False
     plugins_dir: Path = Path("plugins")
+    changelog_dir: Path = Path("changelog")
     sync_plugin_deps: bool = True
     signing_key: str | None = None
 

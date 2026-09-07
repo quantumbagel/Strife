@@ -26,7 +26,7 @@ strife = "strife.__main__:main"
 include = ["strife*"]
 
 [tool.setuptools.package-data]
-"*" = ["plugin.toml", "emoji/*"]
+"*" = ["plugin.toml", "changelog.toml", "emoji/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

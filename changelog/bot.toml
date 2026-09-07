@@ -1,0 +1,107 @@
+# Bot product history (strife.__version__). Shown in /strife about → Changes.
+# Newest first. Do not bump PLATFORM_VERSION here — that lives in platform.toml.
+
+[[release]]
+version = "1.0.0"
+date = "2026-09-07"
+summary = "Plugins install from git, and Changes shows what shipped."
+added = [
+  "strife/install, update, and uninstall for git plugin repos and builtins",
+  "Plugin emoji uploaded as {key}_{stem} from each package's emoji/ folder",
+  "/strife about → Changes for bot, game API, and per-game notes",
+  "GitHub game-plugin template (templates/game-plugin/) as the third-party authoring path",
+  "Privacy notes for a public instance (docs/privacy.md)",
+]
+changed = [
+  "Game extras live in plugin.toml, not the host pyproject.toml",
+  "Catalog cards show the latest changelog date next to the game version",
+]
+fixed = [
+  "Privacy and occupancy bugs on rematch, forfeit, and lobby start",
+]
+
+[[release]]
+version = "0.6.0"
+date = "2026-08-21"
+summary = "Shipped platform 1.0.0 and split the live host from the plugin API."
+added = [
+  "Plugin-facing engine (Game, GameContext, metadata) separate from strife.session",
+  "Auto-sharded gateway, sized Postgres pool, and a dedicated CPU worker pool",
+]
+changed = [
+  "Games assign roles in play(); the lobby Roles tab is gone",
+  "Live Discord session is a host behind GameContext, not a class games import",
+]
+removed = [
+  "Deprecated GameSession import path games were still reaching through",
+]
+
+[[release]]
+version = "0.5.0"
+date = "2026-08-15"
+summary = "Shippable v1: Docker, unified chrome, and launch-game wiring."
+added = [
+  "Docker image that syncs builtin plugin extras at build",
+  "Forum channels rejected; lobbies need a guild text channel",
+]
+changed = [
+  "Catalog, about, settings, profile, and errors share one layout language",
+  "Launch games wired for public play (test game stays disabled)",
+]
+fixed = [
+  "Spyfall bots during discussion",
+  "Persist-on-shutdown leaving occupancy stuck",
+]
+
+[[release]]
+version = "0.4.0"
+date = "2026-08-01"
+summary = "Public instance."
+added = [
+  "Public invite path and owner ops (strife/sync, strife/emoji, strife/dbreset)",
+]
+
+[[release]]
+version = "0.3.0"
+date = "2026-07-14"
+summary = "Chess, turn clocks, and match isolation."
+added = [
+  "Chess with /chess move (SAN or UCI) and optional time control",
+  "Turn timeouts, strikes, skip/pass/abandon, and bot takeover",
+  "Lobby slash fallbacks (join, leave, ready) with creator-only tools on the message",
+]
+changed = [
+  "play(), bot_move, handle_query, and final_view are time-boxed so a hung game abandons that match only",
+]
+fixed = [
+  "Coup replay frames and timeout copy",
+  "Tic-Tac-Toe bots and board images in the API test game",
+]
+
+[[release]]
+version = "0.2.0"
+date = "2026-07-08"
+summary = "Social games, peek, and rematch that does not double-seat."
+added = [
+  "Coup, Mafia, Spyfall, and Liar's Dice with peek (and DMs when open)",
+  "Connect Four and a fuller Tic-Tac-Toe with bots",
+]
+changed = [
+  "Join, leave, ready, and errors go through one presenter and config/text.toml",
+]
+fixed = [
+  "Rematch opening a second lobby while the first was still live",
+  "Outcome mentions and Mafia bot votes counting toward the tally",
+]
+
+[[release]]
+version = "0.1.0"
+date = "2026-06-22"
+summary = "First thread-based host: slash to enter, a lobby message to marshal, a public thread to play."
+added = [
+  "/play lobbies, ready-up, and a public {Game} (#code) thread",
+  "/strife catalog, profile, replay, forfeit, about, and server default channel",
+  "Private lobbies with request-to-join, approve/deny, and blacklist",
+  "Application emoji upload and per-game art on catalog cards",
+  "Rematch on the old lobby message; thread locks when the match ends",
+]

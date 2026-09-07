@@ -38,7 +38,7 @@ Slash **starts** things; the lobby **message** marshals the table; the public **
 | `/strife forfeit` | Forfeit a **live** game (leave a lobby with Leave / `/strife lobby leave`) |
 | `/strife settings` | Open lobby settings (creator edits; members can view) |
 | `/strife server` | Default lobby channel (administrators) |
-| `/strife about` | About the project |
+| `/strife about` | About the project, attributions, and **Changes** (bot, game API, and games) |
 | `/strife lobby join/leave/ready` | Join by creator, leave, toggle ready. Other lobby tools are on the lobby message and Settings |
 
 Chess uses `/chess move` with SAN or UCI (`e4`, `Nf3`, `e2e4`) — there are no piece buttons on the board.
@@ -95,7 +95,7 @@ To **hide** a game without deleting history, set `enabled: false` in `config/gam
 
 ## Write a game
 
-See [docs/interfaces.md](docs/interfaces.md) for the player / operator / author contract, [docs/game-development.md](docs/game-development.md) and [docs/game-api.md](docs/game-api.md) for implementing a game. How games are discovered, isolated from Discord, and exposed in the catalog is in [docs/game-architecture.md](docs/game-architecture.md). Install, update, and uninstall (including wiping history) is in [docs/plugins.md](docs/plugins.md). Each plugin has `plugin.toml` with its own `version`, `platform_version`, and extras. Scaffold an in-tree builtin with `python scripts/scaffold_game.py <key> "Title"`, or copy `templates/game-plugin/` and `strife/install <url>`. Try locally with `python scripts/run_game.py <key>`.
+See [docs/interfaces.md](docs/interfaces.md) for the player / operator / author contract, [docs/game-development.md](docs/game-development.md) and [docs/game-api.md](docs/game-api.md) for implementing a game. How games are discovered, isolated from Discord, and exposed in the catalog is in [docs/game-architecture.md](docs/game-architecture.md). Install, update, and uninstall (including wiping history) is in [docs/plugins.md](docs/plugins.md). Each plugin has `plugin.toml` (`version`, `platform_version`, extras) and `changelog.toml` (shown in `/strife about` → Changes, with bot and platform notes). Scaffold an in-tree builtin with `python scripts/scaffold_game.py <key> "Title"`. Third-party games start from the GitHub template in `templates/game-plugin/` (**Use this template**, then `strife/install <url>`). Try locally with `python scripts/run_game.py <key>`.
 
 ## License
 

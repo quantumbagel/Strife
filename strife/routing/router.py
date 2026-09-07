@@ -48,7 +48,8 @@ class InteractionRouter:
         lifecycle: object | None,
         profile: object | None,
         catalog: object | None,
-        server_settings: object | None,
+        about: object | None = None,
+        server_settings: object | None = None,
         encoder: CustomIdEncoder,
         text: TextConfig,
         user_errors: UserErrorPresenter,
@@ -59,6 +60,7 @@ class InteractionRouter:
         self.lifecycle = lifecycle
         self.profile = profile
         self.catalog = catalog
+        self.about = about
         self.server_settings = server_settings
         self.encoder = encoder
         self.text = text
@@ -263,15 +265,10 @@ class InteractionRouter:
         await self.server_settings.open(interaction, edit=True)
 
     async def _handle_about(self, route, interaction: discord.Interaction) -> None:
-        if self.lobby is None:
+        if self.about is None:
             await self._error(interaction, "common.error")
             return
-        from strife.presentation.about_view import build_about_view
-
-        active_tab = route.payload.get("tab", "main")
-        view = build_about_view(self.lobby.emoji, self.text, active_tab=active_tab)
-        compiled = self.lobby.compiler.compile(view, resource_id=interaction.user.id, prefix=P.ABOUT_NAV)
-        await interaction.response.edit_message(view=compiled)
+        await self.about.navigate(interaction, route)
 
     async def _defer(self, interaction: discord.Interaction) -> None:
         if not interaction.response.is_done():

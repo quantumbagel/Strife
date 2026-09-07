@@ -4,7 +4,7 @@ This document describes the method-level contract for implementing a Strife game
 
 ## Overview
 
-1. Add `plugin.toml` (`key`, `version`, `platform_version`, `dependencies`) next to the package.
+1. Add `plugin.toml` (`key`, `version`, `platform_version`, `dependencies`) and `changelog.toml` next to the package.
 2. Subclass `Game` in `game.py` and export it from `__init__.py`.
 3. Attach `GameMetadata` via `@game_metadata(...)` or `GameClass.metadata = META`. `metadata.key` must match `plugin.toml`.
 4. Builtins under `strife/games/` and git installs under `plugins/` are loaded at startup from those manifests.
@@ -25,6 +25,8 @@ Each game declares two independent semver strings on `GameMetadata`:
 | `platform_version` | The game API this plugin was written for |
 
 Registration skips a game when `platform_version` is not compatible with the host: same major, and the host is greater than or equal to the target (minor, then patch). A 1.0.0 game runs on 1.2.0; a 1.2.0 game does not run on 1.0.0; a 2.0.0 game does not run on 1.x.
+
+`changelog.toml` is **not** a load gate. Players see it under `/strife about` → Changes. Keep the latest `[[release]].version` in sync with `plugin.toml`. Host notes live in `changelog/bot.toml` (product) and `changelog/platform.toml` (this API).
 
 ```python
 @game_metadata_from(

@@ -18,6 +18,23 @@ from strife.settings import Settings
 log = get_logger("commands.admin")
 
 
+def _refresh_changelog(bot, key: str, *, drop: bool = False) -> None:
+    changelogs = getattr(bot, "changelogs", None)
+    if changelogs is None:
+        return
+    if drop:
+        changelogs.drop_plugin(key)
+        return
+    manager = getattr(bot, "plugin_manager", None)
+    if manager is None:
+        return
+    record = manager.record_for(key)
+    if record is None:
+        changelogs.drop_plugin(key)
+        return
+    changelogs.load_plugin(key, record.root, version=record.manifest.version)
+
+
 class AdminCommands(commands.Cog):
     def __init__(self, bot: commands.Bot, settings: Settings) -> None:
         self.bot = bot
@@ -188,6 +205,7 @@ class AdminCommands(commands.Cog):
 
         manager.load_one(registry, manifest.key)
         self.bot.config.games.note_game(manifest.key, enabled=True)  # type: ignore[attr-defined]
+        _refresh_changelog(self.bot, manifest.key)
         extra = _register_slash(self.bot, registry, manifest.key)
         if kind == "git":
             extra += " Run `strife/emoji` if the plugin shipped an emoji/ folder."
@@ -209,6 +227,7 @@ class AdminCommands(commands.Cog):
         manifest = await asyncio.to_thread(manager.update_from_git, key, ref)
         manager.reload_one(registry, manifest.key)
         self.bot.config.games.note_game(manifest.key, enabled=True)  # type: ignore[attr-defined]
+        _refresh_changelog(self.bot, manifest.key)
         extra = _register_slash(self.bot, registry, manifest.key)
         extra += " Run `strife/emoji` if the plugin shipped an emoji/ folder."
         await message.reply(
@@ -248,8 +267,10 @@ class AdminCommands(commands.Cog):
                     else:
                         _register_slash(self.bot, registry, key)
                         self.bot.config.games.note_game(key, enabled=True)  # type: ignore[attr-defined]
+                        _refresh_changelog(self.bot, key)
                 raise
             self.bot.config.games.note_game(key, enabled=False)  # type: ignore[attr-defined]
+            _refresh_changelog(self.bot, key, drop=True)
 
         try:
             n_matches = await MatchRepository(self.bot.pool).delete_for_game(key)  # type: ignore[attr-defined]

@@ -4,6 +4,7 @@ import math
 
 import discord
 
+from strife.changelog import ChangelogCatalog
 from strife.config import AppConfig
 from strife.config.text import TextConfig
 from strife.engine.registry import GameRegistry
@@ -32,12 +33,14 @@ class CatalogService:
         compiler: Compiler,
         emoji: EmojiResolver,
         text: TextConfig,
+        changelogs: ChangelogCatalog | None = None,
     ) -> None:
         self.registry = registry
         self.config = config
         self.compiler = compiler
         self.emoji = emoji
         self.text = text
+        self.changelogs = changelogs
         self._page_size = 3
 
     def _enabled_games(self) -> list:
@@ -84,6 +87,11 @@ class CatalogService:
             diff_emoji = self.emoji.get("difficulty")
             diff_rating = min(max(0, meta.difficulty), 5)
             diff_display = "★" * diff_rating + "☆" * (5 - diff_rating)
+            latest = self.changelogs.latest_for_game(meta.key) if self.changelogs else None
+            version_bit = f"v{meta.version}"
+            if latest is not None:
+                date = f" · {latest.date}" if latest.date else ""
+                version_bit = f"v{latest.version}{date}"
 
             section = Section(
                 accessory=Button(
@@ -100,7 +108,7 @@ class CatalogService:
                     markdown_content=(
                         f"{entry_emoji} **{meta.name}**\n"
                         f"{meta.summary}\n"
-                        f"-# {user_emoji} {meta.player_count.describe()} • {time_emoji} {meta.time_estimate} • {diff_emoji} {diff_display} • v{meta.version}"
+                        f"-# {user_emoji} {meta.player_count.describe()} • {time_emoji} {meta.time_estimate} • {diff_emoji} {diff_display} • {version_bit}"
                     ),
                     size_style=TextSize.BODY,
                 )

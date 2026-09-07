@@ -4,8 +4,8 @@ This guide walks through building a Strife game. For the player / operator / aut
 
 ## Quick start
 
-1. Scaffold a builtin: `python scripts/scaffold_game.py my_game "My Game"` (writes `plugin.toml`)
-2. Or copy `templates/game-plugin/` and install with `strife/install <git-url>`
+1. Scaffold a builtin: `python scripts/scaffold_game.py my_game "My Game"` (writes `plugin.toml` and `changelog.toml`)
+2. Or **Use this template** on a GitHub copy of `templates/game-plugin/`, then `strife/install <git-url>`
 3. Implement `play()` in `game.py`. List third-party libraries in `plugin.toml`, not in the platform `pyproject.toml`.
 4. Run locally: `python scripts/run_game.py my_game`
 5. Loaded at startup from `plugin.toml` — no `bot.py` or `strife.session` edits needed. See [plugins.md](plugins.md).
@@ -45,6 +45,8 @@ Implement `render_final()` when the finished board looks different from a normal
 Attach metadata with `@game_metadata_from(...)` or `@game_metadata(META)`.
 
 `version` is this plugin's semver. `platform_version` is the Strife game API it targets (currently `1.0.0`). The host skips games whose `platform_version` is newer than, or a different major from, the running platform. See [game-api.md](game-api.md#versions).
+
+Ship `changelog.toml` next to `plugin.toml`. Players browse it in `/strife about` → Changes (alongside bot and platform notes). Newest `[[release]]` first; bump that file whenever you bump `version`.
 
 Lobby settings use `SettingOption` entries. Read them at runtime with `self.setting("key")`, which falls back to the metadata default.
 
@@ -340,6 +342,7 @@ If `supports_player_removal` is set, implement `remove_player(seat)` to update a
 ## Checklist 
 
 - [ ] Metadata complete (name, summary, player count, tags, `version`, `platform_version`)
+- [ ] `changelog.toml` latest release matches `plugin.toml` `version`
 - [ ] `play()` returns `GameOutcome` with per-seat `results` and `player_descriptions`
 - [ ] Bots work for every declared difficulty
 - [ ] Replays render correctly (including forfeits and bot takeovers)

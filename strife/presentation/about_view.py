@@ -56,6 +56,16 @@ def build_about_view(emoji: EmojiResolver, text: TextConfig, active_tab: str = "
         )
         nav.add_button(
             Button(
+                source="changes",
+                label=text.get("about.changes_btn"),
+                style=ButtonStyle.SECONDARY,
+                emoji="time",
+                route_prefix=P.ABOUT_NAV,
+                payload={"tab": "changes", "scope": "hub"},
+            )
+        )
+        nav.add_button(
+            Button(
                 source="background",
                 label=text.get("about.background_btn"),
                 style=ButtonStyle.SECONDARY,

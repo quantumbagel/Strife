@@ -1,0 +1,8 @@
+[[release]]
+version = "1.0.0"
+date = "2026-09-07"
+summary = "Mafia with night actions, day votes, and mid-game removal."
+added = [
+  "Town and mafia roles, doctor, and configurable mafia count",
+  "Peek, DMs when open, group day votes, and player removal",
+]

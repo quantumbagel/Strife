@@ -117,6 +117,15 @@ platform_version = "{platform_version}"
 dependencies = []
 '''
 
+CHANGELOG_TOML = '''[[release]]
+version = "1.0.0"
+date = "{date}"
+summary = "Initial release."
+added = [
+  "Pass-to-win loop and an easy bot",
+]
+'''
+
 
 def _ensure_games_yaml(key: str) -> None:
     if not GAMES_YAML.exists():
@@ -170,6 +179,12 @@ def main() -> int:
     )
     (game_dir / "plugin.toml").write_text(
         PLUGIN_TOML.format(key=key, platform_version=PLATFORM_VERSION),
+        encoding="utf-8",
+    )
+    from datetime import date
+
+    (game_dir / "changelog.toml").write_text(
+        CHANGELOG_TOML.format(date=date.today().isoformat()),
         encoding="utf-8",
     )
     _ensure_games_yaml(key)

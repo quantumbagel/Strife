@@ -8,6 +8,8 @@ import discord
 from discord.ext import commands
 
 from strife import __platform_version__, __version__
+from strife.changelog import ChangelogCatalog
+from strife.commands.about import AboutService
 from strife.commands.admin import AdminCommands
 from strife.commands.catalog import CatalogService
 from strife.commands.play import register_play
@@ -60,6 +62,8 @@ class StrifeBot(commands.AutoShardedBot):
         self.emoji: EmojiResolver | None = None
         self.config = None
         self.lifecycle: LifecycleService | None = None
+        self.changelogs: ChangelogCatalog | None = None
+        self.about: AboutService | None = None
         self._background_tasks: list[asyncio.Task] = []
 
     async def setup_hook(self) -> None:
@@ -90,6 +94,9 @@ class StrifeBot(commands.AutoShardedBot):
             except Exception:
                 log.exception("Failed to sync plugin extras")
         self.plugin_manager.load(self.game_registry)
+        self.changelogs = ChangelogCatalog()
+        self.changelogs.load_host(self.settings.changelog_dir)
+        self.changelogs.load_plugins(self.plugin_manager.active_records())
 
         self.emoji = EmojiResolver(self.config.emoji)
         await self.emoji.sync(self)
@@ -143,7 +150,12 @@ class StrifeBot(commands.AutoShardedBot):
         self.profile = ProfileService(
             users, matches, compiler, self.config.text, self.game_registry, self.replay
         )
-        self.catalog = CatalogService(self.game_registry, self.config, compiler, self.emoji, self.config.text)
+        self.catalog = CatalogService(
+            self.game_registry, self.config, compiler, self.emoji, self.config.text, self.changelogs
+        )
+        self.about = AboutService(
+            compiler, self.emoji, self.config.text, self.changelogs, self.game_registry, self.config
+        )
         self.server_settings = ServerSettingsService(
             guilds, compiler, self.emoji, self.config.text, user_errors, user_success
         )
@@ -155,6 +167,7 @@ class StrifeBot(commands.AutoShardedBot):
             lifecycle=self.lifecycle,
             profile=self.profile,
             catalog=self.catalog,
+            about=self.about,
             server_settings=self.server_settings,
             encoder=encoder,
             text=self.config.text,
@@ -169,6 +182,7 @@ class StrifeBot(commands.AutoShardedBot):
             replay=self.replay,
             profile=self.profile,
             catalog=self.catalog,
+            about=self.about,
             server_settings=self.server_settings,
             registry=self.game_registry,
         )

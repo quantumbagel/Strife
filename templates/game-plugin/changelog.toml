@@ -1,0 +1,11 @@
+# Player-facing history. Shown in /strife about → Changes.
+# Keep the latest [[release]] version in sync with plugin.toml.
+# Newest first. Empty arrays may be omitted.
+
+[[release]]
+version = "1.0.0"
+date = "2026-09-07"
+summary = "Initial release."
+added = [
+  "Pass-to-win loop and an easy bot",
+]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import discord
 from discord import app_commands
 
+from strife.commands.about import AboutService
 from strife.commands.catalog import CatalogService
 from strife.commands.server_settings import ServerSettingsService
 from strife.engine.errors import SessionError
@@ -22,6 +23,7 @@ def register_strife_group(
     replay: ReplayService,
     profile: ProfileService,
     catalog: CatalogService,
+    about: AboutService,
     server_settings: ServerSettingsService,
     registry,
 ) -> None:
@@ -142,12 +144,7 @@ def register_strife_group(
 
     @group.command(name="about", description="Information about the Strife platform")
     async def about_cmd(interaction: discord.Interaction) -> None:
-        from strife.presentation.about_view import build_about_view
-        from strife.routing import prefixes as P
-
-        view = build_about_view(lobby.emoji, lobby.text)
-        compiled = lobby.compiler.compile(view, resource_id=interaction.user.id, prefix=P.ABOUT_NAV)
-        await interaction.response.send_message(view=compiled, ephemeral=True)
+        await about.show(interaction)
 
     bot_group = app_commands.Group(name="bot", description="Manage lobby bots", parent=group)
 

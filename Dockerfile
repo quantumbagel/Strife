@@ -24,6 +24,7 @@ COPY strife/ ./strife/
 RUN python -m strife.plugins sync-deps --builtins-only
 
 COPY config/ ./config/
+COPY changelog/ ./changelog/
 COPY migrations/ ./migrations/
 COPY assets/ ./assets/
 

@@ -1,0 +1,8 @@
+[[release]]
+version = "1.0.0"
+date = "2026-09-07"
+summary = "Spyfall with location peek and accusations."
+added = [
+  "Secret location, spy vs town, timed discussion",
+  "Peek, accusations, and location guess for the spy",
+]
