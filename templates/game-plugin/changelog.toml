@@ -4,7 +4,7 @@
 
 [[release]]
 version = "1.0.0"
-date = "2026-09-07"
+date = ""  # TODO: YYYY-MM-DD of the first ship
 summary = "Initial release."
 added = [
   "Pass-to-win loop and an easy bot",

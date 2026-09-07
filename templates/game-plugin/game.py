@@ -19,15 +19,20 @@ from strife.presentation.game_ui import action_status, add_controls, game_contai
     name="My Game",
     summary="TODO: one-line summary",
     description="TODO: longer description for the catalog.",
-    tags=("dev",),
+    tags=(),  # TODO: e.g. ("classic", "2p")
     author="TODO",
     version="1.0.0",
     platform_version="1.0.0",
+    author_link=None,  # TODO: https://github.com/you
+    source_link=None,  # TODO: this repository URL
+    how_to_play_link=None,  # TODO: rules URL
     time_estimate="5m",
     difficulty=1,
     player_count=PlayerCount(fixed=2),
     player_order=PlayerOrder.RANDOM,
     bots=(BotSpec("easy", "Random legal move"),),
+    # settings=(SettingOption(...),),
+    # slash_moves=(SlashMove(name="move", description="...", params=(...)),),
 )
 class MyGame(TurnBasedGame):
     def __init__(self, players, settings, rng):
