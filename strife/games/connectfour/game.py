@@ -17,11 +17,14 @@ class ConnectFour(TurnBasedGame):
     def __init__(self, players, settings, rng):
         super().__init__(players, settings, rng)
         self.board: list[int | None] = [None] * 42
-        self.current = self._starting_seat()
+        self._opening_seat = self._starting_seat()
+        self.current = self._opening_seat
 
     def reset(self) -> None:
         self.board = [None] * 42
-        self.current = self._starting_seat()
+        if getattr(self, "_opening_seat", None) is None:
+            self._opening_seat = self._starting_seat()
+        self.current = self._opening_seat
 
     def _idx(self, col: int, row: int) -> int:
         return row * 7 + col

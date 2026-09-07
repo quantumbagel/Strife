@@ -11,7 +11,7 @@ games:
     enabled: true
     turn_timeout_seconds: 120
     settings_overrides:
-      mafia_count_default: 2
+      mafia_count: 2
   connect_four:
     enabled: true
     turn_timeout_seconds: 60

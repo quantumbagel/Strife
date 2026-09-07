@@ -44,7 +44,7 @@ class LobbyFlowMixin:
         if not game_cfg.enabled:
             await self._error(interaction, "errors.game_disabled")
             return
-        if self._is_forum_channel(interaction.channel):
+        if interaction.guild is None or interaction.guild_id is None:
             await self._error(interaction, "errors.need_text_channel")
             return
 
@@ -69,6 +69,10 @@ class LobbyFlowMixin:
                 channel = default_channel
                 channel_id = default_channel.id
                 posted_elsewhere = True
+
+        if self._is_forum_channel(channel):
+            await self._error(interaction, "errors.need_text_channel")
+            return
 
         lobby_id = secrets.randbits(63)
         if not await self.registries.reserve_user(
@@ -119,7 +123,7 @@ class LobbyFlowMixin:
                 await self._error(interaction, "errors.lobby_failed_to_start")
             except Exception:
                 log.exception("Failed to report lobby creation error to user")
-            raise
+            return
 
     async def handle(self, route: Route, interaction: discord.Interaction) -> None:
         lobby = self.registries.get_lobby(route.resource_id)
@@ -130,6 +134,8 @@ class LobbyFlowMixin:
         async with lobby.lock:
             if self.registries.get_lobby(route.resource_id) is not lobby:
                 await self._disable_and_report_closed(interaction, "lobby.already_dead")
+                return
+            if await self._reject_frozen_lobby(lobby, interaction):
                 return
             handler = {
                 P.LOBBY_JOIN: self._join,
@@ -316,6 +322,8 @@ class LobbyFlowMixin:
             interaction, lobby
         ):
             return None
+        if await self._reject_frozen_lobby(lobby, interaction):
+            return None
         return lobby
 
     async def _join_user(
@@ -377,14 +385,13 @@ class LobbyFlowMixin:
         except PermissionError:
             await self._error(interaction, "errors.not_in_lobby", lobby=lobby)
 
-    async def leave_lobby(
-        self, thread_id: int, user_id: int, interaction: discord.Interaction
-    ) -> None:
-        lobby = self.registries.get_lobby(thread_id)
-        if lobby is None:
-            raise SessionError("no_session")
-        async with lobby.lock:
-            await self._leave_lobby_inner(lobby, user_id, interaction)
+    async def _reject_frozen_lobby(
+        self, lobby: Lobby, interaction: discord.Interaction
+    ) -> bool:
+        if not (lobby.starting or lobby.launching):
+            return False
+        await self._error(interaction, "errors.lobby_starting", lobby=lobby)
+        return True
 
     async def _leave_lobby_inner(
         self, lobby: Lobby, user_id: int, interaction: discord.Interaction
@@ -484,6 +491,10 @@ class LobbyFlowMixin:
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> None:
         start_error: tuple[str | None, dict | None] | None = None
+        snapshot_members: list[LobbyMember] = []
+        snapshot_bots: list[QueuedBot] = []
+        snapshot_settings: dict = {}
+        snapshot_creator = 0
         async with lobby.lock:
             if lobby.launching:
                 return
@@ -495,6 +506,10 @@ class LobbyFlowMixin:
             else:
                 lobby.starting = True
                 lobby.launching = True
+                snapshot_members = list(lobby.members)
+                snapshot_bots = list(lobby.bots)
+                snapshot_settings = dict(lobby.settings)
+                snapshot_creator = lobby.creator_id
         if start_error is not None:
             reason_key, reason_kwargs = start_error
             await self._error(
@@ -508,11 +523,12 @@ class LobbyFlowMixin:
         promoted = False
         thread = None
         session = None
+        marshal_replaced = False
         try:
             seed = secrets.randbits(63)
             rng = random.Random(seed)
             players: list[Player] = []
-            for member in lobby.members:
+            for member in snapshot_members:
                 players.append(
                     Player(
                         seat=0,
@@ -520,7 +536,7 @@ class LobbyFlowMixin:
                         display_name=member.display_name,
                     )
                 )
-            for idx, bot in enumerate(lobby.bots):
+            for bot in snapshot_bots:
                 players.append(
                     Player(
                         seat=0,
@@ -531,10 +547,10 @@ class LobbyFlowMixin:
                     )
                 )
             players = order_players(
-                players, meta.player_order.value, rng, creator_id=lobby.creator_id
+                players, meta.player_order.value, rng, creator_id=snapshot_creator
             )
-            game_settings = dict(lobby.settings)
-            game_settings["creator_id"] = lobby.creator_id
+            game_settings = dict(snapshot_settings)
+            game_settings["creator_id"] = snapshot_creator
             game = self.registry.create(
                 lobby.game_key,
                 players,
@@ -590,6 +606,7 @@ class LobbyFlowMixin:
             )
             ended_view.add_container(container)
             await lobby.surface.update(ended_view)
+            marshal_replaced = True
 
             game_compiler = self.compiler.for_game(lobby.game_key)
             header_surface = ViewSurface(
@@ -612,7 +629,7 @@ class LobbyFlowMixin:
                 guild_id=lobby.guild_id,
                 game=game,
                 players=players,
-                settings=dict(lobby.settings),
+                settings=dict(snapshot_settings),
                 seed=seed,
                 surface=game_surface,
                 text=self.text,
@@ -626,7 +643,7 @@ class LobbyFlowMixin:
             session._match_code = match_code
             session.lobby_surface = lobby.surface
             session.lobby_private = lobby.private
-            session.lobby_creator_id = lobby.creator_id
+            session.lobby_creator_id = snapshot_creator
             session.set_bot(self.bot)
             await self.registries.promote(lobby.thread_id, session)
             promoted = True
@@ -647,6 +664,11 @@ class LobbyFlowMixin:
                     await thread.edit(archived=True, locked=True)
                 except Exception:
                     log.exception("Failed to archive orphan game thread %s", thread.id)
+            if marshal_replaced:
+                try:
+                    await self._refresh(lobby, interaction)
+                except Exception:
+                    log.exception("Failed to restore lobby card after start failure")
             if not interaction.response.is_done():
                 await interaction.response.defer(ephemeral=True)
             await self._error(interaction, "common.error", lobby=lobby)

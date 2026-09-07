@@ -21,6 +21,8 @@ class LobbyCommandsMixin:
             if self.registries.get_lobby(lobby.thread_id) is not lobby:
                 await self._error(interaction, "lobby.already_dead")
                 return
+            if await self._reject_frozen_lobby(lobby, interaction):
+                return
             await self._join_user(lobby, interaction, announce_join=True)
 
     async def leave_current(self, interaction: discord.Interaction) -> None:
@@ -32,6 +34,8 @@ class LobbyCommandsMixin:
         async with lobby.lock:
             if self.registries.get_lobby(lobby.thread_id) is not lobby:
                 await self._error(interaction, "lobby.already_dead")
+                return
+            if await self._reject_frozen_lobby(lobby, interaction):
                 return
             try:
                 await self._leave_lobby_inner(lobby, interaction.user.id, interaction)
@@ -234,6 +238,9 @@ class LobbyCommandsMixin:
                 return
             if user_id not in lobby.pending_requests:
                 await self._error(interaction, "errors.no_pending_request", lobby=lobby)
+                return
+            if user_id in lobby.blacklist:
+                await self._error(interaction, "errors.blacklisted", lobby=lobby)
                 return
             meta = self._meta(lobby.game_key)
             if lobby.is_full(meta):

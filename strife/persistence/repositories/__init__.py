@@ -253,10 +253,16 @@ class MatchRepository:
 
     async def get(self, ref: str | int) -> MatchDetail | None:
         async with self._pool.acquire() as conn:
-            if isinstance(ref, int) or (isinstance(ref, str) and ref.isdigit()):
-                row = await conn.fetchrow("SELECT * FROM matches WHERE id = $1", int(ref))
+            if isinstance(ref, int):
+                row = await conn.fetchrow("SELECT * FROM matches WHERE id = $1", ref)
             else:
-                row = await conn.fetchrow("SELECT * FROM matches WHERE code = $1", ref.upper())
+                token = str(ref).strip().upper()
+                if len(token) == 6 and all(ch in _ALPHABET for ch in token):
+                    row = await conn.fetchrow("SELECT * FROM matches WHERE code = $1", token)
+                elif token.isdigit():
+                    row = await conn.fetchrow("SELECT * FROM matches WHERE id = $1", int(token))
+                else:
+                    row = await conn.fetchrow("SELECT * FROM matches WHERE code = $1", token)
             if row is None:
                 return None
             players = await conn.fetch(

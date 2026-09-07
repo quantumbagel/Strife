@@ -39,5 +39,5 @@ class SessionFinalizer:
     async def session_complete(self, session: GameSession) -> None:
         await self.registries.drop_game(session.thread_id)
         for player in session.players:
-            if player.user_id and not player.is_bot:
+            if player.user_id:
                 await self.registries.release_user(player.user_id)

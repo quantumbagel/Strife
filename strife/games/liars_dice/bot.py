@@ -34,6 +34,8 @@ def choose_move(game: LiarsDice, difficulty: str, seat: int) -> Move:
         return Move(actor_seat=seat, source="bid", args={"quantity": q, "value": best_val})
 
     curr_q, curr_v = game.current_bid
+    if game._is_max_bid():
+        return Move(actor_seat=seat, source="challenge", args={})
 
     wilds = game.settings.get("wild_ones", True)
     match_count = my_dice.count(curr_v) + (my_dice.count(1) if wilds and curr_v != 1 else 0)
@@ -67,7 +69,11 @@ def _make_raise(
     my_dice = game.hands.get(seat, [])
     wilds = game.settings.get("wild_ones", True)
 
+    if curr_q >= total_dice and curr_v >= 6:
+        return Move(actor_seat=seat, source="challenge", args={})
     if not my_dice:
+        if curr_q >= total_dice:
+            return Move(actor_seat=seat, source="challenge", args={})
         next_q = min(curr_q + 1, total_dice)
         return Move(actor_seat=seat, source="bid", args={"quantity": next_q, "value": curr_v})
 
@@ -84,5 +90,9 @@ def _make_raise(
             args={"quantity": curr_q, "value": curr_v + 1},
         )
 
+    if curr_q >= total_dice:
+        return Move(actor_seat=seat, source="challenge", args={})
     next_q = min(curr_q + 1, total_dice)
+    if next_q == curr_q and best_val <= curr_v:
+        return Move(actor_seat=seat, source="challenge", args={})
     return Move(actor_seat=seat, source="bid", args={"quantity": next_q, "value": best_val})

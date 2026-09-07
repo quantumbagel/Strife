@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any, Mapping
 
 from strife.engine.context import GameContext, ReplayFrame
@@ -95,17 +96,31 @@ class Coup(Game):
         )
 
     def _pick_challenge(self, moves: dict[int, Move]) -> tuple[int | None, Move | None]:
+        human = None
+        bot = None
         for seat, move in moves.items():
-            if move.source == "challenge":
-                return seat, move
-        return None, None
+            if move.source != "challenge":
+                continue
+            if self.players[seat].is_bot:
+                if bot is None:
+                    bot = (seat, move)
+            elif human is None:
+                human = (seat, move)
+        return human or bot or (None, None)
 
     def _pick_block(self, moves: dict[int, Move], action_type: str) -> tuple[int | None, Move | None]:
         valid = self._valid_block_sources(action_type)
+        human = None
+        bot = None
         for seat, move in moves.items():
-            if move.source in valid:
-                return seat, move
-        return None, None
+            if move.source not in valid:
+                continue
+            if self.players[seat].is_bot:
+                if bot is None:
+                    bot = (seat, move)
+            elif human is None:
+                human = (seat, move)
+        return human or bot or (None, None)
 
     def _valid_block_sources(self, action_type: str) -> set[str]:
         return {
@@ -210,6 +225,12 @@ class Coup(Game):
         return "  ".join(cards + rev)
 
     async def play(self, ctx: GameContext) -> GameOutcome:
+        await ctx.record_event("deal", {
+            "hands": {seat: list(cards) for seat, cards in self.hands.items()},
+            "deck": list(self.deck),
+            "current": self.current,
+            "coins": dict(self.coins),
+        })
         last_actor = None
         while len(self.alive) > 1:
             actor = self.current
@@ -534,6 +555,7 @@ class Coup(Game):
                     if keep_move.source == "timeout":
                         # Exchange Timeout: auto-keep original cards
                         keep_cards = list(self.hands[actor])
+                        leftover = Counter(self.exchange_options[actor]) - Counter(keep_cards)
                         self.history.append(
                             f"{ctx.emoji.get('timer', base=True)} {self.players[actor].mention} timed out exchanging cards. Original cards kept."
                         )
@@ -546,18 +568,24 @@ class Coup(Game):
 
                         options = self.exchange_options[actor]
                         keep_cards = []
+                        used_idx: set[int] = set()
+                        leftover = Counter(options)
                         for item in raw_keep:
                             if isinstance(item, str) and item.isdigit():
                                 idx = int(item)
-                                if 0 <= idx < len(options):
+                                if 0 <= idx < len(options) and idx not in used_idx:
                                     keep_cards.append(options[idx])
-                            elif item in options:
+                                    used_idx.add(idx)
+                                    leftover[options[idx]] -= 1
+                            elif leftover[item] > 0:
                                 keep_cards.append(item)
+                                leftover[item] -= 1
 
                         if len(keep_cards) != prior_count:
                             keep_cards = list(self.hands[actor])
+                            leftover = Counter(options) - Counter(keep_cards)
 
-                    returned = [card for card in self.exchange_options[actor] if card not in keep_cards]
+                    returned = list(leftover.elements())
                     if len(keep_cards) == prior_count:
                         self.hands[actor] = keep_cards
                         self.deck.extend(returned)
@@ -1093,6 +1121,19 @@ class Coup(Game):
         for step in iter_replay(moves, self.players):
             move = step.move
 
+            if move.source == "deal":
+                args = move.args
+                self.hands = {int(k): list(v) for k, v in (args.get("hands") or {}).items()}
+                if "deck" in args:
+                    self.deck = list(args["deck"])
+                if "coins" in args:
+                    self.coins = {int(k): int(v) for k, v in args["coins"].items()}
+                if args.get("current") is not None:
+                    self.current = int(args["current"])
+                view = self._public_board_view_replay(ctx, status="Match start")
+                builder.add(step, view, label="Deal")
+                continue
+
             if move.source == "action_declare":
                 _resolve_pending_action()
                 actor = self._replay_seat(move, "player")
@@ -1145,6 +1186,7 @@ class Coup(Game):
                 self.current_blocker = blocker
                 self.current_block_claim = claim
                 block_pending = True
+                action_blocked = True
                 view = self._public_board_view_replay(ctx)
                 builder.add(step, view, label="Block", actor_seat=blocker)
                 continue

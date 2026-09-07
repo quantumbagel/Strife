@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-
 from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
 from strife.engine.workers import run_cpu
@@ -218,9 +216,6 @@ class LiarsDice(Game):
                     outcome_view.add_container(outcome_container)
                     await ctx.update(outcome_view)
 
-                    # Small delay so players can see the result
-                    await asyncio.sleep(4)
-
                     # Loser starts the next round if they are still alive, otherwise next alive
                     self.current = loser if loser in self.alive else self._next_player(loser)
                     break
@@ -331,7 +326,7 @@ class LiarsDice(Game):
         max_q = total_dice
         low_q = min_q
         if max_q - low_q + 1 > 25:
-            low_q = max(min_q, max_q - 24)
+            max_q = low_q + 24
 
         quantity_choices = [
             SelectChoice(
@@ -452,12 +447,20 @@ class LiarsDice(Game):
                 builder.add(step, self._round_view_replay(ctx, lead="Dice rolled!"), label="Round Start")
             elif move.source == "bid":
                 self.current_bid = (args["quantity"], args["value"])
-                self.last_bidder = move.actor_seat
+                bidder = args.get("player", move.actor_seat)
+                if bidder is not None:
+                    bidder = int(bidder)
+                self.last_bidder = bidder
+                bidder_name = (
+                    self.players[bidder].mention
+                    if bidder is not None
+                    else "someone"
+                )
                 builder.add(
                     step,
                     self._round_view_replay(
                         ctx,
-                        lead=f"Bid submitted by {self.players[move.actor_seat].mention}",
+                        lead=f"Bid submitted by {bidder_name}",
                     ),
                     label="Bid",
                 )

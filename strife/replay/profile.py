@@ -70,7 +70,11 @@ class ProfileService:
 
         if m.status == "completed":
             summary = m.outcome.get("summary") or m.outcome
-            player_descriptions = summary.get("player_descriptions", {})
+            player_descriptions = (
+                m.outcome.get("player_descriptions")
+                or (summary.get("player_descriptions") if isinstance(summary, dict) else None)
+                or {}
+            )
             player_desc = None
             if seat_index is not None:
                 player_desc = player_descriptions.get(str(seat_index))

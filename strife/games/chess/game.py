@@ -179,16 +179,16 @@ class Chess(TurnBasedGame):
             self.last_move_time = move.created_at
 
     def apply_move(self, move: Move) -> None:
-        self._tick_clock(move)
-
         if move.source == "move":
             move_text = move.args.get("move") or ""
         else:
             move_text = move.source
         m = parse_user_move(self.board, move_text)
-        if m is not None:
-            self.board.push(m)
-            self.current = 1 - self.current
+        if m is None:
+            return
+        self._tick_clock(move)
+        self.board.push(m)
+        self.current = 1 - self.current
 
     def _apply_system_timeout(self, move: Move) -> None:
         if self.time_control_active and move.source == "game_end" and move.args.get("reason") == "timeout":
@@ -297,6 +297,7 @@ class Chess(TurnBasedGame):
                 sources=sources,
                 timeout_seconds=timeout_seconds,
                 timeout_consequence=timeout_consequence,
+                record=False,
             )
 
             if move.is_system:
@@ -310,9 +311,9 @@ class Chess(TurnBasedGame):
             m = parse_user_move(self.board, move_text)
             if m is not None:
                 self.apply_move(move)
+                await ctx.record_event(move.source, dict(move.args))
                 error_msg = None
             else:
-                self._tick_clock(move)
                 error_msg = f"Invalid or illegal move: '{move_text}'. Try again."
 
     async def parse_replay(self, moves: list[Move], ctx: GameContext) -> list[ReplayFrame]:

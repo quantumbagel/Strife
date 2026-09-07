@@ -223,6 +223,7 @@ need_players = "Need {describe} players"
 not_all_ready = "Not all players are ready."
 browse_games = "Browse Games"
 lobby_failed_to_start = "The lobby could not be started."
+lobby_starting = "The match is starting. Wait for the game thread."
 need_text_channel = "Start the game from a text channel, not a forum."
 go_to_lobby = "Go to Lobby"
 go_to_session = "Go to Session"
@@ -261,6 +262,7 @@ no_session = "That session no longer exists. The button may be from an old messa
 need_players = "Invite more players to the lobby, or add bots if you are the lobby creator."
 not_all_ready = "Every human player in the lobby must press **Ready** before the game can start."
 lobby_failed_to_start = "An unexpected error occurred during lobby creation. Please try again, or contact an administrator if the issue persists."
+lobby_starting = "The game thread is opening. Join, leave, and ready will be available on the next lobby."
 need_text_channel = "Use **/play** in a regular text channel. Forum posts and forum channels cannot host game threads."
 
 [game]

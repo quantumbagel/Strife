@@ -54,7 +54,7 @@ class RematchManager:
         members = [
             LobbyMember(user_id=p.user_id, display_name=p.display_name)
             for p in session.players
-            if p.user_id and not p.is_bot
+            if p.user_id and not p.is_bot and not p.taken_over
         ]
         bots = [
             QueuedBot(name=p.display_name, difficulty=p.bot_difficulty or "medium")
@@ -178,9 +178,13 @@ class RematchManager:
 
         members = list(offer.members)
         if not members:
-            return
+            raise SessionError("rematch_unavailable")
 
-        busy = [m for m in members if self.registries.location_of(m.user_id) is not None]
+        busy = [
+            m
+            for m in members
+            if self.registries.location_of(m.user_id) is not None
+        ]
         if busy:
             raise SessionError("already_in_session")
 
@@ -192,7 +196,7 @@ class RematchManager:
         if target_channel is None and offer.channel_id:
             target_channel = self.lobby.bot.get_channel(offer.channel_id)
         if target_channel is None:
-            return
+            raise SessionError("rematch_unavailable")
 
         lobby_id = secrets.randbits(63)
         creator_id = offer.creator_id
@@ -236,5 +240,12 @@ class RematchManager:
             self.text,
             owner_ids=self.lobby.owner_ids(),
         )
-        await surface.send(target_channel, view)
+        try:
+            await surface.send(target_channel, view)
+        except Exception:
+            for user_id in reserved:
+                await self.registries.release_user(user_id)
+            self.registries.remove_lobby(lobby_id)
+            log.exception("Failed to post rematch lobby for thread %s", thread_id)
+            raise SessionError("rematch_unavailable") from None
         lobby.message_id = surface.message_id

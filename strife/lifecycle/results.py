@@ -29,6 +29,7 @@ def build_results_view(
     rematch_count: int = 0,
     rematch_disabled: bool = False,
     rematch_expires_at: int | None = None,
+    replay_disabled: bool = False,
 ) -> LayoutView:
     view = LayoutView()
     container = Container()
@@ -94,7 +95,9 @@ def build_results_view(
 
     container.add_text(TextDisplay(markdown_content="\n".join(lines)))
 
-    eligible_humans = [p for p in players if p.user_id and not p.is_bot]
+    eligible_humans = [
+        p for p in players if p.user_id and not p.is_bot and not p.taken_over
+    ]
     total = len(eligible_humans)
     if total > 0:
         if rematch_expires_at is not None:
@@ -118,7 +121,7 @@ def build_results_view(
             emoji="rematch",
             route_prefix=P.REMATCH,
             resource_id=thread_id,
-            disabled=rematch_disabled,
+            disabled=rematch_disabled or total == 0,
         )
     )
     row.add_button(
@@ -130,6 +133,7 @@ def build_results_view(
             route_prefix=P.R_NAV,
             resource_id=match_id,
             payload={"frame": 0, "fresh": True},
+            disabled=replay_disabled or match_id <= 0,
         )
     )
     container.add_action_row(row)

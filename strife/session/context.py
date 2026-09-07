@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from contextvars import ContextVar
 from datetime import datetime
 import random
 from typing import Any, Literal, TYPE_CHECKING
@@ -15,6 +16,9 @@ if TYPE_CHECKING:
     from strife.session.game_session import GameSession
 
 _HOSTS: WeakKeyDictionary = WeakKeyDictionary()
+_QUERY_INTERACTION: ContextVar[object | None] = ContextVar(
+    "strife_query_interaction", default=None
+)
 
 
 class LiveContext:
@@ -35,10 +39,10 @@ class LiveContext:
         self._host().mark_progress()
 
     def _begin_query(self, interaction: object) -> None:
-        self._query_interaction = interaction
+        _QUERY_INTERACTION.set(interaction)
 
     def _end_query(self) -> None:
-        self._query_interaction = None
+        _QUERY_INTERACTION.set(None)
 
     @property
     def started_at(self) -> datetime | None:
@@ -136,7 +140,7 @@ class LiveContext:
 
     async def respond_query(self, view: LayoutView) -> None:
         self._touch()
-        interaction = self._query_interaction
+        interaction = _QUERY_INTERACTION.get()
         if interaction is None:
             raise RuntimeError("respond_query() is only valid inside handle_query")
         await self._host()._respond_query(interaction, view)

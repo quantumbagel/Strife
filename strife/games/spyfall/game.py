@@ -72,22 +72,11 @@ class Spyfall(Game):
     def _name(self, seat: int) -> str:
         return self.players[seat].mention
 
-    def _bot_seats(self) -> set[int]:
-        return {player.seat for player in self.players if player.is_bot and player.seat in self.alive}
-
-    async def _bot_discussion_move(self) -> tuple[int, Move] | None:
-        for seat in sorted(self._bot_seats()):
-            if seat in self._passes:
-                continue
-            move = await self.bot_move(
-                self.players[seat].bot_difficulty or "medium",
-                seat,
-            )
-            if move.source == "pass":
-                self._passes.add(seat)
-                continue
-            return seat, move
-        return None
+    def _discussion_round_done(self) -> bool:
+        return all(
+            seat in self._passes or self.players[seat].is_bot
+            for seat in self.alive
+        ) or self._passes >= self.alive
 
     def _phase_status(self, ctx: GameContext) -> str:
         if self.accused_player is not None:
@@ -125,41 +114,29 @@ class Spyfall(Game):
 
         # 2. Main Gameplay Loop
         winner_faction = None
-        consider_bots = True
         while winner_faction is None and self.turn <= self.max_turns:
             view = self._discussion_view(ctx)
-            actor_seat = None
-            move = None
-            if consider_bots:
-                bot_action = await self._bot_discussion_move()
-                if bot_action is not None:
-                    actor_seat, move = bot_action
-            consider_bots = True
-            if move is None:
-                humans = {
-                    seat for seat in self.alive if not self.players[seat].is_bot
-                }
-                if not humans:
-                    if self._passes >= self.alive:
-                        self.turn += 1
-                        self._passes.clear()
-                    continue
-                moves = await ctx.request_inputs(
-                    view,
-                    actors=humans,
-                    sources={
-                        "accuse_select",
-                        "location_select",
-                        "accuse",
-                        "guess_location",
-                        "pass",
-                    },
-                    until="any",
-                    record=False,
-                )
-                if not moves:
-                    continue
-                actor_seat, move = next(iter(moves.items()))
+            actors = set(self.alive)
+            if not actors:
+                break
+            moves = await ctx.request_inputs(
+                view,
+                actors=actors,
+                sources={
+                    "accuse_select",
+                    "location_select",
+                    "accuse",
+                    "guess_location",
+                    "pass",
+                },
+                until="any",
+                record=False,
+            )
+            if not moves:
+                self.turn += 1
+                self._passes.clear()
+                continue
+            actor_seat, move = next(iter(moves.items()))
 
             if move.source == "accuse_select":
                 val = move.args.get("value")
@@ -167,22 +144,19 @@ class Spyfall(Game):
                     target = int(val)
                     if target in self.alive and target != actor_seat:
                         self.pending_accuse[actor_seat] = target
-                consider_bots = False
                 continue
 
             if move.source == "location_select":
                 if actor_seat != self.spy:
-                    consider_bots = False
                     continue
                 val = move.args.get("value")
                 if val is not None:
                     self.pending_guess[actor_seat] = str(val)
-                consider_bots = False
                 continue
 
             if move.source == "pass":
                 self._passes.add(actor_seat)
-                if self._passes >= self.alive:
+                if self._discussion_round_done():
                     self.turn += 1
                     self._passes.clear()
                 continue
@@ -504,6 +478,9 @@ class Spyfall(Game):
                 message_lead(container, f"Guess: {args['location']}", emoji=ctx.emoji)
                 view.add_container(container)
                 builder.add(step, view, label="Spy Guess")
+            elif move.source == "limit_reached":
+                self.history = args.get("history", [])
+                builder.add(step, self._discussion_view_replay(ctx), label="Time Up")
         return builder.build()
 
     async def bot_move(self, difficulty: str, seat: int) -> Move:

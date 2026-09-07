@@ -60,11 +60,14 @@ class TicTacToe(TurnBasedGame):
     def __init__(self, players, settings, rng):
         super().__init__(players, settings, rng)
         self.marks: dict[int, str] = {}
+        self._opening_seat: int | None = None
         self.reset()
 
     def reset(self) -> None:
         self.board: list[int | None] = [None] * 9
-        first_mover = self._starting_seat()
+        if self._opening_seat is None:
+            self._opening_seat = self._starting_seat()
+        first_mover = self._opening_seat
         self.current = first_mover
         other = 1 - first_mover
         self.marks = {first_mover: "x", other: "o"}

@@ -21,6 +21,9 @@ class LobbyModerationMixin:
                 await self._error(interaction, "errors.lobby_full", lobby=lobby)
                 return
             target_id = int(values[0])
+            if target_id in lobby.blacklist:
+                await self._error(interaction, "errors.blacklisted", lobby=lobby)
+                return
             if not await self._check_lobby_channel_access(
                 interaction, lobby, user_id=target_id
             ):
@@ -52,7 +55,6 @@ class LobbyModerationMixin:
             await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
         values = interaction.data.get("values") if interaction.data else []
-        kicked = False
         if values:
             target_id = int(values[0])
             if target_id == lobby.creator_id:
@@ -61,11 +63,10 @@ class LobbyModerationMixin:
             lobby.blacklist.add(target_id)
             lobby.approved.discard(target_id)
             lobby.pending_requests.pop(target_id, None)
-            kicked = await self._eject_member(lobby, target_id)
+            await self._eject_member(lobby, target_id)
         await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="access", edit=True)
-        if kicked:
-            await self._refresh(lobby, interaction)
+        await self._refresh(lobby, interaction)
 
     async def _remove_blacklist(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
@@ -82,6 +83,7 @@ class LobbyModerationMixin:
             lobby.blacklist.discard(target_id)
         await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="access", edit=True)
+        await self._refresh(lobby, interaction)
 
     async def _bot_add(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
@@ -195,6 +197,7 @@ class LobbyModerationMixin:
             approved_name = await self._display_name(interaction.guild, target_id)
         await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="access", edit=True)
+        await self._refresh(lobby, interaction)
         if approved_name:
             await self._success(interaction, "lobby.player_preapproved", name=approved_name)
 

@@ -120,6 +120,7 @@ class SessionLifecycleMixin:
             self._finalized = True
         match_id = 0
         persist_ok = False
+        released = False
         try:
             finished = FinishedMatch(
                 code=self._match_code,
@@ -145,7 +146,7 @@ class SessionLifecycleMixin:
                     MatchPlayer(
                         seat_index=p.seat,
                         user_id=p.user_id,
-                        is_bot=p.is_bot,
+                        is_bot=p.is_bot and not p.taken_over,
                         bot_difficulty=p.bot_difficulty,
                         display_name=p.display_name,
                         role_key=p.role_key,
@@ -169,6 +170,9 @@ class SessionLifecycleMixin:
                     log.exception("Failed to register rematch offer for thread %s", self.thread_id)
             self._match_id = match_id
             self._match_code = code
+
+            await self._finalizer.session_complete(self)
+            released = True
 
             try:
                 final = await asyncio.wait_for(
@@ -205,6 +209,8 @@ class SessionLifecycleMixin:
                     match_id=match_id,
                     text=self.text,
                     emoji=self.surface.compiler.emoji,
+                    rematch_disabled=not persist_ok,
+                    replay_disabled=not persist_ok,
                 )
                 if hasattr(self, "lobby_surface") and self.lobby_surface is not None:
                     await self.lobby_surface.update(results_view)
@@ -227,4 +233,5 @@ class SessionLifecycleMixin:
             encoder = getattr(self.surface.compiler, "encoder", None)
             if encoder is not None:
                 encoder.invalidate_resource(self.thread_id)
-            await self._finalizer.session_complete(self)
+            if not released:
+                await self._finalizer.session_complete(self)
