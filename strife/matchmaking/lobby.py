@@ -40,6 +40,7 @@ class Lobby:
     surface: ViewSurface | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     starting: bool = False
+    launching: bool = False
 
     @property
     def lobby_id(self) -> int:

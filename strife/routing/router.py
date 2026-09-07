@@ -34,6 +34,7 @@ _RUNTIME_ERROR_CODES = {
     "no_session": "errors.no_session",
     "unknown_game": "errors.unknown_game",
     "query_failed": "common.error",
+    "already_in_session": "errors.already_in_session",
 }
 
 
@@ -113,7 +114,7 @@ class InteractionRouter:
                 await self._handle_lobby(route, interaction)
             elif route.prefix == P.CAT_NAV:
                 await self._handle_catalog(route, interaction)
-            elif route.prefix in {P.PROF_NAV, P.PROF_OPEN}:
+            elif route.prefix == P.PROF_NAV:
                 await self._handle_profile(route, interaction)
             elif route.prefix == P.ABOUT_NAV:
                 await self._handle_about(route, interaction)
@@ -143,11 +144,15 @@ class InteractionRouter:
             await self._disable_and_report_ended(interaction, "common.game_ended")
             return
 
-        if await session.handle_query(route.source, interaction):
+        args = dict(route.payload)
+        is_query = bool(args.pop("q", None))
+        if is_query:
+            if await session.handle_query(route.source, interaction):
+                return
+            await self._error(interaction, "errors.invalid_action")
             return
 
         values = interaction.data.get("values") if interaction.data else None
-        args = dict(route.payload)
         if values:
             args["values"] = values
             if len(values) == 1:
@@ -220,10 +225,10 @@ class InteractionRouter:
             await self.lobby.create_lobby(interaction, play_game, private=False)
             return
         page = int(route.payload.get("page", 0))
-        if route.source == "catalog" and not interaction.response.is_done():
-            await self.catalog.show(interaction, page)
-        else:
+        if interaction.message is not None:
             await self.catalog.navigate(interaction, page)
+        else:
+            await self.catalog.show(interaction, page)
 
     async def _handle_profile(self, route, interaction: discord.Interaction) -> None:
         if self.profile is None:

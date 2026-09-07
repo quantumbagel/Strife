@@ -1,6 +1,6 @@
 # Game Exposure and Sandbox Architecture
 
-This document describes how a Strife game is **plugged into** the platform and **isolated from** Discord, persistence, and matchmaking. It is about the host/plugin boundary, not how to implement a specific game. For the author-facing contract see [game-api.md](game-api.md); for a tutorial see [game-development.md](game-development.md).
+This document describes how a Strife game is **plugged into** the platform and **isolated from** Discord, persistence, and matchmaking. It is about the host/plugin boundary, not how to implement a specific game. The canonical player / operator / author interface is [interfaces.md](interfaces.md). For the author-facing method reference see [game-api.md](game-api.md); for a tutorial see [game-development.md](game-development.md).
 
 Strife does **not** run games in a separate process, container, or VM. Isolation is an **API sandbox**: game code is an in-process plugin that talks to the host only through `GameContext` and Discord-free layout objects. Three hosts implement that API (live Discord session, replay, local CLI), so the same `play()` can run without knowing which host is behind it.
 
@@ -93,7 +93,7 @@ PluginManager.load(registry)
 
 - Missing `metadata` or `metadata.key` → log and skip.
 - Invalid `version` / `platform_version`, or a `platform_version` the host cannot satisfy → log error and skip.
-- Capability mismatch (e.g. `supports_replay` but no `parse_replay`) → log error and skip.
+- Capability mismatch (e.g. `supports_replay` but no `parse_replay`) → log error and skip (not a warning).
 - Duplicate key → log warning and skip the second class.
 - Import error (missing extra, syntax error) → log exception and skip that package.
 
@@ -134,7 +134,10 @@ Fields:
 | Field | Effect |
 |-------|--------|
 | `enabled` | Catalog listing, `/play` autocomplete, `LobbyService.create_lobby` |
-| `turn_timeout_*` | Copied onto `GameSession` at start |
+| `turn_timeout_seconds` / `turn_timeout_warning_seconds` | Copied onto `GameSession` at start |
+| `turn_timeout_max_strikes` | Default 3 |
+| `turn_timeout_consequence` | `abandon` \| `skip` \| `auto_pass` \| `game_ends` \| `strike` |
+| `play_hang_seconds` | Cancel `play()` if it makes no context progress (default 45) |
 | `settings_overrides` | Operator defaults that overlay metadata settings (e.g. Mafia `mafia_count_default`) |
 
 Disabled games remain in the registry so replays of old matches can still load `parse_replay`. They are just not offered as new lobbies. **Uninstall** is stronger: it drops the plugin from the registry and deletes matches, moves, and per-game stats for that `game_key`. **Update** (`strife/update`) replaces a git plugin's files in place and keeps history. See [plugins.md](plugins.md).
@@ -154,7 +157,7 @@ Disabled games remain in the registry so replays of old matches can still load `
 | `ctx.started_at` | Match start time |
 | `ctx.is_replay` | Hide action rows during replay renders (`add_controls`) |
 | `ctx.is_bot(seat)` | Skip DMs / treat AI seats |
-| `self.setting(key)` | Setting with metadata default fallback |
+| `self.setting(key)` on **`Game`** (not on `ctx`) | Setting with metadata default fallback |
 
 `Player` is a seat-centric DTO (`user_id`, `display_name`, `is_bot`, `role_key`). Games mention players; they do not fetch Discord members.
 
@@ -163,10 +166,10 @@ Disabled games remain in the registry so replays of old matches can still load `
 | Call | Host does |
 |------|-----------|
 | `await ctx.update(view)` | Compile `LayoutView` and edit the board message |
-| `await ctx.request_input(view, actor=seat, sources={...})` | Show board, wait for one actor's move (or call `bot_move`) |
-| `await ctx.request_inputs(...)` | Simultaneous / first-to-act input |
+| `await ctx.request_input(view, actor=seat, sources={...}, record=, timeout_seconds=, timeout_consequence=)` | Show board, wait for one actor's move (or call `bot_move`) |
+| `await ctx.request_inputs(..., until=, per_seat_sources=, record=, timeout_*)` | Simultaneous / first-to-act input |
 | `await ctx.send_private(seat, view)` | DM (or thread notice if DMs fail) |
-| `await ctx.record_event(name, args)` | Append a `game` log entry for replay |
+| `await ctx.record_event(source, arguments)` | Append a `game` log entry for replay |
 | `await ctx.respond_query(view)` | Ephemeral peek / auxiliary panel (only inside `handle_query`) |
 
 The plugin never receives a Discord `Interaction`. A button click becomes `Move(actor_seat, source, args)` only after the host has checked seat, allowed sources, and pending-input state. Attachments are `ViewFile` bytes; the host converts them.
@@ -178,7 +181,7 @@ Games should not:
 - Import `discord` or call `interaction.response.*`.
 - Encode `custom_id`s or set `route_prefix` / `resource_id` on board controls (the live surface already uses `g_move:` + thread id).
 - Touch `GameSession` (`strife.session`), the database, or `SessionRegistries`.
-- Emit system log sources (`forfeit`, `game_end`, `bot_takeover`) — `record_event` rejects those names.
+- Emit system log sources (`forfeit`, `game_end`, `bot_takeover`, `timeout`) — `record_event` rejects those names.
 
 ## 5. Presentation sandbox
 
@@ -254,7 +257,7 @@ which becomes `/chess move move:<san-or-uci>`.
 
 The callback does **not** call into game code. It looks up `sessions.get_game(channel.id)` and `session.handle_slash_command(user_id, slash_move.name, args)`, which completes the same pending-input future a button would. The slash name is the move `source` (`"move"` for Chess).
 
-Slash groups are registered for every **registered** game with `slash_moves`, including disabled ones. They only succeed when invoked in a live game thread.
+Slash groups are registered for every **enabled** game with `slash_moves`. Disabled games stay in the registry for replay but do not get slash commands until re-enabled and `strife/sync`. They only succeed when invoked in a live game thread.
 
 Platform commands (`/strife catalog`, `/strife profile`, `/strife forfeit`, …) are not part of the game plugin.
 

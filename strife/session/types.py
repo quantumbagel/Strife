@@ -39,3 +39,5 @@ class PendingInput:
     line_description: str | None = None
     timeout_seconds: float | None = None
     timeout_consequence: str | None = None
+    deadline_at: float | None = None
+    timeout_generation: int = 0

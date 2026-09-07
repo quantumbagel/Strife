@@ -152,22 +152,32 @@ class CatalogService:
         compiled = self.compiler.compile(view, resource_id=interaction.user.id, prefix=P.CAT_NAV)
         await interaction.response.send_message(view=compiled, ephemeral=True)
 
-    async def navigate(self, interaction: discord.Interaction, page: int) -> None:
+    async def navigate(
+        self,
+        interaction: discord.Interaction,
+        page: int,
+        *,
+        parent: discord.Message | None = None,
+    ) -> None:
         page = int(page)
         games = self._enabled_games()
         pages = max(1, math.ceil(len(games) / self._page_size))
         page = max(0, min(page, pages - 1))
         view = self._build_catalog_view(games, page, pages)
         compiled = self.compiler.compile(view, resource_id=interaction.user.id, prefix=P.CAT_NAV)
-        if interaction.response.is_done():
-            await interaction.edit_original_response(view=compiled)
-        else:
+        target = parent or interaction.message
+        if not interaction.response.is_done() and parent is None:
             await interaction.response.edit_message(view=compiled)
+        elif target is not None:
+            await target.edit(view=compiled)
+        else:
+            await interaction.edit_original_response(view=compiled)
 
     async def open_jump_modal(self, interaction: discord.Interaction, *, pages: int, page: int = 0) -> None:
         async def on_submit(modal_interaction: discord.Interaction, new_page: int) -> None:
+            parent = modal_interaction.message
             await modal_interaction.response.defer(ephemeral=True)
-            await self.navigate(modal_interaction, new_page)
+            await self.navigate(modal_interaction, new_page, parent=parent)
 
         modal = PageJumpModal(
             title=self.text.get("catalog.title"),

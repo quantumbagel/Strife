@@ -16,8 +16,10 @@ from strife.session.types import log
 
 class SessionLifecycleMixin:
     async def cancel(self, reason: str, forfeiter_seat: int | None = None) -> bool:
-        if self._finalized:
-            return False
+        async with self.lock:
+            if self._finalized or self._ending:
+                return False
+            self._ending = True
         task = self.task
         if task is not None and not task.done() and task is not asyncio.current_task():
             task.cancel()
@@ -67,6 +69,9 @@ class SessionLifecycleMixin:
             if move.kind == LogEntryKind.SYSTEM or move.source in SYSTEM_SOURCES
             else LogEntryKind.GAME
         )
+        stamped = move.created_at or datetime.now(timezone.utc)
+        if move.created_at is None:
+            move.created_at = stamped
         self.recorded_moves.append(
             Move(
                 actor_seat=move.actor_seat,
@@ -74,7 +79,7 @@ class SessionLifecycleMixin:
                 args=move.args,
                 kind=entry_kind,
                 turn_index=self._turn_index,
-                created_at=datetime.now(timezone.utc),
+                created_at=stamped,
             )
         )
         self._turn_index += 1
@@ -111,8 +116,10 @@ class SessionLifecycleMixin:
         async with self.lock:
             if self._finalized:
                 return
+            self._ending = True
             self._finalized = True
         match_id = 0
+        persist_ok = False
         try:
             finished = FinishedMatch(
                 code=self._match_code,
@@ -148,11 +155,18 @@ class SessionLifecycleMixin:
                 ],
                 moves=list(self.recorded_moves),
             )
-            match_id, code = await self._finalizer.persist(finished, outcome)
             try:
-                self._finalizer.notify_match_end(self.thread_id, match_id, outcome, self.players)
+                match_id, code = await self._finalizer.persist(finished, outcome)
+                persist_ok = True
             except Exception:
-                log.exception("Failed to register rematch offer for thread %s", self.thread_id)
+                log.exception("Failed to persist match for thread %s", self.thread_id)
+                await self._notify_thread(self.text.get("match.save_failed"))
+                match_id, code = 0, self._match_code or ""
+            if persist_ok:
+                try:
+                    self._finalizer.notify_match_end(self.thread_id, match_id, outcome, self.players)
+                except Exception:
+                    log.exception("Failed to register rematch offer for thread %s", self.thread_id)
             self._match_id = match_id
             self._match_code = code
 
@@ -175,6 +189,7 @@ class SessionLifecycleMixin:
                         text=self.text,
                         emoji=self.header_surface.compiler.emoji,
                         finished=True,
+                        owner_ids=self._owner_ids(),
                     )
                     await self.header_surface.update(finished_view)
                 except Exception:
@@ -209,4 +224,7 @@ class SessionLifecycleMixin:
                     except Exception:
                         log.exception("Failed to lock game thread %s", self.thread_id)
         finally:
+            encoder = getattr(self.surface.compiler, "encoder", None)
+            if encoder is not None:
+                encoder.invalidate_resource(self.thread_id)
             await self._finalizer.session_complete(self)

@@ -1,6 +1,6 @@
 # Plugins
 
-Every game is a plugin: shipped builtins under `strife/games/` and third-party packages cloned into `plugins/`. The host does not treat builtins as uninstallable-protected. `config/games.yaml` still **hides** a game (`enabled: false`) without deleting history. Uninstall removes the plugin and wipes its data.
+Every game is a plugin: shipped builtins under `strife/games/` and third-party packages cloned into `plugins/`. The host does not treat builtins as uninstallable-protected. `config/games.yaml` still **hides** a game (`enabled: false`) without deleting history. Uninstall removes the plugin and wipes its data. Owner command shape and the enable-vs-uninstall split are also in [interfaces.md](interfaces.md#41-owner-message-commands).
 
 ## Manifest
 

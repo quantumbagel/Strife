@@ -233,7 +233,7 @@ open_profile = "Open Profile"
 already_in_session = "Leave or finish your current lobby or match before starting another."
 already_in_lobby = "You are already listed in this lobby. Use **Leave** on the lobby message if you want to exit."
 game_disabled = "That game is disabled on this server. Pick another game from the catalog."
-not_in_game = "Join or start a match first. If you are in a lobby, leave it or ready up to start."
+not_in_game = "Forfeit is only for a live match. Leave a lobby with the Leave button or `/strife lobby leave`."
 not_on_whitelist = "This is a private lobby. Press **Request to Join** and wait for {creator} to approve."
 request_pending = "You already sent a join request. Wait for {creator} to approve or deny it."
 request_denied = "Your join request was denied. Contact {creator} if you think this is a mistake."
@@ -285,6 +285,9 @@ session_crashed_description = "The match was abandoned because of an internal er
 session_restarted = "The bot restarted, so this match was abandoned. Start a new game from the catalog."
 session_restarted_description = "The match was abandoned because the bot restarted."
 session_cancelled_description = "The match was abandoned."
+save_failed = "This match finished but results could not be saved. Start a new game from the catalog."
+strike_title = "{player} timed out"
+strike_body = "Strike {current}/{max}."
 turn_warning = "{player}, about **{seconds}s** left to act."
 
 [match_success]

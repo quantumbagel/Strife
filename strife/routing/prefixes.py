@@ -7,7 +7,6 @@ REMATCH = "rematch:"
 REPLAY_NOOP = "replay_noop:"
 CAT_NAV = "cat_nav:"
 PROF_NAV = "prof_nav:"
-PROF_OPEN = "prof_open:"
 FORFEIT = "forfeit:"
 
 SERVER_NAV = "server_nav:"
@@ -69,7 +68,6 @@ ALL_PREFIXES = GAME_PREFIXES | LOBBY_PREFIXES | SERVER_PREFIXES | {
     REPLAY_NOOP,
     CAT_NAV,
     PROF_NAV,
-    PROF_OPEN,
     ABOUT_NAV,
     FORFEIT,
 }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 import discord
@@ -9,7 +10,6 @@ import discord
 from strife.engine.errors import SessionError
 from strife.engine.players import Move
 from strife.presentation.components import LayoutView, move_sources, query_sources
-from strife.presentation.feedback import build_feedback_view, send_ephemeral_feedback
 from strife.routing.router import InteractionInput
 from strife.session.types import PendingInput, QUERY_TIMEOUT_SECONDS, log
 
@@ -45,7 +45,12 @@ class SessionInputMixin:
                 raise SessionError("cannot_act")
             if pending.allowed_sources is not None and inp.source not in pending.allowed_sources:
                 raise SessionError("invalid_action")
-            move = Move(actor_seat=seat, source=inp.source, args=inp.args)
+            move = Move(
+                actor_seat=seat,
+                source=inp.source,
+                args=inp.args,
+                created_at=datetime.now(timezone.utc),
+            )
             if not pending.future.done():
                 pending.future.set_result(move)
             self.pending.pop(seat, None)
@@ -66,7 +71,12 @@ class SessionInputMixin:
             if pending.allowed_sources is not None and source not in pending.allowed_sources:
                 raise SessionError("invalid_action")
 
-            move = Move(actor_seat=seat, source=source, args=move_args)
+            move = Move(
+                actor_seat=seat,
+                source=source,
+                args=move_args,
+                created_at=datetime.now(timezone.utc),
+            )
             if not pending.future.done():
                 pending.future.set_result(move)
             self.pending.pop(seat, None)
@@ -75,21 +85,7 @@ class SessionInputMixin:
     async def handle_query(self, source: str, interaction: discord.Interaction) -> bool:
         seat = self._seat_for_user(interaction.user.id)
         if seat is None:
-            view = build_feedback_view(
-                icon=self.surface.compiler.emoji.get("error", base=True),
-                title=self.text.get("errors.not_a_player"),
-                body=self.text.get("errors_help.not_a_player"),
-                body_heading=self.text.get("common.error_fix"),
-                text=self.text,
-            )
-            await send_ephemeral_feedback(
-                interaction,
-                view,
-                compiler=self.surface.compiler,
-                prefix=self.surface.prefix,
-                resource_id=self.thread_id,
-            )
-            return True
+            raise SessionError("not_a_player")
 
         self.ctx._begin_query(interaction)
         try:
@@ -144,6 +140,11 @@ class SessionInputMixin:
 
         loop = asyncio.get_running_loop()
         future: asyncio.Future[Move] = loop.create_future()
+        now = time.monotonic()
+        generation = self._timeout_generation.get(actor, 0) + 1
+        self._timeout_generation[actor] = generation
+        seconds = timeout_seconds if timeout_seconds is not None else self.turn_timeout_seconds
+        deadline = now + seconds
         async with self.lock:
             self.pending[actor] = PendingInput(
                 {actor},
@@ -152,16 +153,18 @@ class SessionInputMixin:
                 description=description,
                 timeout_seconds=timeout_seconds,
                 timeout_consequence=timeout_consequence,
+                deadline_at=deadline,
+                timeout_generation=generation,
             )
-            self.last_move_at = time.monotonic()
+            self.last_move_at = now
             self._timeout_warned.pop(actor, None)
+            self._timeout_inflight.discard(actor)
         await self._update_surface(view)
         await self.refresh_header()
         move = await future
         if record:
             async with self.lock:
                 self._record_move(move)
-        await self.refresh_header()
         return move
 
 
@@ -194,6 +197,9 @@ class SessionInputMixin:
 
         loop = asyncio.get_running_loop()
         futures: dict[int, asyncio.Future[Move]] = {}
+        now = time.monotonic()
+        seconds = timeout_seconds if timeout_seconds is not None else self.turn_timeout_seconds
+        deadline = now + seconds
         async with self.lock:
             for seat in humans:
                 future: asyncio.Future[Move] = loop.create_future()
@@ -201,6 +207,8 @@ class SessionInputMixin:
                 seat_sources = self._resolve_sources(
                     view, sources, per_seat_sources=per_seat_sources, seat=seat
                 )
+                generation = self._timeout_generation.get(seat, 0) + 1
+                self._timeout_generation[seat] = generation
                 self.pending[seat] = PendingInput(
                     {seat},
                     seat_sources,
@@ -211,8 +219,11 @@ class SessionInputMixin:
                     ),
                     timeout_seconds=timeout_seconds,
                     timeout_consequence=timeout_consequence,
+                    deadline_at=deadline,
+                    timeout_generation=generation,
                 )
-            self.last_move_at = time.monotonic()
+                self._timeout_inflight.discard(seat)
+            self.last_move_at = now
             for seat in humans:
                 self._timeout_warned.pop(seat, None)
         await self._update_surface(view)

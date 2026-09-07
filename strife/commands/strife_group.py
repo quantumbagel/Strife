@@ -43,10 +43,21 @@ def register_strife_group(
         target = user or interaction.user
         await profile.show(interaction, target, game, max(0, page - 1))
 
+    @profile_cmd.autocomplete("game")
+    async def profile_game_autocomplete(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        choices: list[app_commands.Choice[str]] = []
+        needle = current.lower()
+        for meta in registry.all():
+            if needle and needle not in meta.key.lower() and needle not in meta.name.lower():
+                continue
+            choices.append(app_commands.Choice(name=meta.name, value=meta.key))
+        return choices[:25]
+
     @group.command(name="settings", description="Open lobby settings")
-    @app_commands.describe(private="Quick-toggle private lobby")
-    async def settings_cmd(interaction: discord.Interaction, private: bool | None = None) -> None:
-        await lobby.open_settings(interaction, private)
+    async def settings_cmd(interaction: discord.Interaction) -> None:
+        await lobby.open_settings(interaction)
 
     @group.command(name="server", description="Configure server-level Strife settings")
     @app_commands.default_permissions(administrator=True)
@@ -64,19 +75,13 @@ def register_strife_group(
             )
             return
         if loc.kind == "lobby":
-            try:
-                await lobby.leave_lobby(loc.thread_id, interaction.user.id, interaction)
-                await lobby.user_success.send(interaction, "lobby.left")
-            except SessionError as e:
-                code = "errors.no_session" if e.code == "no_session" else "common.error"
-                await lobby.user_errors.send(interaction, code)
-            except PermissionError:
-                await lobby.user_errors.send(
-                    interaction,
-                    "errors.not_in_lobby",
-                    context=ErrorContext(interaction=interaction, location=loc),
-                )
-        elif loc.kind == "game":
+            await lobby.user_errors.send(
+                interaction,
+                "errors.not_in_game",
+                context=ErrorContext(interaction=interaction, location=loc),
+            )
+            return
+        if loc.kind == "game":
             try:
                 await lifecycle.forfeit(loc.thread_id, interaction.user.id)
                 await lobby.user_success.send(interaction, "match.forfeited")
@@ -148,7 +153,7 @@ def register_strife_group(
 
     @bot_group.command(name="add", description="Add bots to your lobby")
     @app_commands.describe(difficulty="Bot difficulty", number="How many bots")
-    async def bot_add(interaction: discord.Interaction, difficulty: str = "medium", number: int = 1) -> None:
+    async def bot_add(interaction: discord.Interaction, difficulty: str | None = None, number: int = 1) -> None:
         await lobby.add_bots(interaction, difficulty, max(1, min(number, 5)))
 
     @bot_add.autocomplete("difficulty")
@@ -169,10 +174,6 @@ def register_strife_group(
                         value=spec.difficulty,
                     )
                 )
-        if not choices:
-            for fallback in ("easy", "medium", "hard"):
-                if current.lower() in fallback:
-                    choices.append(app_commands.Choice(name=fallback.capitalize(), value=fallback))
         return choices[:25]
 
     @bot_group.command(name="remove", description="Remove a bot from your lobby")

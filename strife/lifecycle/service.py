@@ -90,23 +90,32 @@ class LifecycleService:
                     except Exception:
                         log.exception("Failed to cancel hung session %s", session.id)
                 continue
-            idle = now - last_move_at
             for seat, pending in pending_snapshot:
                 if session.players[seat].is_bot:
                     continue
                 timeout = pending.timeout_seconds if pending.timeout_seconds is not None else game_cfg.turn_timeout_seconds
+                deadline = pending.deadline_at if pending.deadline_at is not None else last_move_at + timeout
+                remaining = deadline - now
+                idle = timeout - remaining
                 warning = game_cfg.turn_warning_seconds
                 if (
                     warning
                     and warning > 0
-                    and idle >= max(0, timeout - warning)
-                    and idle < timeout
-                    and session._timeout_warned.get(seat) != last_move_at
+                    and remaining <= warning
+                    and remaining > 0
+                    and session._timeout_warned.get(seat) != pending.timeout_generation
                 ):
                     async with session.lock:
-                        session._timeout_warned[seat] = last_move_at
-                    await self._send_turn_warning(session, seat, timeout - idle)
-                if idle >= timeout:
+                        session._timeout_warned[seat] = pending.timeout_generation
+                    await self._send_turn_warning(session, seat, remaining)
+                if remaining <= 0:
+                    async with session.lock:
+                        if seat in session._timeout_inflight:
+                            continue
+                        current = session.pending.get(seat)
+                        if current is None or current.timeout_generation != pending.timeout_generation:
+                            continue
+                        session._timeout_inflight.add(seat)
                     try:
                         await self._resolve_timeout(session, seat)
                     except Exception as e:
@@ -120,6 +129,8 @@ class LifecycleService:
                             await session.cancel("error")
                         except Exception:
                             log.exception("Failed to cancel session %s after timeout crash", session.id)
+                    finally:
+                        session._timeout_inflight.discard(seat)
 
     async def _send_turn_warning(self, session, seat: int, remaining: float) -> None:
         player = session.players[seat]
@@ -164,9 +175,9 @@ class LifecycleService:
         player = session.players[seat]
         pending = session.pending.get(seat)
 
-        # 1. Release the user if they are leaving the game session
+        # Occupancy stays "game" through bot takeover. Release only when the
+        # seat actually leaves the match (removal) or the match ends.
         if consequence in (
-            TimeoutConsequence.BOT_TAKEOVER,
             TimeoutConsequence.REMOVED,
             TimeoutConsequence.GAME_ENDS,
         ):
@@ -200,8 +211,12 @@ class LifecycleService:
 
                     view = build_feedback_view(
                         icon=self.emoji.get("timer"),
-                        title=f"{player.mention} timed out",
-                        body=f"Strike {player.timeout_strikes}/{max_strikes}.",
+                        title=self.text.get("match.strike_title", player=player.mention),
+                        body=self.text.get(
+                            "match.strike_body",
+                            current=player.timeout_strikes,
+                            max=max_strikes,
+                        ),
                         text=self.text,
                     )
                     compiled = session.surface.compiler.compile(

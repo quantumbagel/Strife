@@ -156,7 +156,7 @@ class MoveParam:
     description: str = ""
     required: bool = True
     choices: tuple[str, ...] | None = None
-    autocomplete: Callable[..., Awaitable[list[str]]] | None = None
+    autocomplete: Callable[[str], Awaitable[list[str]]] | None = None
     reload_state: bool = False
 
 

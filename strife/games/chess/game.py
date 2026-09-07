@@ -165,22 +165,23 @@ class Chess(TurnBasedGame):
     def _format_clocks(self) -> str:
         return f"White: `{self._format_time(self.clocks[0])}` | Black: `{self._format_time(self.clocks[1])}`"
 
+    def _tick_clock(self, move: Move) -> None:
+        if not self.time_control_active or move.actor_seat is None:
+            return
+        if self.last_move_time is not None and move.created_at is not None:
+            t1 = self.last_move_time
+            t2 = move.created_at
+            if t1.tzinfo is not None:
+                t1 = t1.astimezone(timezone.utc).replace(tzinfo=None)
+            if t2.tzinfo is not None:
+                t2 = t2.astimezone(timezone.utc).replace(tzinfo=None)
+            elapsed = (t2 - t1).total_seconds()
+            self.clocks[move.actor_seat] = max(0.0, self.clocks[move.actor_seat] - elapsed) + self.increment
+        if move.created_at is not None:
+            self.last_move_time = move.created_at
+
     def apply_move(self, move: Move) -> None:
-        if self.time_control_active and move.actor_seat is not None:
-            if self.last_move_time is not None and move.created_at is not None:
-                t1 = self.last_move_time
-                t2 = move.created_at
-                if t1.tzinfo is not None:
-                    t1 = t1.astimezone(timezone.utc).replace(tzinfo=None)
-                if t2.tzinfo is not None:
-                    t2 = t2.astimezone(timezone.utc).replace(tzinfo=None)
-                elapsed = (t2 - t1).total_seconds()
-                
-                actor = move.actor_seat
-                self.clocks[actor] = max(0.0, self.clocks[actor] - elapsed) + self.increment
-            
-            if move.created_at is not None:
-                self.last_move_time = move.created_at
+        self._tick_clock(move)
 
         if move.source == "move":
             move_text = move.args.get("move") or ""
@@ -289,7 +290,6 @@ class Chess(TurnBasedGame):
             }
             sources.add("move")
             
-            start_time = time.monotonic()
             timeout_seconds = self.clocks[seat] if self.time_control_active else None
             timeout_consequence = "game_ends" if self.time_control_active else None
 
@@ -300,10 +300,6 @@ class Chess(TurnBasedGame):
                 timeout_seconds=timeout_seconds,
                 timeout_consequence=timeout_consequence,
             )
-
-            if self.time_control_active:
-                elapsed = time.monotonic() - start_time
-                self.clocks[seat] = max(0.0, self.clocks[seat] - elapsed) + self.increment
 
             if move.is_system:
                 continue
@@ -318,6 +314,7 @@ class Chess(TurnBasedGame):
                 self.apply_move(move)
                 error_msg = None
             else:
+                self._tick_clock(move)
                 error_msg = f"Invalid or illegal move: '{move_text}'. Try again."
 
     async def parse_replay(self, moves: list[Move], ctx: GameContext) -> list[ReplayFrame]:
@@ -330,7 +327,7 @@ class Chess(TurnBasedGame):
 
         builder = ReplayBuilder(ctx)
         builder.initial(
-            self.render(
+            self.render_replay(
                 ctx,
                 lead=self.replay_initial_status(ctx, moves),
                 prefix_emoji="loading",
@@ -348,11 +345,11 @@ class Chess(TurnBasedGame):
                 continue
             turn += 1
             if step.terminal:
-                builder.add(step, self.render_final(ctx), label="Final")
+                builder.add(step, self.render_final_replay(ctx), label="Final")
                 break
             builder.add(
                 step,
-                self.render(
+                self.render_replay(
                     ctx,
                     lead=self.replay_action_status(ctx, self.current),
                     prefix_emoji="loading",

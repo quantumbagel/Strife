@@ -133,12 +133,19 @@ class LobbyService(
         return any(member.user_id == user_id for member in lobby.members)
 
 
+    def owner_ids(self) -> frozenset[int]:
+        settings = getattr(self.bot, "settings", None)
+        if settings is None:
+            return frozenset()
+        return frozenset(getattr(settings, "owner_ids", ()) or ())
+
     def _build_lobby_view(self, lobby: Lobby, meta: GameMetadata):
         return build_lobby_view(
             lobby,
             meta,
             self.emoji,
             self.text,
+            owner_ids=self.owner_ids(),
         )
 
 

@@ -48,6 +48,16 @@ class Compiler:
     def emoji(self) -> EmojiResolver:
         return self._emoji
 
+    @property
+    def encoder(self) -> CustomIdEncoder:
+        return self._encoder
+
+    def _control_payload(self, control: Button | Select) -> dict:
+        payload = dict(control.payload or {})
+        if control.query:
+            payload["q"] = 1
+        return payload
+
     def for_game(self, game_key: str) -> Compiler:
         return Compiler(self._emoji.bind_game(game_key), self._encoder)
 
@@ -110,7 +120,7 @@ class Compiler:
             button.route_prefix or prefix,
             button.resource_id if button.resource_id is not None else resource_id,
             button.source,
-            button.payload,
+            self._control_payload(button),
         )
         if len(custom_id) > 100:
             raise LayoutError("custom_id exceeds 100 characters")
@@ -128,7 +138,7 @@ class Compiler:
             select.route_prefix or prefix,
             select.resource_id if select.resource_id is not None else resource_id,
             select.source,
-            select.payload,
+            self._control_payload(select),
         )
         if len(custom_id) > 100:
             raise LayoutError("custom_id exceeds 100 characters")

@@ -246,6 +246,19 @@ class PluginManager:
                     game_cls.__name__,
                 )
                 continue
+            meta = game_cls.metadata
+            if meta.version != record.manifest.version or meta.platform_version != record.manifest.platform_version:
+                log.error(
+                    "Plugin %s metadata version/platform_version (%s / %s) "
+                    "does not match plugin.toml (%s / %s); skipping %s",
+                    record.key,
+                    meta.version,
+                    meta.platform_version,
+                    record.manifest.version,
+                    record.manifest.platform_version,
+                    game_cls.__name__,
+                )
+                continue
             matched = True
             registry.register(game_cls)
         if not matched:

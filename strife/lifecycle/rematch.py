@@ -26,7 +26,18 @@ class RematchOffer:
     expires: float = 0.0
     match_id: int = 0
     outcome: object | None = None
-    session: object | None = None
+    game_key: str = ""
+    game_name: str = ""
+    guild_id: int = 0
+    channel_id: int = 0
+    creator_id: int = 0
+    private: bool = False
+    settings: dict = field(default_factory=dict)
+    members: list[LobbyMember] = field(default_factory=list)
+    bots: list[QueuedBot] = field(default_factory=list)
+    lobby_surface: object | None = None
+    emoji: object | None = None
+    result_players: list = field(default_factory=list)
 
 
 class RematchManager:
@@ -38,12 +49,48 @@ class RematchManager:
 
     def start_offer(self, thread_id: int, eligible: set[int], match_id: int, outcome: object) -> None:
         session = self.registries.get_game(thread_id)
+        if session is None:
+            return
+        members = [
+            LobbyMember(user_id=p.user_id, display_name=p.display_name)
+            for p in session.players
+            if p.user_id and not p.is_bot
+        ]
+        bots = [
+            QueuedBot(name=p.display_name, difficulty=p.bot_difficulty or "medium")
+            for p in session.players
+            if p.is_bot
+        ]
+        creator_id = getattr(session, "lobby_creator_id", None) or (
+            members[0].user_id if members else 0
+        )
+        if creator_id and not any(m.user_id == creator_id for m in members) and members:
+            creator_id = members[0].user_id
+        thread = getattr(self.lobby, "bot", None)
+        channel_id = 0
+        if thread is not None:
+            channel = thread.get_channel(thread_id) if hasattr(thread, "get_channel") else None
+            if channel is not None and getattr(channel, "parent", None) is not None:
+                channel_id = channel.parent.id
+            elif channel is not None:
+                channel_id = channel.id
         self._offers[thread_id] = RematchOffer(
             eligible=set(eligible),
             expires=time.monotonic() + 120,
             match_id=match_id,
             outcome=outcome,
-            session=session,
+            game_key=session.game_key,
+            game_name=session.game.metadata.name,
+            guild_id=session.guild_id,
+            channel_id=channel_id,
+            creator_id=creator_id,
+            private=bool(getattr(session, "lobby_private", False)),
+            settings=dict(session.settings),
+            members=members,
+            bots=bots,
+            lobby_surface=getattr(session, "lobby_surface", None),
+            emoji=session.surface.compiler.emoji,
+            result_players=list(session.players),
         )
 
     async def expire_stale(self) -> None:
@@ -56,22 +103,19 @@ class RematchManager:
                 await self._disable_offer(thread_id, offer)
 
     async def _disable_offer(self, thread_id: int, offer: RematchOffer) -> None:
-        session = offer.session
-        if session is None or not hasattr(session, "lobby_surface"):
-            return
-        lobby_surface = session.lobby_surface
+        lobby_surface = offer.lobby_surface
         if lobby_surface is None:
             return
         try:
             results_view = build_results_view(
-                game_name=session.game.metadata.name,
-                game_key=session.game_key,
+                game_name=offer.game_name,
+                game_key=offer.game_key,
                 outcome=offer.outcome,
-                players=session.players,
+                players=offer.result_players,
                 thread_id=thread_id,
                 match_id=offer.match_id,
                 text=self.text,
-                emoji=session.surface.compiler.emoji,
+                emoji=offer.emoji,
                 rematch_count=len(offer.votes),
                 rematch_disabled=True,
             )
@@ -91,105 +135,106 @@ class RematchManager:
             raise SessionError("rematch_expired")
         offer.votes.add(user_id)
         if offer.votes >= offer.eligible:
-            if self._offers.pop(thread_id, None) is not None:
+            self._offers.pop(thread_id, None)
+            try:
                 await self._reset_to_lobby(thread_id, offer)
-        else:
-            session = offer.session
-            if session and hasattr(session, "lobby_surface") and session.lobby_surface is not None:
-                expires_at = int(time.time() + max(0, offer.expires - time.monotonic()))
-                results_view = build_results_view(
-                    game_name=session.game.metadata.name,
-                    game_key=session.game_key,
-                    outcome=offer.outcome,
-                    players=session.players,
-                    thread_id=thread_id,
-                    match_id=offer.match_id,
-                    text=self.text,
-                    emoji=session.surface.compiler.emoji,
-                    rematch_count=len(offer.votes),
-                    rematch_expires_at=expires_at,
-                )
-                await session.lobby_surface.update(results_view)
+            except SessionError:
+                self._offers[thread_id] = offer
+                raise
+        elif offer.lobby_surface is not None:
+            expires_at = int(time.time() + max(0, offer.expires - time.monotonic()))
+            results_view = build_results_view(
+                game_name=offer.game_name,
+                game_key=offer.game_key,
+                outcome=offer.outcome,
+                players=offer.result_players,
+                thread_id=thread_id,
+                match_id=offer.match_id,
+                text=self.text,
+                emoji=offer.emoji,
+                rematch_count=len(offer.votes),
+                rematch_expires_at=expires_at,
+            )
+            await offer.lobby_surface.update(results_view)
 
     async def _reset_to_lobby(self, thread_id: int, offer: RematchOffer) -> None:
-        session = offer.session
-        if session is None:
-            self._offers.pop(thread_id, None)
-            return
-
-        if hasattr(session, "lobby_surface") and session.lobby_surface is not None:
+        if offer.lobby_surface is not None:
             try:
                 results_view = build_results_view(
-                    game_name=session.game.metadata.name,
-                    game_key=session.game_key,
+                    game_name=offer.game_name,
+                    game_key=offer.game_key,
                     outcome=offer.outcome,
-                    players=session.players,
+                    players=offer.result_players,
                     thread_id=thread_id,
                     match_id=offer.match_id,
                     text=self.text,
-                    emoji=session.surface.compiler.emoji,
+                    emoji=offer.emoji,
                     rematch_count=len(offer.eligible),
                     rematch_disabled=True,
                 )
-                await session.lobby_surface.update(results_view)
+                await offer.lobby_surface.update(results_view)
             except Exception:
                 log.exception("Failed to disable rematch button after success for thread %s", thread_id)
 
-        game_key = session.game_key
-        guild_id = session.guild_id
-        members = [
-            LobbyMember(user_id=p.user_id, display_name=p.display_name)
-            for p in session.players
-            if p.user_id and not p.is_bot
-        ]
-        bots = [
-            QueuedBot(name=p.display_name, difficulty=p.bot_difficulty or "medium")
-            for p in session.players
-            if p.is_bot
-        ]
+        members = list(offer.members)
+        if not members:
+            return
 
-        lobby_id = secrets.randbits(63)
+        busy = [m for m in members if self.registries.location_of(m.user_id) is not None]
+        if busy:
+            raise SessionError("already_in_session")
+
         thread = self.lobby.bot.get_channel(thread_id)
         parent_channel = None
         if isinstance(thread, discord.Thread):
             parent_channel = thread.parent
-
         target_channel = parent_channel or thread
+        if target_channel is None and offer.channel_id:
+            target_channel = self.lobby.bot.get_channel(offer.channel_id)
         if target_channel is None:
-            self._offers.pop(thread_id, None)
             return
 
+        lobby_id = secrets.randbits(63)
+        creator_id = offer.creator_id
+        if not any(m.user_id == creator_id for m in members):
+            creator_id = members[0].user_id
         lobby = Lobby(
             thread_id=lobby_id,
-            guild_id=guild_id,
+            guild_id=offer.guild_id,
             channel_id=target_channel.id,
-            game_key=game_key,
-            creator_id=members[0].user_id if members else 0,
-            private=False,
+            game_key=offer.game_key,
+            creator_id=creator_id,
+            private=offer.private,
             members=[],
-            bots=bots,
-            settings=dict(session.settings),
+            bots=list(offer.bots),
+            settings=dict(offer.settings),
         )
         surface = ViewSurface(self.lobby.compiler, prefix=P.LOBBY_JOIN, resource_id=lobby_id)
         lobby.surface = surface
-
-        self.registries.active_games.pop(thread_id, None)
         self.registries.add_lobby(lobby)
 
-        for member in members:
-            if not await self.registries.reserve_user(
-                member.user_id, UserLocation("lobby", lobby_id, guild_id)
-            ):
-                continue
-            lobby.members.append(member)
+        reserved: list[int] = []
+        try:
+            for member in members:
+                if not await self.registries.reserve_user(
+                    member.user_id, UserLocation("lobby", lobby_id, offer.guild_id)
+                ):
+                    raise SessionError("already_in_session")
+                reserved.append(member.user_id)
+                lobby.members.append(member)
+        except SessionError:
+            for user_id in reserved:
+                await self.registries.release_user(user_id)
+            self.registries.remove_lobby(lobby_id)
+            raise
 
-        meta = self.lobby.registry.metadata(game_key)
+        meta = self.lobby.registry.metadata(offer.game_key)
         view = build_lobby_view(
             lobby,
             meta,
             self.lobby.emoji,
             self.text,
+            owner_ids=self.lobby.owner_ids(),
         )
         await surface.send(target_channel, view)
         lobby.message_id = surface.message_id
-        self._offers.pop(thread_id, None)

@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     sync_on_start: bool = False
     plugins_dir: Path = Path("plugins")
     sync_plugin_deps: bool = True
+    signing_key: str | None = None
 
     @field_validator("owner_ids", mode="before")
     @classmethod

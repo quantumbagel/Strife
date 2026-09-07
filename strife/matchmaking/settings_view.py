@@ -30,7 +30,7 @@ from strife.presentation.components import (
 from strife.presentation.emoji import EmojiResolver, get_game_emoji
 from strife.presentation.roster import bot_label, member_line
 from strife.routing import prefixes as P
-from strife.settings import get_settings
+
 
 SETTINGS_TABS = ("general", "access", "rules")
 
@@ -245,9 +245,9 @@ def _add_access_tab(
     emoji: EmojiResolver,
     text: TextConfig,
     interaction: discord.Interaction | None,
+    owner_ids: frozenset[int] = frozenset(),
 ) -> None:
     settings_tab_payload = {"settings_tab": "access"}
-    owner_ids = frozenset(get_settings().owner_ids)
 
     if interaction and interaction.guild:
         guild = interaction.guild
@@ -665,6 +665,7 @@ def build_settings_view(
     *,
     tab: str = "general",
     readonly: bool = False,
+    owner_ids: frozenset[int] = frozenset(),
 ) -> LayoutView:
     active_tab = normalize_settings_tab(tab)
     if active_tab == "rules" and not meta.settings:
@@ -695,6 +696,7 @@ def build_settings_view(
             emoji=emoji,
             text=text,
             interaction=interaction,
+            owner_ids=owner_ids,
         )
     else:
         _add_rules_tab(container, lobby=lobby, meta=meta, emoji=emoji, text=text)

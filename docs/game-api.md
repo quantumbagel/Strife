@@ -1,6 +1,6 @@
 # Game API Reference
 
-This document describes the contract for implementing a Strife game.
+This document describes the method-level contract for implementing a Strife game. The product-level player / operator / author interface (and current drift from it) is [interfaces.md](interfaces.md).
 
 ## Overview
 
@@ -45,7 +45,7 @@ Registration skips a game when `platform_version` is not compatible with the hos
 | `bot_move(difficulty, seat)` | `metadata.bots` is non-empty       | Choose a move for bot players                      |
 | `remove_player(seat)`        | `metadata.supports_player_removal` | Update game state when a player leaves mid-game    |
 
-Registration validates these capabilities and logs warnings for missing implementations.
+Registration validates these capabilities and **skips the game** (error log) when an implementation is missing. Default `supports_replay=True`, so a raw `Game` without `parse_replay` or `TurnBasedGame` will not appear in `/play`.
 
 ## Optional hooks
 
@@ -107,9 +107,9 @@ The move log drives replay. Each entry has a **kind**:
 | Kind | Recorded by | Examples | Replay role |
 |------|-------------|----------|-------------|
 | `game` | `request_input` (default), `record_event` | tile click, `day_outcome`, `accusation_resolve` | Apply state / render frames |
-| `system` | Engine only (`_record_system`) | `forfeit`, `game_end`, `bot_takeover` | Metadata (takeover banners, early end) — not game rules |
+| `system` | Engine only (`_record_system`) | `forfeit`, `game_end`, `bot_takeover`, `timeout` | Metadata (takeover banners, early end) — not game rules |
 
-Games should only emit **`game`** entries via `record_event`. System events are injected by the session and lifecycle (forfeits, cancellations, bot takeover).
+Games should only emit **`game`** entries via `record_event`. System events are injected by the session and lifecycle (forfeits, cancellations, bot takeover, timeout). `record_event` rejects those four names.
 
 `parse_replay` should iterate the full log (to preserve order and handle system events via `system_replay_info`) but only apply **`game`** entries to state. Check `move.is_game` before updating game state. `TurnBasedGame` does this automatically.
 

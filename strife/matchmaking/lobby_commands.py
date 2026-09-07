@@ -45,11 +45,12 @@ class LobbyCommandsMixin:
         lobby = await self._require_caller_lobby(interaction)
         if lobby is None:
             return
+        should_start = False
+        route = Route(P.LOBBY_READY, lobby.thread_id, "ready", {})
         async with lobby.lock:
             if self.registries.get_lobby(lobby.thread_id) is not lobby:
                 await self._error(interaction, "lobby.already_dead")
                 return
-            route = Route(P.LOBBY_READY, lobby.thread_id, "ready", {})
             if interaction.user.id in lobby.ready:
                 lobby.ready.discard(interaction.user.id)
                 await self._refresh(lobby, interaction)
@@ -71,10 +72,13 @@ class LobbyCommandsMixin:
             if ok_start:
                 if not interaction.response.is_done():
                     await interaction.response.defer()
-                await self._start(lobby, route, interaction)
-                return
-            await self._refresh(lobby, interaction)
-            await self._success(interaction, "lobby.ready_on")
+                lobby.starting = True
+                should_start = True
+            else:
+                await self._refresh(lobby, interaction)
+                await self._success(interaction, "lobby.ready_on")
+        if should_start:
+            await self._start(lobby, route, interaction)
 
     async def kick_member(self, interaction: discord.Interaction, user_id: int) -> None:
         lobby = await self._require_caller_lobby(interaction, creator_only=True)
@@ -343,7 +347,7 @@ class LobbyCommandsMixin:
             await self._success(interaction, "lobby.blacklist_removed", name=name)
 
     async def add_bots(
-        self, interaction: discord.Interaction, difficulty: str, number: int
+        self, interaction: discord.Interaction, difficulty: str | None, number: int
     ) -> None:
         lobby = await self._require_caller_lobby(interaction, creator_only=True)
         if lobby is None:
@@ -353,6 +357,12 @@ class LobbyCommandsMixin:
                 await self._error(interaction, "lobby.already_dead")
                 return
             meta = self._meta(lobby.game_key)
+            allowed = {spec.difficulty for spec in meta.bots or ()}
+            if not allowed:
+                await self._error(interaction, "common.error", lobby=lobby)
+                return
+            if difficulty is None or difficulty not in allowed:
+                difficulty = next(iter(allowed))
             added = 0
             for _ in range(number):
                 if lobby.is_full(meta):
@@ -387,9 +397,7 @@ class LobbyCommandsMixin:
                 await lobby.surface.update(view)
             await self._success(interaction, "lobby.bot_removed", name=bot_label(self.emoji, name))
 
-    async def open_settings(
-        self, interaction: discord.Interaction, private: bool | None
-    ) -> None:
+    async def open_settings(self, interaction: discord.Interaction) -> None:
         lobby = await self._require_caller_lobby(interaction)
         if lobby is None:
             return
@@ -397,12 +405,6 @@ class LobbyCommandsMixin:
             if self.registries.get_lobby(lobby.thread_id) is not lobby:
                 await self._error(interaction, "lobby.already_dead")
                 return
-            if private is not None:
-                lobby.private = private
-                meta = self._meta(lobby.game_key)
-                view = self._build_lobby_view(lobby, meta)
-                if lobby.surface:
-                    await lobby.surface.update(view)
             await self._settings(
                 lobby, Route(P.LOBBY_SETTINGS, lobby.thread_id, "settings", {}), interaction
             )

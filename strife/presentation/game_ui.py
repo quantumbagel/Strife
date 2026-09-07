@@ -6,7 +6,7 @@ from strife.presentation.components import ActionRow, Container, LayoutView, Sep
 from strife.presentation.emoji import EmojiResolver
 from strife.presentation.roster import member_line
 from strife.presentation.style import add_header, add_spacer, notice_view
-from strife.settings import get_settings
+
 
 
 def action_status(
@@ -73,13 +73,13 @@ def build_game_thread_header_view(
     line_descriptions: dict[int, str] | None = None,
     timeout_consequence: str | None = None,
     finished: bool = False,
+    owner_ids: frozenset[int] = frozenset(),
 ) -> LayoutView:
     """Build the pinned roster/status message at the top of a game thread."""
     view = LayoutView()
     container = Container()
     container.add_separator()
 
-    settings = get_settings()
     roster_lines = [
         member_line(
             emoji,
@@ -87,7 +87,7 @@ def build_game_thread_header_view(
             display_name=player.display_name,
             is_bot=player.is_bot,
             bot_difficulty=player.bot_difficulty,
-            owner_ids=frozenset(settings.owner_ids),
+            owner_ids=owner_ids,
         )
         for player in players
     ]

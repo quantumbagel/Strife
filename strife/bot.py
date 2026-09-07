@@ -95,7 +95,8 @@ class StrifeBot(commands.AutoShardedBot):
         await self.emoji.sync(self)
 
         cache = InMemoryPayloadCache()
-        signing_key = hashlib.sha256(self.settings.discord_token.encode()).digest()
+        raw_key = self.settings.signing_key or self.settings.discord_token
+        signing_key = hashlib.sha256(raw_key.encode()).digest()
         encoder = CustomIdEncoder(cache, signing_key=signing_key)
         compiler = Compiler(self.emoji, encoder)
         self.sessions = SessionRegistries()

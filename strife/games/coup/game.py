@@ -228,72 +228,66 @@ class Coup(Game):
             action_type = None
             target = None
 
-            if ctx.is_bot(actor):
-                difficulty = self.players[actor].bot_difficulty or "medium"
-                move = await self.bot_move(difficulty, actor)
-                action_type = move.args.get("action", "income")
-                target_val = move.args.get("target")
-                target = int(target_val) if target_val is not None else None
-            else:
-                # Interactive dropdown input loop for humans
-                while True:
-                    forced_coup = (self.coins[actor] >= 10)
-                    if forced_coup:
-                        self.selected_action = "coup"
+            while True:
+                forced_coup = (self.coins[actor] >= 10)
+                if forced_coup:
+                    self.selected_action = "coup"
 
-                    view = self._public_board_view(ctx)
-
-                    # Allowed inputs: selects and the submit button (if valid configuration selected)
-                    sources = {"action_select", "target_select"}
-                    is_valid = False
-                    if self.selected_action is not None:
-                        if self.selected_action in ("income", "foreign_aid", "tax", "exchange"):
+                view = self._public_board_view(ctx)
+                sources = {"action_select", "target_select"}
+                is_valid = False
+                if self.selected_action is not None:
+                    if self.selected_action in ("income", "foreign_aid", "tax", "exchange"):
+                        is_valid = True
+                    elif self.selected_action in ("coup", "assassinate", "steal"):
+                        if self.selected_target is not None and self.selected_target != "none":
                             is_valid = True
-                        elif self.selected_action in ("coup", "assassinate", "steal"):
-                            if self.selected_target is not None and self.selected_target != "none":
-                                is_valid = True
+                if is_valid:
+                    sources.add("submit_action")
 
-                    if is_valid:
-                        sources.add("submit_action")
+                move = await ctx.request_input(
+                    view,
+                    actor=actor,
+                    sources=sources,
+                    record=False,
+                    description=self._turn_wait_description(forced_coup=forced_coup),
+                    timeout_seconds=30.0,
+                    timeout_consequence="skip",
+                )
 
-                    move = await ctx.request_input(
-                        view,
-                        actor=actor,
-                        sources=sources,
-                        description=self._turn_wait_description(forced_coup=forced_coup),
-                        timeout_seconds=30.0,
-                        timeout_consequence="skip"
-                    )
+                if move.source == "timeout":
+                    penalty = False
+                    if self.coins[actor] > 0:
+                        self.coins[actor] -= 1
+                        penalty = True
+                    msg = f"{ctx.emoji.get('timer', base=True)} {self.players[actor].mention} timed out."
+                    if penalty:
+                        msg += " Action skipped and 1 coin lost."
+                    else:
+                        msg += " Action skipped."
+                    self.history.append(msg)
+                    action_type = "skipped"
+                    break
 
-                    if move.source == "timeout":
-                        # 30-sec Turn Timeout: Apply the "Skip Action" coin penalty
-                        penalty = False
-                        if self.coins[actor] > 0:
-                            self.coins[actor] -= 1
-                            penalty = True
-                        msg = f"{ctx.emoji.get('timer', base=True)} {self.players[actor].mention} timed out."
-                        if penalty:
-                            msg += " Action skipped and 1 coin lost."
-                        else:
-                            msg += " Action skipped."
-                        self.history.append(msg)
-                        action_type = "skipped"
-                        break
-
-                    if move.source == "action_select":
-                        self.selected_action = move.args.get("value")
-                        if self.selected_action in ("income", "foreign_aid", "tax", "exchange"):
-                            self.selected_target = "none"
-                        elif self.selected_target == "none":
-                            self.selected_target = None
-                        continue
-                    elif move.source == "target_select":
-                        self.selected_target = move.args.get("value")
-                        continue
-                    elif move.source == "submit_action":
+                if ctx.is_bot(actor) or move.source == "submit_action":
+                    if ctx.is_bot(actor):
+                        action_type = move.args.get("action") or self.selected_action or "income"
+                        target_val = move.args.get("target")
+                        target = int(target_val) if target_val is not None else None
+                    else:
                         action_type = self.selected_action
                         target = None if self.selected_target in (None, "none") else int(self.selected_target)
-                        break
+                    break
+                if move.source == "action_select":
+                    self.selected_action = move.args.get("value")
+                    if self.selected_action in ("income", "foreign_aid", "tax", "exchange"):
+                        self.selected_target = "none"
+                    elif self.selected_target == "none":
+                        self.selected_target = None
+                    continue
+                if move.source == "target_select":
+                    self.selected_target = move.args.get("value")
+                    continue
 
             if action_type == "skipped":
                 self.current = self._next_player(actor)

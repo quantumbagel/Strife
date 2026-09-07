@@ -83,12 +83,21 @@ class SessionIOMixin:
             wait_description = None
             line_descriptions: dict[int, str] = {}
             if human_pending:
-                timeout_val = self.turn_timeout_seconds
-                for seat in human_pending:
-                    pending_input = self.pending.get(seat)
-                    if pending_input and pending_input.timeout_seconds is not None:
-                        timeout_val = min(timeout_val, pending_input.timeout_seconds)
-                remaining = timeout_val - (time.monotonic() - self.last_move_at)
+                now = time.monotonic()
+                deadlines = [
+                    self.pending[seat].deadline_at
+                    for seat in human_pending
+                    if self.pending[seat].deadline_at is not None
+                ]
+                if deadlines:
+                    remaining = min(deadlines) - now
+                else:
+                    timeout_val = self.turn_timeout_seconds
+                    for seat in human_pending:
+                        pending_input = self.pending.get(seat)
+                        if pending_input and pending_input.timeout_seconds is not None:
+                            timeout_val = min(timeout_val, pending_input.timeout_seconds)
+                    remaining = timeout_val - (now - self.last_move_at)
                 deadline_unix = int(time.time() + max(0, remaining))
                 header_descriptions = {
                     self.pending[seat].description
@@ -109,6 +118,7 @@ class SessionIOMixin:
                 players=self.players,
                 text=self.text,
                 emoji=self.header_surface.compiler.emoji,
+                owner_ids=self._owner_ids(),
                 pending_seats=human_pending or None,
                 deadline_unix=deadline_unix,
                 wait_description=wait_description,

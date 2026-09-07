@@ -16,7 +16,7 @@ from strife.engine.context import ReplayContext
 from strife.engine.log import LogEntryKind, reject_system_source
 from strife.engine.players import Move, Player
 from strife.engine.registry import GameRegistry
-from strife.presentation.components import LayoutView
+from strife.presentation.components import LayoutView, query_sources
 from strife.presentation.emoji import EmojiResolver
 
 
@@ -63,6 +63,16 @@ class MockContext:
         timeout_consequence: str | None = None,
     ) -> Move:
         await self.update(view)
+        if sources is not None:
+            sources = set(sources) - query_sources(view)
+        if self.players[actor].is_bot:
+            print(f"[bot] seat {actor} has no bot_move in CLI; using first source")
+            source = sorted(sources)[0] if sources else "pass"
+            move = Move(actor_seat=actor, source=source, args={}, turn_index=self._turn_index)
+            if record:
+                self.recorded.append(move)
+                self._turn_index += 1
+            return move
         if self._script_index < len(self._scripted):
             seat, source, args = self._scripted[self._script_index]
             self._script_index += 1
@@ -112,7 +122,14 @@ class MockContext:
             seat_sources = (
                 per_seat_sources.get(seat, sources) if per_seat_sources else sources
             )
-            results[seat] = await self.request_input(view, actor=seat, sources=seat_sources)
+            results[seat] = await self.request_input(
+                view,
+                actor=seat,
+                sources=seat_sources,
+                record=record,
+                timeout_seconds=timeout_seconds,
+                timeout_consequence=timeout_consequence,
+            )
             if until == "any":
                 break
         return results

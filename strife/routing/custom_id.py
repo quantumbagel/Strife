@@ -46,16 +46,23 @@ class CustomIdEncoder:
         self._limit = limit
         self._signing_key = signing_key
 
+    _MAC_BYTES = 16
+
     def _sign(self, body: bytes) -> str:
-        digest = hmac.new(self._signing_key, body, hashlib.sha256).digest()[:6]
+        digest = hmac.new(self._signing_key, body, hashlib.sha256).digest()[: self._MAC_BYTES]
         return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
 
     def _verify(self, body: bytes, signature: str) -> None:
         pad = "=" * (-len(signature) % 4)
         expected = base64.urlsafe_b64decode(signature + pad)
-        actual = hmac.new(self._signing_key, body, hashlib.sha256).digest()[:6]
-        if not hmac.compare_digest(expected, actual):
+        actual = hmac.new(self._signing_key, body, hashlib.sha256).digest()[: self._MAC_BYTES]
+        if len(expected) != self._MAC_BYTES or not hmac.compare_digest(expected, actual):
             raise CustomIdError("invalid signature")
+
+    def invalidate_resource(self, resource_id: int) -> None:
+        invalidate = getattr(self._cache, "invalidate", None)
+        if callable(invalidate):
+            invalidate(resource_id)
 
     def _unpack(self, raw: bytes) -> dict:
         return msgpack.unpackb(raw, **_MSGPACK_OPTS)
@@ -68,7 +75,7 @@ class CustomIdEncoder:
         cid = f"{prefix}{resource_id}/{blob}.{signature}"
         if len(cid) <= self._limit:
             return cid
-        token = self._cache.put(packed)
+        token = self._cache.put(packed, resource_id=resource_id)
         return f"{prefix}{resource_id}/~{token}.{signature}"
 
     def decode(self, custom_id: str) -> Route:

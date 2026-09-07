@@ -34,6 +34,7 @@ class LobbyControlsMixin:
                 interaction,
                 tab=tab,
                 readonly=readonly,
+                owner_ids=self.owner_ids(),
             )
             compiled = self.compiler.compile(
                 view, resource_id=lobby.thread_id, prefix=P.LOBBY_SETTINGS

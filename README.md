@@ -2,6 +2,8 @@
 
 A thread-based Discord gaming platform (**platform 1.0.0**). Start a lobby with `/play`, play in a public game thread, then rematch, replay, or check your profile.
 
+How players, operators, and game authors are supposed to talk to the bot — and where the current code still drifts — is in [docs/interfaces.md](docs/interfaces.md).
+
 This is the rewrite of [PlayCord](https://github.com/PlayCord/bot).
 
 ## Invite / permissions
@@ -25,22 +27,23 @@ If you publish a public invite, set the application's privacy-policy URL to `doc
 
 ## Commands
 
+Slash **starts** things; the lobby **message** marshals the table; the public **thread** is the match. Full contract: [docs/interfaces.md](docs/interfaces.md).
+
 | Command | What it does |
 |---------|----------------|
-| `/play` | Open a lobby for a game |
-| `/strife catalog` | Browse the launch catalog |
-| `/strife profile` | Wins, losses, and recent matches |
-| `/strife replay` | Open a finished match by code |
-| `/strife forfeit` | Leave a lobby or forfeit a live game |
-| `/strife settings` | Lobby settings |
+| `/play` | Start a lobby (`game:` required, `private:` optional) |
+| `/strife catalog` | Browse games (Play posts a public lobby in the channel) |
+| `/strife profile` | Wins, losses, and recent matches (`user:`, `game:`, `page:` optional) |
+| `/strife replay` | Open a finished match by 6-character code |
+| `/strife forfeit` | Forfeit a **live** game (leave a lobby with Leave / `/strife lobby leave`) |
+| `/strife settings` | Open lobby settings (creator edits; members can view) |
 | `/strife server` | Default lobby channel (administrators) |
 | `/strife about` | About the project |
-| `/strife lobby …` | Join, leave, ready, kick, privacy |
-| `/strife bot add/remove` | Fill empty seats |
+| `/strife lobby join/leave/ready` | Join by creator, leave, toggle ready. Other lobby tools are on the lobby message and Settings |
 
-Chess uses `/chess move` with SAN or UCI (`e4`, `Nf3`, `e2e4`).
+Chess uses `/chess move` with SAN or UCI (`e4`, `Nf3`, `e2e4`) — there are no piece buttons on the board.
 
-Hidden-info games (Mafia, Spyfall, Liar's Dice, Coup) also have a **Peek** button on the board. Enable DMs from server members if you want the role/hand sent privately; peek still works if DMs are closed.
+Hidden-info games have a **Peek** button on the board. Mafia, Spyfall, and Liar's Dice also DM the role/hand when DMs are open. **Coup is peek-only.** Peek still works if DMs are closed.
 
 ## Launch games
 
@@ -75,7 +78,7 @@ After the bot is online, in a server where you are listed in `STRIFE_OWNER_IDS`:
 
 ## Owner commands
 
-Message the bot (or mention it) as an owner:
+As an owner (`STRIFE_OWNER_IDS`), type `strife/…` at the **start** of a message in any channel or DM. A mention prefix is not accepted.
 
 | Command | What it does |
 |---------|----------------|
@@ -83,14 +86,16 @@ Message the bot (or mention it) as an owner:
 | `strife/emoji` | Re-upload application emoji |
 | `strife/dbreset confirm` | Wipe the database and re-run migrations |
 | `strife/plugins` | List builtin and installed game plugins |
-| `strife/install <git-url>` | Install a game from a GitHub (or other git) plugin repo |
+| `strife/install <git-url> [ref]` | Install a game from a git plugin repo |
 | `strife/install <key>` | Restore an uninstalled builtin game |
 | `strife/update <key> [ref]` | Replace a git plugin's files without deleting match history |
 | `strife/uninstall <key> confirm` | Remove a game (builtin or installed) and delete its match history |
 
+To **hide** a game without deleting history, set `enabled: false` in `config/games.yaml`. Uninstall wipes matches and stats for that key. See [docs/plugins.md](docs/plugins.md).
+
 ## Write a game
 
-See [docs/game-development.md](docs/game-development.md) and [docs/game-api.md](docs/game-api.md). How games are discovered, isolated from Discord, and exposed in the catalog is in [docs/game-architecture.md](docs/game-architecture.md). Install, update, and uninstall (including wiping history) is in [docs/plugins.md](docs/plugins.md). Each plugin has `plugin.toml` with its own `version`, `platform_version`, and extras. Scaffold an in-tree builtin with `python scripts/scaffold_game.py <key> "Title"`, or copy `templates/game-plugin/` and `strife/install <url>`. Try locally with `python scripts/run_game.py <key>`.
+See [docs/interfaces.md](docs/interfaces.md) for the player / operator / author contract, [docs/game-development.md](docs/game-development.md) and [docs/game-api.md](docs/game-api.md) for implementing a game. How games are discovered, isolated from Discord, and exposed in the catalog is in [docs/game-architecture.md](docs/game-architecture.md). Install, update, and uninstall (including wiping history) is in [docs/plugins.md](docs/plugins.md). Each plugin has `plugin.toml` with its own `version`, `platform_version`, and extras. Scaffold an in-tree builtin with `python scripts/scaffold_game.py <key> "Title"`, or copy `templates/game-plugin/` and `strife/install <url>`. Try locally with `python scripts/run_game.py <key>`.
 
 ## License
 

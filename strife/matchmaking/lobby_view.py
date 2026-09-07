@@ -19,7 +19,7 @@ from strife.presentation.components import (
 from strife.presentation.emoji import EmojiResolver
 from strife.presentation.roster import member_line
 from strife.routing import prefixes as P
-from strife.settings import get_settings
+
 
 
 def build_lobby_view(
@@ -27,6 +27,8 @@ def build_lobby_view(
         meta: GameMetadata,
         emoji: EmojiResolver,
         text: TextConfig,
+        *,
+        owner_ids: frozenset[int] = frozenset(),
 ) -> LayoutView:
     game_emoji = emoji.get_game_emoji(meta.key)
     view = LayoutView()
@@ -107,7 +109,6 @@ def build_lobby_view(
         )
 
     roster_lines = []
-    settings = get_settings()
     for member in lobby.members:
         status = text.get("lobby.ready") if member.user_id in lobby.ready else text.get("lobby.not_ready")
         roster_lines.append(
@@ -115,7 +116,7 @@ def build_lobby_view(
                 emoji,
                 user_id=member.user_id,
                 display_name=member.display_name,
-                owner_ids=frozenset(settings.owner_ids),
+                owner_ids=owner_ids,
                 creator_id=lobby.creator_id,
                 suffix=f"({status})",
             )

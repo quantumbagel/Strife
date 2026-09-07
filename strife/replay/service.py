@@ -179,7 +179,9 @@ class ReplayService:
             emoji=game_compiler.emoji,
         )
         compiled = game_compiler.compile(view, resource_id=entry.detail.id, prefix=P.R_NAV)
-        files = getattr(view, "files", [])
+        from strife.presentation.message import to_discord_files
+
+        files = to_discord_files(getattr(view, "files", []))
         if interaction.response.is_done():
             await interaction.followup.send(view=compiled, files=files, ephemeral=True)
         else:
@@ -192,6 +194,7 @@ class ReplayService:
         interaction: discord.Interaction,
         *,
         owner_id: int,
+        parent: discord.Message | None = None,
     ) -> None:
         try:
             entry = await self._load_entry(match_id)
@@ -226,11 +229,16 @@ class ReplayService:
             emoji=game_compiler.emoji,
         )
         compiled = game_compiler.compile(view, resource_id=match_id, prefix=P.R_NAV)
-        files = getattr(view, "files", [])
-        if interaction.response.is_done():
-            await interaction.edit_original_response(view=compiled, attachments=files)
-        else:
+        from strife.presentation.message import to_discord_files
+
+        files = to_discord_files(getattr(view, "files", []))
+        target = parent or interaction.message
+        if not interaction.response.is_done() and parent is None:
             await interaction.response.edit_message(view=compiled, attachments=files)
+        elif target is not None:
+            await target.edit(view=compiled, attachments=files)
+        else:
+            await interaction.edit_original_response(view=compiled, attachments=files)
 
     async def open_jump_modal(
         self,
@@ -242,12 +250,14 @@ class ReplayService:
         frame: int = 0,
     ) -> None:
         async def on_submit(modal_interaction: discord.Interaction, new_frame: int) -> None:
+            parent = modal_interaction.message
             await modal_interaction.response.defer()
             await self.render_frame(
                 match_id,
                 new_frame,
                 modal_interaction,
                 owner_id=owner_id,
+                parent=parent,
             )
 
         modal = PageJumpModal(

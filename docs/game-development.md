@@ -1,6 +1,6 @@
 # Game Development Guide
 
-This guide walks through building a Strife game. For the method reference table, see [game-api.md](game-api.md). For how games are discovered, sandboxed, and exposed on Discord, see [game-architecture.md](game-architecture.md).
+This guide walks through building a Strife game. For the player / operator / author interface, see [interfaces.md](interfaces.md). For the method reference table, see [game-api.md](game-api.md). For how games are discovered, sandboxed, and exposed on Discord, see [game-architecture.md](game-architecture.md).
 
 ## Quick start
 
@@ -77,12 +77,12 @@ Use `GameContext` inside `play()`:
 
 | Call                                                         | When                              |
 |--------------------------------------------------------------|-----------------------------------|
-| `ctx.request_input(view, actor=seat, sources={...})`         | One player acts                   |
-| `ctx.request_inputs(view, actors={...}, until="all"\|"any")` | Multiple players act              |
+| `ctx.request_input(view, actor=seat, sources={...}, timeout_seconds=, timeout_consequence=)` | One player acts |
+| `ctx.request_inputs(view, actors={...}, until="all"\|"any", per_seat_sources=)` | Multiple players act |
 | `ctx.request_inputs(..., record=False)`                      | Collect inputs without logging each one |
 | `ctx.update(view)`                                           | Refresh the board without waiting |
 | `ctx.send_private(seat, view)`                               | DM hidden information             |
-| `ctx.record_event(name, args)`                               | Log a non-input event for replays |
+| `ctx.record_event(source, arguments)`                        | Log a non-input event for replays |
 | `ctx.respond_query(view)`                                    | Reply to a peek / query button    |
 
 Player inputs are recorded automatically. Use `record_event` for phase transitions and hidden reveals.
@@ -114,7 +114,7 @@ move = await ctx.request_input(view, actor=seat, sources={"vote_guilty", "vote_i
 
 ### Query buttons (peek, help, open ephemeral UI)
 
-Query buttons have a `source` string but are **omitted from `sources`**. When clicked, the router calls `handle_query()` instead of submitting a move. Use them for:
+Query buttons have a `source` string and **`query=True`**. The host strips them from allowed move sources even if you list them in `sources`. Mark them `query=True` and handle them in `handle_query()` — they are not moves. Use them for:
 
 - Peeking at hidden information (role, hand, secret location)
 - Opening a private ephemeral panel without submitting an action
@@ -255,7 +255,8 @@ await ctx.record_event("day_outcome", {"votes": {...}, "lynched": seat})
 # Wrong — peek is not a move; do not record it
 await ctx.record_event("peek", {"seat": seat, "role": role})
 
-# Wrong — listing peek in sources makes it a move
+# Wrong — peek without query=True would be a move if listed in sources
+row.add_button(Button(source="peek", label="Peek"))  # missing query=True
 move = await ctx.request_input(view, actor=seat, sources={"pass", "peek"})
 ```
 
@@ -345,7 +346,7 @@ If `supports_player_removal` is set, implement `remove_player(seat)` to update a
 - [ ] `final_view()` shows a sensible end state (optional but recommended)
 - [ ] Game art in `<package>/emoji/` (`game.webp`, pieces, roles). Platform names from `strife/presentation/base_emojis.py` via `ctx.emoji.get("loading", base=True)`
 - [ ] Run locally with `python scripts/run_game.py <key>`
-- [ ] Query buttons (peek, etc.) omitted from `sources` and handled in `handle_query()`
+- [ ] Query buttons marked `query=True` and handled in `handle_query()`
 - [ ] Replay views show game state only — omit action rows when `ctx.is_replay`
 - [ ] Group actions use `request_inputs(..., record=False)` plus one `record_event` for replay
 - [ ] `parse_replay` handles resolution events, not every per-player click source

@@ -264,6 +264,7 @@ class ProfileService:
         page: int,
         *,
         edit: bool = False,
+        parent: discord.Message | None = None,
     ) -> None:
         stats = await self.users.get_stats(user.id, game)
         total_matches = await self.matches.count_for_user(user.id, game)
@@ -284,10 +285,13 @@ class ProfileService:
         compiled = self.compiler.compile(view, resource_id=user.id, prefix=P.PROF_NAV)
 
         if edit:
-            if interaction.response.is_done():
-                await interaction.edit_original_response(view=compiled)
-            else:
+            target = parent or interaction.message
+            if not interaction.response.is_done() and parent is None:
                 await interaction.response.edit_message(view=compiled)
+            elif target is not None:
+                await target.edit(view=compiled)
+            else:
+                await interaction.edit_original_response(view=compiled)
         else:
             await interaction.response.send_message(view=compiled, ephemeral=True)
 
@@ -310,6 +314,7 @@ class ProfileService:
         user_id = route.payload.get("user")
 
         async def on_submit(modal_interaction: discord.Interaction, new_page: int) -> None:
+            parent = modal_interaction.message
             await modal_interaction.response.defer(ephemeral=True)
             if user_id is not None:
                 user = modal_interaction.client.get_user(int(user_id))
@@ -317,7 +322,7 @@ class ProfileService:
                     user = await modal_interaction.client.fetch_user(int(user_id))
             else:
                 user = modal_interaction.user
-            await self.show(modal_interaction, user, game, new_page, edit=True)
+            await self.show(modal_interaction, user, game, new_page, edit=True, parent=parent)
 
         modal = PageJumpModal(
             title=self.text.get("profile.jump_modal_title"),

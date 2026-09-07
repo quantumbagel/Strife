@@ -97,7 +97,13 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
         self._match_code: str | None = None
         self._bot = None
         self._finalized = False
+        self._ending = False
         self._timeout_warned: dict[int, float] = {}
+        self._timeout_inflight: set[int] = set()
+        self._timeout_generation: dict[int, int] = {}
+        self.lobby_surface = None
+        self.lobby_private = False
+        self.lobby_creator_id: int | None = None
 
     @property
     def started_at(self) -> datetime:
@@ -105,6 +111,12 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
 
     def mark_progress(self) -> None:
         self.last_progress_at = time.monotonic()
+
+    def _owner_ids(self) -> frozenset[int]:
+        settings = getattr(self._bot, "settings", None) if self._bot is not None else None
+        if settings is None:
+            return frozenset()
+        return frozenset(getattr(settings, "owner_ids", ()) or ())
 
     async def start(self) -> None:
         self.task = asyncio.create_task(self._run())
@@ -118,7 +130,7 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
                 outcome = await self.game.play(self.ctx)
                 await self._finalize(outcome, status="completed")
             except asyncio.CancelledError:
-                if not self._finalized:
+                if not self._finalized and not self._ending:
                     self._append_log_entry(
                         "game_end",
                         {"reason": "cancelled", "cancelled": True},
@@ -139,7 +151,7 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
             except Exception:
                 log.exception("Game session crashed", extra={"match_id": self.id})
                 await self._notify_thread(self.text.get("match.session_crashed"))
-                if not self._finalized:
+                if not self._finalized and not self._ending:
                     await self._finalize(
                         GameOutcome(
                             results={},

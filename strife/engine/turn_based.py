@@ -99,7 +99,7 @@ class TurnBasedGame(Game):
         self.reset()
         builder = ReplayBuilder(ctx)
         builder.initial(
-            self.render(
+            self.render_replay(
                 ctx,
                 lead=self.replay_initial_status(ctx, moves),
                 prefix_emoji="loading",
@@ -115,7 +115,7 @@ class TurnBasedGame(Game):
                 continue
             turn += 1
             if step.terminal:
-                builder.add(step, self.render_final(ctx), label="Final")
+                builder.add(step, self.render_final_replay(ctx), label="Final")
                 break
             next_actor = getattr(self, "current", step.move.actor_seat)
             lead = (
@@ -125,7 +125,7 @@ class TurnBasedGame(Game):
             )
             builder.add(
                 step,
-                self.render(ctx, lead=lead, prefix_emoji="loading"),
+                self.render_replay(ctx, lead=lead, prefix_emoji="loading"),
                 label=self.replay_label(turn),
             )
 

@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 import random
 from typing import Any, Literal, TYPE_CHECKING
+from weakref import WeakKeyDictionary
 
 from strife.engine.log import reject_system_source
 from strife.engine.players import Move, Player
@@ -13,16 +14,25 @@ from strife.presentation.emoji import EmojiResolver
 if TYPE_CHECKING:
     from strife.session.game_session import GameSession
 
+_HOSTS: WeakKeyDictionary = WeakKeyDictionary()
+
 
 class LiveContext:
-    """``GameContext`` implementation backed by a live ``GameSession``."""
+    """``GameContext`` implementation backed by a live ``GameSession``.
+
+    The host object is not exposed as ``_session`` so game code cannot reach
+    Discord, persistence, or occupancy through the context.
+    """
 
     def __init__(self, session: GameSession) -> None:
-        self._session = session
+        _HOSTS[self] = session
         self._query_interaction: object | None = None
 
+    def _host(self) -> GameSession:
+        return _HOSTS[self]
+
     def _touch(self) -> None:
-        self._session.mark_progress()
+        self._host().mark_progress()
 
     def _begin_query(self, interaction: object) -> None:
         self._query_interaction = interaction
@@ -32,7 +42,7 @@ class LiveContext:
 
     @property
     def started_at(self) -> datetime | None:
-        return self._session.started_at
+        return self._host().started_at
 
     @property
     def is_replay(self) -> bool:
@@ -40,26 +50,26 @@ class LiveContext:
 
     @property
     def rng(self) -> random.Random:
-        return self._session.game.rng
+        return self._host().game.rng
 
     @property
     def players(self) -> Sequence[Player]:
-        return self._session.players
+        return self._host().players
 
     @property
     def settings(self) -> Mapping[str, object]:
-        return self._session.settings
+        return self._host().settings
 
     @property
     def emoji(self) -> EmojiResolver:
-        return self._session.surface.compiler.emoji
+        return self._host().surface.compiler.emoji
 
     def is_bot(self, seat: int) -> bool:
-        return self._session.players[seat].is_bot
+        return self._host().players[seat].is_bot
 
     async def update(self, view: LayoutView) -> None:
         self._touch()
-        await self._session._update_surface(view)
+        await self._host()._update_surface(view)
 
     async def request_input(
         self,
@@ -73,7 +83,7 @@ class LiveContext:
         timeout_consequence: str | None = None,
     ) -> Move:
         self._touch()
-        move = await self._session._request_input(
+        move = await self._host()._request_input(
             view,
             actor=actor,
             sources=sources,
@@ -100,7 +110,7 @@ class LiveContext:
         timeout_consequence: str | None = None,
     ) -> dict[int, Move]:
         self._touch()
-        moves = await self._session._request_inputs(
+        moves = await self._host()._request_inputs(
             view,
             actors=actors,
             sources=sources,
@@ -117,16 +127,16 @@ class LiveContext:
 
     async def send_private(self, seat: int, view: LayoutView) -> None:
         self._touch()
-        await self._session._send_private(seat, view)
+        await self._host()._send_private(seat, view)
 
     async def record_event(self, source: str, arguments: dict[str, Any]) -> None:
         self._touch()
         reject_system_source(source)
-        self._session._append_log_entry(source, arguments)
+        self._host()._append_log_entry(source, arguments)
 
     async def respond_query(self, view: LayoutView) -> None:
         self._touch()
         interaction = self._query_interaction
         if interaction is None:
             raise RuntimeError("respond_query() is only valid inside handle_query")
-        await self._session._respond_query(interaction, view)
+        await self._host()._respond_query(interaction, view)

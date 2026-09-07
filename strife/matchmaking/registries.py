@@ -71,3 +71,14 @@ class SessionRegistries:
                     self.user_location[member.user_id] = UserLocation(
                         "game", session.thread_id, session.guild_id
                     )
+
+    async def rollback_promote(self, lobby: Lobby, session: GameSession) -> None:
+        """Undo ``promote``: drop the session and restore the lobby occupancy."""
+        async with self._lock:
+            self.active_games.pop(session.thread_id, None)
+            self.lobbies[lobby.lobby_id] = lobby
+            self.guild_lobbies.setdefault(lobby.guild_id, set()).add(lobby.lobby_id)
+            for member in lobby.members:
+                self.user_location[member.user_id] = UserLocation(
+                    "lobby", lobby.thread_id, lobby.guild_id
+                )
