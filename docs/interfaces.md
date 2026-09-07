@@ -128,10 +128,10 @@ Type `strife/<cmd>` as the **start of the message** in any channel or DM. A ment
 | `strife/sync [local \| <guild id>]` | Push the slash tree (default: global) |
 | `strife/emoji` | Upload `assets/emoji/` stems listed in `base_emojis.py`, plus each plugin `emoji/` as `{key}_{stem}` |
 | `strife/plugins` | List builtins and git plugins |
-| `strife/install <git-url> [ref]` | Clone, pip extras, register, `games.yaml` `enabled: true` |
-| `strife/install <key>` | Restore an uninstalled builtin |
+| `strife/install <git-url> [ref]` | Clone, register. Creates `games.yaml` row if the key is new. Extras install on next boot if missing. |
+| `strife/install <key>` | Restore an uninstalled builtin (does not un-hide `enabled: false`) |
 | `strife/update <key> [ref]` | Replace git files; keep history; refuse while that game has a live match or lobby |
-| `strife/uninstall <key> confirm` | Stop live games, remove plugin, **then** wipe matches/stats for that `game_key` |
+| `strife/uninstall <key> confirm` | Stop live games, remove plugin, **then** wipe matches/stats for that `game_key`. Does not pip-uninstall extras. |
 | `strife/dbreset confirm` | Wipe the database and re-run migrations |
 
 `strife/clear` and `strife/treediff` are **developer internals**. They stay out of README. `clear` wipes the slash tree and is easy to run by mistake.
@@ -179,8 +179,8 @@ Do **not** import `discord`, `strife.session`, `strife.bot`, `strife.matchmaking
 
 1. `plugin.toml`: `key`, `version`, `platform_version`, `dependencies`.
 2. `changelog.toml` next to it (optional to load, expected for Changes). Newest `[[release]]` first; latest `version` should match `plugin.toml`.
-3. Export a `Game` subclass from `__init__.py`.
-4. `GameMetadata.key` **equals** `plugin.toml` key. `version` / `platform_version` on metadata **equal** the manifest (the host should refuse a mismatch).
+3. Export the `Game` subclass as `GAME` from `__init__.py`.
+4. `GameMetadata.key` **equals** `plugin.toml` key. The host **stamps** `metadata.version` / `platform_version` from the manifest at load. Do not duplicate them on the class.
 5. `play(ctx) -> GameOutcome` is always required.
 6. Capability flags are fail-closed: missing `parse_replay` / `bot_move` / `remove_player` **skips registration** (error log, not a warning). Default `supports_replay=True`, so a raw `Game` without `parse_replay` will not load — subclass `TurnBasedGame` or set `supports_replay=False`.
 
@@ -257,7 +257,7 @@ Everything above the wall can change without games changing. Contributors extend
 4. **Per-seat deadlines.** `request_inputs` must not share one `last_move_at` across waiters. AFK must not fire the same seat twice.
 5. **Don’t hold `lobby.lock` across Discord HTTP** (thread create, `add_user`, message sends). Set `starting`, drop the lock, re-check.
 6. **Presentation that games import must stay Discord-free.** Thread headers, compiler, `ViewSurface`, HMAC, and owner badges live outside `game_ui.py` / `components.py` plugin paths.
-7. **Tests pin the contract:** `Move` shapes, `query=True` vs sources, `record=False` on all three hosts, plugin.toml vs metadata version, occupancy rollback, and at least one social game’s CLI log vs `parse_replay`.
+7. **Tests pin the contract:** `Move` shapes, `query=True` vs sources, `record=False` on all three hosts, plugin.toml stamps metadata version, occupancy rollback, and at least one social game’s CLI log vs `parse_replay`.
 
 ---
 
@@ -267,7 +267,6 @@ The critical and major holes listed when this contract was written are implement
 
 - Slash `/strife lobby *` still exists as a parallel surface. Buttons and slash now share start/occupancy rules; further deletion of duplicate slash is optional.
 - Live matches are still persisted only at finalize (kill -9 loses the in-progress game).
-- Plugin install/update still pip-installs in the running process.
 - Profile `list_recent` still uses a per-row count subquery.
 - `config/emoji.yaml` may still list leftover cache keys until the next `strife/emoji`.
 - `errors.not_on_whitelist` is unused copy.
@@ -303,9 +302,9 @@ Repos are one 542-line module. A match row exists only at finalize. Kill -9 leav
 
 ### Plugins as live surgery
 
-`PluginManager` (~492 lines) clones, pip installs/uninstalls, swaps directories, and mutates two yaml files in the running process. Uninstall can wipe DB after a partial filesystem failure if the control flow is wrong; pip uninstall of “orphan” extras can hit undeclared shared libs.
+`PluginManager` clones into a temp dir, validates `plugin.toml`, then swaps onto `plugins/<key>/`. It does not pip-install or pip-uninstall in a live process; missing extras load on the next boot. Uninstall writes `plugins.yaml` and deletes git files, then the command wipes DB. `games.yaml` is the playability overlay only.
 
-**Intended:** stage → health-check → reload; never `pip uninstall` without a restart; wipe DB only after filesystem success.
+Wipe DB still happens after filesystem success; leftover history can be wiped by re-running uninstall.
 
 ### Game-author helpers that don’t exist
 
@@ -313,9 +312,9 @@ Tic-tac-toe / Connect Four share `TurnBasedGame` and stay small. Coup / Mafia / 
 
 `run_cpu` is used by bots (and Chess live render) but Chess `bot_move` still `asyncio.sleep(0.5)` on the event loop; Liar’s Dice `sleep(4)` in `play()`. Replay Chess render is **not** offloaded.
 
-### Config sprawl
+### Config
 
-Enablement is `games.yaml` **and** `plugins.yaml` `removed`. `note_game` can be in-memory while disk write failed (`fatal=False`), so a plugin loads and stays unplayable. Owner badges are passed in as `owner_ids`; presentation no longer calls `get_settings()`.
+`plugins.yaml` is presence (`removed` builtins, git `installed` sources). `games.yaml` is playability (`enabled`, timeouts). Install creates a missing `games.yaml` row; it does not flip `enabled` on an existing row. Owner badges are passed in as `owner_ids`; presentation no longer calls `get_settings()`.
 
 ---
 
@@ -325,7 +324,6 @@ Items 1–4, 6–8, and 10 from the original list are done. Remaining:
 
 1. Optionally delete duplicate `/strife lobby *` commands once Settings covers them (`/strife lobby join` stays).
 2. Insert a match row at start and append moves (survives kill -9).
-3. Stage plugin installs; do not `pip uninstall` in the running bot.
-4. Diff/upsert application emoji instead of delete-all.
+3. Diff/upsert application emoji instead of delete-all.
 
 Do not add new `GameContext` methods until they exist on live **and** CLI and appear in this file.

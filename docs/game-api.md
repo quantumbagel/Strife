@@ -5,8 +5,8 @@ This document describes the method-level contract for implementing a Strife game
 ## Overview
 
 1. Add `plugin.toml` (`key`, `version`, `platform_version`, `dependencies`) and `changelog.toml` next to the package.
-2. Subclass `Game` in `game.py` and export it from `__init__.py`.
-3. Attach `GameMetadata` via `@game_metadata(...)` or `GameClass.metadata = META`. `metadata.key` must match `plugin.toml`.
+2. Subclass `Game` in `game.py` and export it as `GAME` from `__init__.py`.
+3. Attach `GameMetadata` via `@game_metadata(...)` or `GameClass.metadata = META`. `metadata.key` must match `plugin.toml`. The host stamps `version` / `platform_version` from the manifest.
 4. Builtins under `strife/games/` and git installs under `plugins/` are loaded at startup from those manifests.
 
 Runtime interaction uses `GameContext`: request player input, update the board, send private messages, record non-input events, and reply to query buttons. Games never see Discord types.
@@ -17,7 +17,7 @@ Import the plugin surface from `strife.engine` and `strife.presentation` — not
 
 This host is **platform 1.0.0** (`PLATFORM_VERSION` in `strife.engine`).
 
-Each game declares two independent semver strings on `GameMetadata`:
+Each game declares two independent semver strings in **`plugin.toml`** (the host copies them onto `GameMetadata` at load):
 
 | Field | Meaning |
 |-------|---------|
@@ -29,11 +29,10 @@ Registration skips a game when `platform_version` is not compatible with the hos
 `changelog.toml` is **not** a load gate. Players see it under `/strife about` → Changes. Keep the latest `[[release]].version` in sync with `plugin.toml`. Host notes live in `changelog/bot.toml` (product) and `changelog/platform.toml` (this API).
 
 ```python
+# plugin.toml is the source of truth for version / platform_version
 @game_metadata_from(
     key="my_game",
     name="My Game",
-    version="1.0.0",
-    platform_version="1.0.0",
     ...
 )
 ```

@@ -50,8 +50,8 @@ Everything above the wall can change (Discord library, thread model, storage) wi
 A game is a Python package with a `plugin.toml` at its root. Shipped builtins live under `strife/games/<folder>/`. Third-party plugins live under `plugins/<key>/` after `strife/install <git-url>`. Both are the same kind of plugin; builtins can be uninstalled too.
 
 1. Declares `key`, `version`, `platform_version`, and `dependencies` in `plugin.toml` (read **before** import). Optional `changelog.toml` is shown in `/strife about` → Changes.
-2. Exports a `Game` subclass from the package `__init__.py`.
-3. Attaches `GameMetadata` via `@game_metadata_from(...)`, `@game_metadata(META)`, or `Cls.metadata = META`. `metadata.key` must match `plugin.toml`.
+2. Exports the `Game` subclass as `GAME` from the package `__init__.py`.
+3. Attaches `GameMetadata` via `@game_metadata_from(...)`, `@game_metadata(META)`, or `Cls.metadata = META`. `metadata.key` must match `plugin.toml`. The host stamps `version` / `platform_version` from the manifest.
 4. Implements `play(ctx) -> GameOutcome`. Other methods are required only when metadata declares the matching capability.
 
 Typical layout:
@@ -60,7 +60,7 @@ Typical layout:
 strife/games/tictactoe/          # or plugins/my_game/
   plugin.toml     # install-time manifest
   changelog.toml  # player-facing history (/strife about → Changes)
-  __init__.py     # re-export the Game subclass
+  __init__.py     # GAME = the Game subclass
   game.py         # Game subclass + metadata
   bot.py          # optional bot policy
   emoji/          # optional; uploaded as {key}_{stem} (e.g. duke.webp → coup_duke)
@@ -68,7 +68,7 @@ strife/games/tictactoe/          # or plugins/my_game/
 
 Optional extras:
 
-- `dependencies` in `plugin.toml` (Chess: `chess`, `resvg-py`). The host pip-installs them at install/sync time. `check_dependencies` only **skips** the plugin if they are missing.
+- `dependencies` in `plugin.toml` (Chess: `chess`, `resvg-py`). The host pip-installs them at boot / image build (`sync-deps`). `check_dependencies` only **skips** the plugin if they are missing. Live install does not call pip.
 - `slash_moves` on metadata (Chess `/chess move`): extra Discord commands that submit the same `Move` objects as buttons.
 - `bot.py` used by `bot_move()`.
 - Game-specific emoji in `emoji/` (`game.webp` plus piece/role art). Uploaded as `{key}_{stem}`. Platform chrome uses `ctx.emoji.get("loading", base=True)` from the list in `strife/presentation/base_emojis.py`.
@@ -85,15 +85,16 @@ On startup, `StrifeBot.setup_hook` constructs a `PluginManager` and loads into a
 PluginManager.load(registry)
   → read strife/games/*/plugin.toml (skip config/plugins.yaml `removed`)
   → read plugins/*/plugin.toml
-  → pip-install missing extras if STRIFE_SYNC_PLUGIN_DEPS
+  → pip-install missing extras if STRIFE_SYNC_PLUGIN_DEPS (boot only)
   → skip if platform_version incompatible or extras missing
-  → import package, register Game subclasses
+  → import package, stamp version from plugin.toml, register GAME
 ```
 
 `register()` is fail-soft:
 
+- Missing `GAME` export, or `GAME` is not a `Game` subclass → log and skip.
 - Missing `metadata` or `metadata.key` → log and skip.
-- Invalid `version` / `platform_version`, or a `platform_version` the host cannot satisfy → log error and skip.
+- Invalid `version` / `platform_version` on the manifest, or a `platform_version` the host cannot satisfy → log error and skip.
 - Capability mismatch (e.g. `supports_replay` but no `parse_replay`) → log error and skip (not a warning).
 - Duplicate key → log warning and skip the second class.
 - Import error (missing extra, syntax error) → log exception and skip that package.
@@ -141,7 +142,7 @@ Fields:
 | `play_hang_seconds` | Cancel `play()` if it makes no context progress (default 45) |
 | `settings_overrides` | Operator defaults that overlay metadata settings (e.g. Mafia `mafia_count_default`) |
 
-Disabled games remain in the registry so replays of old matches can still load `parse_replay`. They are just not offered as new lobbies. **Uninstall** is stronger: it drops the plugin from the registry and deletes matches, moves, and per-game stats for that `game_key`. **Update** (`strife/update`) replaces a git plugin's files in place and keeps history. See [plugins.md](plugins.md).
+Disabled games remain in the registry so replays of old matches can still load `parse_replay`. They are just not offered as new lobbies. **Uninstall** is stronger: it drops the plugin from the registry and deletes matches, moves, and per-game stats for that `game_key`. It does not write `games.yaml`. **Update** (`strife/update`) replaces a git plugin's files in place and keeps history. See [plugins.md](plugins.md).
 
 ## 4. The sandbox wall: `GameContext`
 
@@ -412,11 +413,11 @@ The same `Game` class is constructed three more times without Discord:
 
 Authoring steps live in [game-development.md](game-development.md). From the **host** side, a game is exposed when:
 
-1. Package has `plugin.toml` (in-tree under `strife/games/` or installed into `plugins/`) and exports the `Game` subclass. `changelog.toml` is shown in `/strife about` → Changes.
-2. Manifest `key` matches metadata, `version` / `platform_version` are valid, `platform_version` is compatible with this host, and capabilities match implementations.
-3. Extras listed in `plugin.toml` are installed (image build / `strife/install` / boot sync). Missing extras skip the game instead of failing startup.
+1. Package has `plugin.toml` (in-tree under `strife/games/` or installed into `plugins/`) and exports `GAME`. `changelog.toml` is shown in `/strife about` → Changes.
+2. Manifest `key` matches metadata, `version` / `platform_version` on the manifest are valid, `platform_version` is compatible with this host, and capabilities match implementations.
+3. Extras listed in `plugin.toml` are installed (image build / boot sync). Missing extras skip the game instead of failing startup. Live `strife/install` does not pip-install.
 4. The plugin is not in `config/plugins.yaml` `removed`.
-5. `config/games.yaml` has `games.<key>.enabled: true` (otherwise it stays registered-but-hidden). Git install, restore, and update set this (preserving other fields). Uninstall sets `enabled: false`.
+5. `config/games.yaml` has `games.<key>.enabled: true` (otherwise it stays registered-but-hidden). Git install creates this row when the key is new; it does not un-hide an existing `enabled: false`. Uninstall does not write `games.yaml`.
 6. Optional `game_<key>` (and piece/role) entries; upload with `strife/emoji`.
 7. Optional `slash_moves` — registered on the next command tree sync.
 

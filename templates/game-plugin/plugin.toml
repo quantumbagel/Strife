@@ -1,13 +1,15 @@
 # Static install manifest. The host reads this *before* importing the package.
 # Keep `key` unique. `platform_version` must match the Strife game API you target.
 # Player-facing history lives in changelog.toml (shown in /strife about → Changes).
-# `version` here, in GameMetadata, and in the latest changelog [[release]] must match.
+# `version` here and in the latest changelog [[release]] must match. The host
+# stamps GameMetadata.version / platform_version from this file at load.
 
 key = "my_game"
 version = "1.0.0"
 platform_version = "1.0.0"
 dependencies = []
-# Example extras (PEP 508), installed by `strife/install`, never by game code:
+# Example extras (PEP 508). The host pip-installs them at boot / sync-deps,
+# never from game code and never during a live strife/install:
 # dependencies = [
 #   "chess>=1.11.2",
 # ]

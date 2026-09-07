@@ -16,9 +16,9 @@ dependencies = [
 ]
 ```
 
-The host reads this file **before** importing the package. `dependencies` are PEP 508 extras for that game only. They do not belong in the Strife `pyproject.toml`. `check_dependencies` never installs packages; install/sync does.
+The host reads this file **before** importing the package. `dependencies` are PEP 508 extras for that game only. They do not belong in the Strife `pyproject.toml`. `check_dependencies` never installs packages; boot / `python -m strife.plugins sync-deps` does.
 
-`key` must match `GameMetadata.key`. `platform_version` must be compatible with this host (same major, host ≥ target).
+`key` must match `GameMetadata.key`. `version` and `platform_version` on the class are **stamped from this file** at load — do not duplicate them on `GameMetadata`. `platform_version` must be compatible with this host (same major, host ≥ target).
 
 Player-facing history is a sibling `changelog.toml` (same `[[release]]` shape as `changelog/bot.toml` and `changelog/platform.toml`). Missing files are fine; the plugin still loads. `/strife about` → **Changes** shows bot, platform, and game notes.
 
@@ -40,10 +40,10 @@ Newest first. `version` on the latest release should match `plugin.toml`. Empty 
 | Command | What it does |
 |---------|----------------|
 | `strife/plugins` | List builtins (active / uninstalled) and git-installed plugins |
-| `strife/install <git-url> [ref]` | Clone a template-based repo, pip-install its extras, register it, set `games.yaml` `enabled: true` |
-| `strife/install <key>` | Restore a shipped builtin that was uninstalled and re-enable it |
-| `strife/update <key> [ref]` | Replace a git plugin's files from its recorded source without deleting match history. Refused while that game has a live match or lobby. `ref` may be a branch, tag, or commit SHA. |
-| `strife/uninstall <key> confirm` | Abandon live matches/lobbies, remove files or mark the builtin removed, **then** delete matches/replays/stats for that `game_key`, unregister, pip-uninstall extras no other plugin needs. If the plugin is already gone, the same command wipes leftover history. |
+| `strife/install <git-url> [ref]` | Clone a template-based repo, register it, create a `games.yaml` row if the key is new (`enabled: true`). Missing extras load on the next boot. |
+| `strife/install <key>` | Restore a shipped builtin that was uninstalled. Does not un-hide a game that is `enabled: false`. |
+| `strife/update <key> [ref]` | Replace a git plugin's files from its recorded source without deleting match history. Refused while that game has a live match or lobby. `ref` may be a branch, tag, or commit SHA. Does not change `games.yaml`. |
+| `strife/uninstall <key> confirm` | Abandon live matches/lobbies, remove files or mark the builtin removed, **then** delete matches/replays/stats for that `game_key` and unregister. Extras stay installed until the next process start. If the plugin is already gone, the same command wipes leftover history. |
 
 Builtin keys are reserved. You cannot install a git plugin whose `plugin.toml` key collides with a shipped game; restore the builtin instead. To refresh an already-installed git plugin, use `strife/update`, not uninstall+install.
 
@@ -58,17 +58,17 @@ removed: []          # builtin keys the operator uninstalled
 installed: {}        # git plugins: key → {source, ref}
 ```
 
-Uninstalling a builtin does not delete it from the image. It adds the key to `removed` so discovery skips it, and sets `games.<key>.enabled: false`. `strife/install chess` clears that mark, pip-installs Chess extras again, and sets `enabled: true` (preserving other fields such as timeouts).
+Uninstalling a builtin does not delete it from the image. It adds the key to `removed` so discovery skips it. `games.yaml` is left alone (`enabled` is hide-vs-show, not installed-vs-not). `strife/install chess` clears the removed mark. If `games.yaml` has no row for that key, install creates `enabled: true`; an existing row (including `enabled: false`) is preserved.
 
 Git plugins live in `plugins/<key>/` (compose mounts `./plugins`). Uninstall deletes that directory (including its `emoji/` folder). It will **fail** (and leave history alone) if the directory cannot be deleted. If the plugin is already removed but matches or stats remain, re-run `strife/uninstall <key> confirm` to wipe that leftover data. `strife/emoji` uploads plugin files as `{key}_{stem}` and platform files from `assets/emoji/` using the names in `strife/presentation/base_emojis.py`. Host installs of git plugins require `git` on PATH.
 
-`config/games.yaml` is parsed as YAML. Install/restore/update set `enabled: true`; uninstall sets `enabled: false` without dropping the rest of the entry.
+`config/games.yaml` is the playability overlay: timeouts, `enabled`, settings overrides. Presence is `plugins.yaml` plus files on disk. Install/restore/update create a missing `games.<key>` row as `enabled: true` and never flip an existing one. Uninstall does not write `games.yaml`. Hide a game with `enabled: false`; uninstall it to drop files and history.
 
 ## Dependencies
 
 On boot, if `STRIFE_SYNC_PLUGIN_DEPS` is true (default), the host pip-installs **missing** extras for currently active plugins (off the event loop). A requirement is missing when the distribution is absent **or** its installed version does not satisfy the specifier (`chess>=1.11.2`). The Docker image also runs `python -m strife.plugins sync-deps --builtins-only` at build so shipped games with extras (Chess) work on first start.
 
-Uninstall pip-uninstalls an extra only when no remaining active plugin lists it, and never uninstalls the host package, its recursive requires, or a seed set of platform libraries (discord.py, asyncpg, Pydantic, pip, …).
+Live `strife/install` / `strife/update` / `strife/uninstall` do **not** call pip. If a newly installed plugin's extras are missing, the files are kept and the owner is told to restart; boot sync then installs them and the plugin loads. Extras are never pip-uninstalled from a running bot.
 
 ## Trust
 

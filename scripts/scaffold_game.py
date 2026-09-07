@@ -45,8 +45,6 @@ from strife.presentation.game_ui import action_status, add_controls, game_contai
     description="TODO: longer description for the catalog.",
     tags=("dev",),
     author="Strife",
-    version="1.0.0",
-    platform_version="{platform_version}",
     time_estimate="5m",
     difficulty=1,
     player_count=PlayerCount(fixed=2),
@@ -108,7 +106,8 @@ class {cls}(TurnBasedGame):
 
 INIT_PY = '''from {module}.game import {cls}
 
-__all__ = ["{cls}"]
+GAME = {cls}
+__all__ = ["{cls}", "GAME"]
 '''
 
 PLUGIN_TOML = '''key = "{key}"
@@ -169,7 +168,6 @@ def main() -> int:
             key=key,
             title=title,
             cls=cls,
-            platform_version=PLATFORM_VERSION,
         ),
         encoding="utf-8",
     )

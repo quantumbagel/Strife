@@ -190,8 +190,8 @@ class BotSpec:
 class GameMetadata:
     """Plugin listing and capabilities.
 
-    ``version`` is this game's own semver. ``platform_version`` is the Strife
-    game API (``PLATFORM_VERSION``) the plugin was written for.
+    ``version`` and ``platform_version`` are stamped from ``plugin.toml`` at
+    load. Authors set ``key`` (must match the manifest) and listing fields.
     """
 
     key: str

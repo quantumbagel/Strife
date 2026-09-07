@@ -17,7 +17,7 @@ from strife.plugins.deps import (
     orphan_distributions,
 )
 from strife.plugins.errors import PluginError
-from strife.plugins.games_yaml import ensure_game_enabled_entry, set_game_enabled
+from strife.plugins.games_yaml import ensure_game_entry, set_game_enabled
 from strife.plugins.manager import PluginManager, looks_like_source
 from strife.plugins.manifest import load_manifest
 from strife.plugins.state import load_state, save_state
@@ -40,7 +40,10 @@ def _write_game_package(root: Path, key: str, *, version: str = "1.0.0", name: s
     cls = "".join(part.capitalize() for part in key.split("_"))
     title = name or cls
     _write_manifest(root, key, version=version)
-    (root / "__init__.py").write_text(f"from .game import {cls}\n", encoding="utf-8")
+    (root / "__init__.py").write_text(
+        f"from .game import {cls}\nGAME = {cls}\n",
+        encoding="utf-8",
+    )
     (root / "game.py").write_text(
         f'''
 from strife.engine import Game, GameOutcome, PlayerCount, game_metadata_from
@@ -48,8 +51,8 @@ from strife.engine import Game, GameOutcome, PlayerCount, game_metadata_from
 @game_metadata_from(
     key="{key}",
     name="{title}",
-    version="{version}",
-    platform_version="1.0.0",
+    version="9.9.9",
+    platform_version="0.0.1",
     player_count=PlayerCount(fixed=2),
     supports_replay=False,
 )
@@ -210,7 +213,22 @@ def test_uninstall_builtin_marks_removed(tmp_path: Path) -> None:
         manager.uninstall("chess")
 
 
-def test_restore_builtin_reenables_games_yaml(tmp_path: Path) -> None:
+def test_uninstall_does_not_touch_games_yaml(tmp_path: Path) -> None:
+    builtins = tmp_path / "builtins"
+    _write_manifest(builtins / "chess", "chess")
+    games_yaml = tmp_path / "games.yaml"
+    games_yaml.write_text(
+        "defaults: {}\ngames:\n  chess:\n    enabled: true\n    turn_timeout_seconds: 120\n",
+        encoding="utf-8",
+    )
+    manager = _manager(tmp_path, builtins_dir=builtins, games_yaml_path=games_yaml)
+    manager.uninstall("chess")
+    data = yaml.safe_load(games_yaml.read_text())
+    assert data["games"]["chess"]["enabled"] is True
+    assert data["games"]["chess"]["turn_timeout_seconds"] == 120
+
+
+def test_restore_preserves_hidden_games_yaml(tmp_path: Path) -> None:
     builtins = tmp_path / "builtins"
     _write_manifest(builtins / "chess", "chess")
     games_yaml = tmp_path / "games.yaml"
@@ -220,13 +238,22 @@ def test_restore_builtin_reenables_games_yaml(tmp_path: Path) -> None:
     )
     manager = _manager(tmp_path, builtins_dir=builtins, games_yaml_path=games_yaml)
     manager.uninstall("chess")
+    manager.restore_builtin("chess")
     data = yaml.safe_load(games_yaml.read_text())
     assert data["games"]["chess"]["enabled"] is False
     assert data["games"]["chess"]["turn_timeout_seconds"] == 120
+
+
+def test_restore_creates_missing_games_yaml_entry(tmp_path: Path) -> None:
+    builtins = tmp_path / "builtins"
+    _write_manifest(builtins / "chess", "chess")
+    games_yaml = tmp_path / "games.yaml"
+    games_yaml.write_text("defaults: {}\ngames: {}\n", encoding="utf-8")
+    manager = _manager(tmp_path, builtins_dir=builtins, games_yaml_path=games_yaml)
+    manager.uninstall("chess")
     manager.restore_builtin("chess")
     data = yaml.safe_load(games_yaml.read_text())
     assert data["games"]["chess"]["enabled"] is True
-    assert data["games"]["chess"]["turn_timeout_seconds"] == 120
 
 
 def test_note_game_reenables_existing_key() -> None:
@@ -239,14 +266,22 @@ def test_note_game_reenables_existing_key() -> None:
     assert cfg.for_game("hello").enabled is True
 
 
-def test_ensure_game_enabled_entry(tmp_path: Path) -> None:
+def test_ensure_game_entry(tmp_path: Path) -> None:
     path = tmp_path / "games.yaml"
-    path.write_text("defaults: {}\ngames:\n  tictactoe:\n    enabled: true\n", encoding="utf-8")
-    assert ensure_game_enabled_entry(path, "hello") is True
+    path.write_text(
+        "defaults: {}\ngames:\n  chess:\n    enabled: false\n    turn_timeout_seconds: 120\n"
+        "  tictactoe:\n    enabled: true\n",
+        encoding="utf-8",
+    )
+    assert ensure_game_entry(path, "hello") is True
     data = yaml.safe_load(path.read_text())
     assert data["games"]["hello"]["enabled"] is True
     assert data["games"]["tictactoe"]["enabled"] is True
-    assert ensure_game_enabled_entry(path, "hello") is False
+    assert ensure_game_entry(path, "hello") is True
+    assert ensure_game_entry(path, "chess") is False
+    data = yaml.safe_load(path.read_text())
+    assert data["games"]["chess"]["enabled"] is False
+    assert data["games"]["chess"]["turn_timeout_seconds"] == 120
 
 
 def test_set_game_enabled_reenables_and_ignores_prefix(tmp_path: Path) -> None:
@@ -289,7 +324,10 @@ def test_discover_loads_builtin_tictactoe() -> None:
     registry = GameRegistry()
     registry.discover()
     assert registry.contains("tictactoe")
-    assert registry.metadata("tictactoe").key == "tictactoe"
+    meta = registry.metadata("tictactoe")
+    assert meta.key == "tictactoe"
+    assert meta.version == "1.0.0"
+    assert meta.platform_version == "1.0.0"
 
 
 def test_git_install_update_uninstall_roundtrip(tmp_path: Path) -> None:
@@ -320,7 +358,7 @@ def test_git_install_update_uninstall_roundtrip(tmp_path: Path) -> None:
     assert not dest.exists()
     assert manager.record_for("sample") is None
     data = yaml.safe_load((tmp_path / "games.yaml").read_text())
-    assert data["games"]["sample"]["enabled"] is False
+    assert data["games"]["sample"]["enabled"] is True
     with pytest.raises(PluginError):
         manager.uninstall("sample")
 
@@ -412,7 +450,7 @@ def test_load_one_raises_when_plugin_has_no_game(tmp_path: Path) -> None:
     (root / "__init__.py").write_text("", encoding="utf-8")
     manager = _manager(tmp_path)
     registry = GameRegistry()
-    with pytest.raises(PluginError, match="no Game subclass"):
+    with pytest.raises(PluginError, match="did not export GAME"):
         manager.load_one(registry, "hello")
     assert not registry.contains("hello")
     manager.load(registry)
@@ -429,7 +467,7 @@ def test_reload_one_keeps_previous_class_if_new_code_is_broken(tmp_path: Path) -
 
     dest = tmp_path / "plugins" / "sample"
     (dest / "game.py").write_text("raise RuntimeError('boom')\n", encoding="utf-8")
-    (dest / "__init__.py").write_text("from .game import Sample\n", encoding="utf-8")
+    (dest / "__init__.py").write_text("from .game import Sample\nGAME = Sample\n", encoding="utf-8")
 
     with pytest.raises(PluginError, match="Failed to import plugin sample"):
         manager.reload_one(registry, "sample")
@@ -445,3 +483,71 @@ def test_git_clone_missing_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     manager = _manager(tmp_path)
     with pytest.raises(PluginError, match="git is not installed"):
         manager.install_from_git("https://example.com/game.git")
+
+
+def test_manifest_version_stamped_over_metadata(tmp_path: Path) -> None:
+    root = tmp_path / "plugins" / "hello"
+    _write_game_package(root, "hello", version="1.2.3")
+    assert 'version="9.9.9"' in (root / "game.py").read_text(encoding="utf-8")
+    manager = _manager(tmp_path)
+    registry = GameRegistry()
+    manager.load_one(registry, "hello")
+    meta = registry.metadata("hello")
+    assert meta.version == "1.2.3"
+    assert meta.platform_version == "1.0.0"
+
+
+def test_only_GAME_export_is_registered(tmp_path: Path) -> None:
+    root = tmp_path / "plugins" / "hello"
+    _write_game_package(root, "hello")
+    init = (root / "__init__.py").read_text(encoding="utf-8")
+    (root / "__init__.py").write_text(
+        "from strife.games.tictactoe.game import TicTacToe\n" + init,
+        encoding="utf-8",
+    )
+    manager = _manager(tmp_path)
+    registry = GameRegistry()
+    manager.load(registry)
+    assert registry.contains("hello")
+    assert not registry.contains("tictactoe")
+
+
+def test_invalid_GAME_export_is_rejected(tmp_path: Path) -> None:
+    root = tmp_path / "plugins" / "hello"
+    _write_manifest(root, "hello")
+    (root / "__init__.py").write_text("GAME = object\n", encoding="utf-8")
+    manager = _manager(tmp_path)
+    registry = GameRegistry()
+    with pytest.raises(PluginError, match="GAME is not a Game subclass"):
+        manager.load_one(registry, "hello")
+
+
+def test_install_does_not_pip_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    called: list[object] = []
+
+    def boom(reqs):
+        called.append(list(reqs))
+        raise AssertionError("pip_install should not run during live install")
+
+    monkeypatch.setattr("strife.plugins.manager.pip_install", boom)
+    repo = _git_plugin_repo(tmp_path / "repo", "sample")
+    manager = _manager(tmp_path)
+    manager.install_from_git(str(repo))
+    assert called == []
+    assert (tmp_path / "plugins" / "sample").is_dir()
+
+
+def test_uninstall_does_not_pip_uninstall(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    called: list[object] = []
+
+    def boom(names):
+        called.append(list(names))
+
+    monkeypatch.setattr("strife.plugins.deps.pip_uninstall", boom)
+    repo = _git_plugin_repo(tmp_path / "repo", "sample")
+    manager = _manager(tmp_path)
+    manager.install_from_git(str(repo))
+    result = manager.uninstall("sample")
+    assert result.origin == "installed"
+    assert not hasattr(result, "pip_removed")
+    assert called == []

@@ -18,8 +18,6 @@ META = GameMetadata(
     description="This game guides players through interactive layouts, multiple inputs, private messaging, settings display, and in-game role assignment.",
     tags=("test", "dev", "utility"),
     author="Strife",
-    version="1.0.0",
-    platform_version="1.0.0",
     author_link=None,
     source_link=None,
     how_to_play_link=None,
@@ -74,3 +72,4 @@ META = GameMetadata(
 )
 
 TestGame.metadata = META
+GAME = TestGame

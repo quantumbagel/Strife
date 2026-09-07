@@ -21,8 +21,6 @@ from strife.engine import TurnBasedGame, game_metadata_from, PlayerCount, Player
     key="my_game",
     name="My Game",
     summary="Short tagline",
-    version="1.0.0",
-    platform_version="1.0.0",
     player_count=PlayerCount(fixed=2),
     player_order=PlayerOrder.RANDOM,
 )
@@ -44,7 +42,7 @@ Implement `render_final()` when the finished board looks different from a normal
 
 Attach metadata with `@game_metadata_from(...)` or `@game_metadata(META)`.
 
-`version` is this plugin's semver. `platform_version` is the Strife game API it targets (currently `1.0.0`). The host skips games whose `platform_version` is newer than, or a different major from, the running platform. See [game-api.md](game-api.md#versions).
+`plugin.toml` `version` is this plugin's semver. `platform_version` is the Strife game API it targets (currently `1.0.0`). The host stamps both onto metadata at load and skips games whose `platform_version` is newer than, or a different major from, the running platform. See [game-api.md](game-api.md#versions).
 
 Ship `changelog.toml` next to `plugin.toml`. Players browse it in `/strife about` → Changes (alongside bot and platform notes). Newest `[[release]]` first; bump that file whenever you bump `version`.
 
@@ -341,7 +339,8 @@ If `supports_player_removal` is set, implement `remove_player(seat)` to update a
 
 ## Checklist 
 
-- [ ] Metadata complete (name, summary, player count, tags, `version`, `platform_version`)
+- [ ] Metadata complete (name, summary, player count, tags). `version` / `platform_version` live in `plugin.toml`.
+- [ ] `__init__.py` exports `GAME = YourGameClass`
 - [ ] `changelog.toml` latest release matches `plugin.toml` `version`
 - [ ] `play()` returns `GameOutcome` with per-seat `results` and `player_descriptions`
 - [ ] Bots work for every declared difficulty

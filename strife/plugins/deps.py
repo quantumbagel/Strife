@@ -123,6 +123,7 @@ def pip_install(requirements: Sequence[str]) -> None:
 
 
 def pip_uninstall(distributions: Sequence[str]) -> None:
+    """Remove distributions. Do not call this from a live bot; extras stay until a restart."""
     protected = host_protected_distributions()
     names = [name for name in distributions if normalize_dist(name) not in protected]
     if not names:

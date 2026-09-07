@@ -1,3 +1,4 @@
 from strife.games.tictactoe.game import TicTacToe
 
-__all__ = ["TicTacToe"]
+GAME = TicTacToe
+__all__ = ["TicTacToe", "GAME"]

@@ -14,7 +14,8 @@ log = get_logger("plugins.games_yaml")
 def set_game_enabled(path: Path, key: str, *, enabled: bool) -> bool:
     """Set ``games.<key>.enabled``. Creates the key if missing. Preserves other fields.
 
-    Returns True when the file was written.
+    Returns True when the file was written. Plugin install/uninstall should use
+    ``ensure_game_entry`` instead — presence lives in ``plugins.yaml``.
     """
     if not path.exists():
         return False
@@ -48,9 +49,34 @@ def set_game_enabled(path: Path, key: str, *, enabled: bool) -> bool:
     return True
 
 
-def ensure_game_enabled_entry(path: Path, key: str) -> bool:
-    """Set ``games.<key>.enabled: true``, creating the key if needed."""
-    return set_game_enabled(path, key, enabled=True)
+def ensure_game_entry(path: Path, key: str) -> bool:
+    """Create ``games.<key>`` as ``enabled: true`` if missing. Never edits an existing entry.
+
+    Returns the ``enabled`` flag now on disk (``True`` when the file is absent).
+    """
+    if not path.exists():
+        return True
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        raise PluginError(f"Cannot read {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise PluginError(f"{path} must be a mapping")
+
+    games = data.get("games")
+    if games is None:
+        games = {}
+        data["games"] = games
+    if not isinstance(games, dict):
+        raise PluginError(f"{path}: 'games' must be a mapping")
+
+    entry = games.get(key)
+    if not isinstance(entry, dict):
+        games[key] = {"enabled": True}
+        _write_yaml(path, data)
+        log.info("Added games.%s.enabled = true in %s", key, path)
+        return True
+    return bool(entry.get("enabled", True))
 
 
 def _write_yaml(path: Path, data: dict[str, Any]) -> None:

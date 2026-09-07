@@ -14,7 +14,7 @@ Replace `TODO` / `my_game` everywhere, and put your name in `LICENSE` before you
 |------|----------------|
 | `plugin.toml` | `key`, `version`, `platform_version`, `dependencies` |
 | `game.py` | `@game_metadata_from(...)` (`key` must match `plugin.toml`) and the class name |
-| `__init__.py` | Export that class |
+| `__init__.py` | `GAME =` that class |
 | `changelog.toml` | First `[[release]]` — `version` matches `plugin.toml`; set `date` |
 | `LICENSE` | Copyright holder |
 
@@ -26,9 +26,9 @@ Import from `strife.engine` and `strife.presentation` only. Do not import `strif
 
 Put art in `emoji/`. Catalog uses **`emoji/game.webp`** (uploaded as `{key}_game`). Without it, catalog falls back to the platform game icon. Extra stems (`token.webp`) become `{key}_{stem}`. In `play()`, `ctx.emoji.get("token")` resolves your file. Platform chrome (`loading`, `error`, `success`, `peek`, …) uses `ctx.emoji.get("loading", base=True)`. After install, run `strife/emoji` if you shipped an `emoji/` folder.
 
-List third-party libraries in `plugin.toml` `dependencies` (PEP 508). The host pip-installs them at `strife/install`. Do not import those extras at module top until they are listed here. Do not call `pip` from game code. Do not add a `pyproject.toml` / `requirements.txt` for extras.
+List third-party libraries in `plugin.toml` `dependencies` (PEP 508). The host pip-installs them at boot / `sync-deps`, not during live `strife/install`. Do not import those extras at module top until they are listed here. Do not call `pip` from game code. Do not add a `pyproject.toml` / `requirements.txt` for extras.
 
-When you ship a release, bump `version` in **both** `plugin.toml` and `GameMetadata`, add a `[[release]]` at the top of `changelog.toml`, and keep `platform_version` on the API you actually use.
+When you ship a release, bump `version` in `plugin.toml`, add a `[[release]]` at the top of `changelog.toml`, and keep `platform_version` on the API you actually use. Do not duplicate semver on `GameMetadata`.
 
 Optional patterns (see shipped games in the Strife repo, not required here):
 
@@ -51,7 +51,7 @@ Then:
 
 - `strife/emoji` if you shipped `emoji/`
 - `strife/sync` if the game declares `slash_moves`
-- `/play` — the game appears once `games.yaml` has `enabled: true` (install sets that)
+- `/play` — the game appears once `games.yaml` has `enabled: true` (install creates that row if the key is new)
 
 Update later with `strife/update <key> [ref]`. That keeps match history.
 
@@ -61,7 +61,7 @@ Update later with `strife/update <key> [ref]`. That keeps match history.
 plugin.toml       # required at repo root: key, version, platform_version, dependencies
 changelog.toml    # shown in /strife about → Changes; newest [[release]] first
 LICENSE           # replace the TODO copyright holder
-__init__.py       # export the Game subclass
+__init__.py       # GAME = the Game subclass
 game.py           # rules + metadata
 emoji/            # optional; catalog icon is game.webp
 ```

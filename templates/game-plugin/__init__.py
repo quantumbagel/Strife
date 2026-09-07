@@ -1,3 +1,4 @@
 from .game import MyGame
 
-__all__ = ["MyGame"]
+GAME = MyGame
+__all__ = ["MyGame", "GAME"]

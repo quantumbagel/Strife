@@ -10,8 +10,6 @@ META = GameMetadata(
     description="Everyone knows the secret location except the spy. Ask questions to find the spy.",
     tags=("party", "social-deduction"),
     author="Strife",
-    version="1.0.0",
-    platform_version="1.0.0",
     author_link=None,
     source_link=None,
     how_to_play_link="https://en.wikipedia.org/wiki/Spyfall",
@@ -28,3 +26,4 @@ META = GameMetadata(
 )
 
 Spyfall.metadata = META
+GAME = Spyfall

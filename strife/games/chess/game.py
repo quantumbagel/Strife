@@ -88,8 +88,6 @@ def parse_user_move(board: chess.Board, text: str) -> chess.Move | None:
     description="Play Chess against another player or a bot. Enter moves using standard text notation like e4 or Nf3.",
     tags=("classic", "strategy", "2p"),
     author="Strife",
-    version="1.0.0",
-    platform_version="1.0.0",
     author_link=None,
     source_link=None,
     how_to_play_link="https://en.wikipedia.org/wiki/Rules_of_chess",

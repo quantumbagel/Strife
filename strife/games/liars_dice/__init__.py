@@ -17,8 +17,6 @@ META = GameMetadata(
     description="Roll 5 dice. Bid on total dice across the table. Accuse the prior bidder of lying to win.",
     tags=("party", "bluffing", "dice"),
     author="Strife",
-    version="1.0.0",
-    platform_version="1.0.0",
     author_link=None,
     source_link=None,
     how_to_play_link="https://en.wikipedia.org/wiki/Liar%27s_dice",
@@ -39,3 +37,4 @@ META = GameMetadata(
 )
 
 LiarsDice.metadata = META
+GAME = LiarsDice

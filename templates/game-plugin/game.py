@@ -21,8 +21,6 @@ from strife.presentation.game_ui import action_status, add_controls, game_contai
     description="TODO: longer description for the catalog.",
     tags=(),  # TODO: e.g. ("classic", "2p")
     author="TODO",
-    version="1.0.0",
-    platform_version="1.0.0",
     author_link=None,  # TODO: https://github.com/you
     source_link=None,  # TODO: this repository URL
     how_to_play_link=None,  # TODO: rules URL

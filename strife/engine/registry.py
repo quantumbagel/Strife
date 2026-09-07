@@ -135,10 +135,18 @@ class GameRegistry:
             except Exception:
                 log.exception("Failed to import game package %s", name)
                 continue
-            from strife.plugins.loader import game_classes
+            from strife.plugins.errors import PluginError
+            from strife.plugins.loader import game_class
 
-            for game_cls in game_classes(module):
-                self.register(game_cls)
+            try:
+                game_cls = game_class(module)
+            except PluginError as exc:
+                log.error("%s", exc)
+                continue
+            if game_cls is None:
+                log.error("Package %s did not export GAME", name)
+                continue
+            self.register(game_cls)
 
     def contains(self, key: str) -> bool:
         return key in self._games

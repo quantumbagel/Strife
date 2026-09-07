@@ -12,16 +12,18 @@ from typing import TYPE_CHECKING
 from strife.engine.platform import platform_satisfies
 from strife.logging import get_logger
 from strife.plugins.deps import (
-    check_dependencies,
     collect_requirements,
     missing_dependencies,
-    orphan_distributions,
     pip_install,
-    pip_uninstall,
 )
 from strife.plugins.errors import PluginError
-from strife.plugins.games_yaml import set_game_enabled
-from strife.plugins.loader import game_classes, import_plugin, unload_plugin_modules
+from strife.plugins.games_yaml import ensure_game_entry
+from strife.plugins.loader import (
+    game_class,
+    import_plugin,
+    stamp_versions,
+    unload_plugin_modules,
+)
 from strife.plugins.manifest import (
     KEY_RE,
     PluginManifest,
@@ -43,7 +45,6 @@ _COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
 class UninstallResult:
     key: str
     origin: str
-    pip_removed: tuple[str, ...]
 
 
 class PluginManager:
@@ -156,16 +157,12 @@ class PluginManager:
                 sources.append((record.key, folder))
         return sources
 
-    def remaining_requirements(self, *, except_key: str | None = None) -> list[str]:
-        reqs: list[str] = []
-        for record in self.active_records():
-            if except_key is not None and record.key == except_key:
-                continue
-            reqs.extend(record.dependencies)
-        return reqs
-
     def ensure_dependencies(self, *, builtins_only: bool = False) -> list[str]:
-        """pip-install missing extras for plugins that should be active. Returns installed reqs."""
+        """pip-install missing extras for plugins that should be active. Returns installed reqs.
+
+        Call this at process start (or ``python -m strife.plugins sync-deps``), not from
+        live install/uninstall. Adding packages to a running bot is deferred to the next boot.
+        """
         if builtins_only:
             reqs = collect_requirements([self.builtins_dir])
         else:
@@ -222,8 +219,11 @@ class PluginManager:
                 f"this host cannot load it"
             )
             return
-        if not check_dependencies(record.dependencies):
-            fail(f"Plugin {record.key} is missing declared dependencies")
+        missing = missing_dependencies(record.dependencies)
+        if missing:
+            fail(
+                f"Plugin {record.key} is missing declared dependencies: {', '.join(missing)}"
+            )
             return
         try:
             module = import_plugin(record.origin, record.root, record.key)
@@ -231,39 +231,26 @@ class PluginManager:
             log.exception("Failed to import plugin %s from %s", record.key, record.root)
             fail(f"Failed to import plugin {record.key}: {exc}", cause=exc)
             return
-        classes = game_classes(module)
-        if not classes:
-            fail(f"Plugin {record.key} exported no Game subclass")
+        try:
+            game_cls = game_class(module)
+        except PluginError as exc:
+            fail(str(exc), cause=exc)
             return
-        matched = False
-        for game_cls in classes:
-            meta_key = getattr(game_cls.metadata, "key", None)
-            if meta_key != record.key:
-                log.error(
-                    "Plugin %s metadata.key %r does not match plugin.toml key; skipping %s",
-                    record.key,
-                    meta_key,
-                    game_cls.__name__,
-                )
-                continue
-            meta = game_cls.metadata
-            if meta.version != record.manifest.version or meta.platform_version != record.manifest.platform_version:
-                log.error(
-                    "Plugin %s metadata version/platform_version (%s / %s) "
-                    "does not match plugin.toml (%s / %s); skipping %s",
-                    record.key,
-                    meta.version,
-                    meta.platform_version,
-                    record.manifest.version,
-                    record.manifest.platform_version,
-                    game_cls.__name__,
-                )
-                continue
-            matched = True
-            registry.register(game_cls)
-        if not matched:
-            fail(f"Plugin {record.key} metadata.key does not match plugin.toml key")
+        if game_cls is None:
+            fail(f"Plugin {record.key} did not export GAME")
             return
+        meta_key = getattr(game_cls.metadata, "key", None)
+        if meta_key != record.key:
+            fail(
+                f"Plugin {record.key} metadata.key {meta_key!r} does not match plugin.toml key"
+            )
+            return
+        stamp_versions(
+            game_cls,
+            version=record.manifest.version,
+            platform_version=record.manifest.platform_version,
+        )
+        registry.register(game_cls)
         if not registry.contains(record.key):
             fail(
                 f"Plugin {record.key} did not register "
@@ -290,10 +277,6 @@ class PluginManager:
                     f"Remove that folder, then retry."
                 )
 
-            missing = missing_dependencies(manifest.dependencies)
-            if missing:
-                pip_install(missing)
-
             was_removed = self.state.is_removed(manifest.key)
             try:
                 shutil.move(str(src), str(dest))
@@ -308,7 +291,7 @@ class PluginManager:
                     self.state.mark_removed(manifest.key)
                 raise
 
-            self._set_game_enabled(manifest.key, enabled=True, fatal=False)
+            self._ensure_game_entry(manifest.key)
             return load_manifest(dest / "plugin.toml")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -340,15 +323,11 @@ class PluginManager:
                     f"Updated repo key is {manifest.key!r}, expected {key!r}"
                 )
 
-            missing = missing_dependencies(manifest.dependencies)
-            if missing:
-                pip_install(missing)
-
             dest = record.root
             _swap_dir(dest, src)
             self.state.installed[key] = InstalledSource(source=url, ref=use_ref)
             self.save()
-            self._set_game_enabled(key, enabled=True, fatal=False)
+            self._ensure_game_entry(key)
             return load_manifest(dest / "plugin.toml")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -365,12 +344,9 @@ class PluginManager:
             )
         if not self.state.is_removed(key):
             raise PluginError(f"'{key}' is already installed")
-        missing = missing_dependencies(record.dependencies)
-        if missing:
-            pip_install(missing)
         self.state.unmark_removed(key)
         self.save()
-        self._set_game_enabled(key, enabled=True, fatal=False)
+        self._ensure_game_entry(key)
         return record.manifest
 
     def uninstall(self, key: str) -> UninstallResult:
@@ -382,9 +358,7 @@ class PluginManager:
         if record is None:
             raise PluginError(f"Unknown plugin '{key}'")
 
-        remaining = self.remaining_requirements(except_key=key)
         origin = record.origin
-        deps = record.dependencies
 
         if origin == "installed":
             try:
@@ -402,12 +376,7 @@ class PluginManager:
             self.state.mark_removed(key)
         self.save()
         unload_plugin_modules(origin, key, record.root.name)
-        self._set_game_enabled(key, enabled=False, fatal=False)
-
-        orphans = orphan_distributions(deps, remaining)
-        if orphans:
-            pip_uninstall(orphans)
-        return UninstallResult(key=key, origin=origin, pip_removed=tuple(orphans))
+        return UninstallResult(key=key, origin=origin)
 
     def status_lines(self) -> list[str]:
         lines: list[str] = []
@@ -437,15 +406,15 @@ class PluginManager:
                 f"Update it with `strife/update {key}` or uninstall first."
             )
 
-    def _set_game_enabled(self, key: str, *, enabled: bool, fatal: bool) -> None:
+    def _ensure_game_entry(self, key: str) -> bool:
+        """Create a playable ``games.yaml`` row if the key is new. Leave existing tuning alone."""
         if self.games_yaml_path is None:
-            return
+            return True
         try:
-            set_game_enabled(self.games_yaml_path, key, enabled=enabled)
+            return ensure_game_entry(self.games_yaml_path, key)
         except PluginError as exc:
-            if fatal:
-                raise
             log.error("Failed to update %s for %s: %s", self.games_yaml_path, key, exc)
+            return True
 
 
 def looks_like_source(value: str) -> bool:

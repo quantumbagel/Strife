@@ -4,14 +4,12 @@ import importlib
 import importlib.util
 import sys
 import types
+from dataclasses import replace
 from pathlib import Path
 
 from strife.engine.game import Game
-from strife.logging import get_logger
 from strife.plugins.errors import PluginError
 from strife.plugins.manifest import Origin
-
-log = get_logger("plugins.loader")
 
 _EXT_NS = "strife_ext"
 
@@ -71,16 +69,22 @@ def unload_plugin_modules(origin: Origin, key: str, folder_name: str | None = No
             sys.modules.pop(name, None)
 
 
-def game_classes(module: types.ModuleType) -> list[type[Game]]:
-    found: list[type[Game]] = []
-    for attr_name in dir(module):
-        obj = getattr(module, attr_name)
-        if (
-            isinstance(obj, type)
-            and issubclass(obj, Game)
-            and obj is not Game
-            and hasattr(obj, "metadata")
-            and obj.metadata is not None
-        ):
-            found.append(obj)
-    return found
+def game_class(module: types.ModuleType) -> type[Game] | None:
+    """Return the package's ``GAME`` export, or ``None`` if it is missing."""
+    if not hasattr(module, "GAME"):
+        return None
+    obj = getattr(module, "GAME")
+    if not (isinstance(obj, type) and issubclass(obj, Game) and obj is not Game):
+        raise PluginError(f"{module.__name__} GAME is not a Game subclass")
+    if not hasattr(obj, "metadata") or obj.metadata is None:
+        raise PluginError(f"{module.__name__} GAME is missing metadata")
+    return obj
+
+
+def stamp_versions(game_cls: type[Game], *, version: str, platform_version: str) -> None:
+    """Overwrite listing semver from ``plugin.toml``. Authors do not set these on the class."""
+    game_cls.metadata = replace(
+        game_cls.metadata,
+        version=version,
+        platform_version=platform_version,
+    )

@@ -11,7 +11,9 @@ from strife.commands.game_commands import register_slash_group_for_game, remove_
 from strife.logging import get_logger
 from strife.persistence.migrator import Migrator
 from strife.persistence.repositories import MatchRepository, UserRepository
+from strife.plugins.deps import missing_dependencies
 from strife.plugins.errors import PluginError
+from strife.plugins.games_yaml import ensure_game_entry
 from strife.plugins.manager import looks_like_source
 from strife.settings import Settings
 
@@ -203,12 +205,13 @@ class AdminCommands(commands.Cog):
             manifest = await asyncio.to_thread(manager.restore_builtin, target)
             kind = "builtin"
 
-        manager.load_one(registry, manifest.key)
-        self.bot.config.games.note_game(manifest.key, enabled=True)  # type: ignore[attr-defined]
+        enabled = _sync_game_overlay(self.bot, manifest.key)
+        extra = _load_or_advise_restart(self.bot, registry, manifest.key)
         _refresh_changelog(self.bot, manifest.key)
-        extra = _register_slash(self.bot, registry, manifest.key)
         if kind == "git":
             extra += " Run `strife/emoji` if the plugin shipped an emoji/ folder."
+        if not enabled:
+            extra += " Disabled in games.yaml — set enabled: true to list it in /play."
         await message.reply(f"Installed **{manifest.key}** v{manifest.version}.{extra}")
 
     async def _update(self, args: list[str], message: discord.Message) -> None:
@@ -225,10 +228,8 @@ class AdminCommands(commands.Cog):
         manager = self.bot.plugin_manager  # type: ignore[attr-defined]
         registry = self.bot.game_registry  # type: ignore[attr-defined]
         manifest = await asyncio.to_thread(manager.update_from_git, key, ref)
-        manager.reload_one(registry, manifest.key)
-        self.bot.config.games.note_game(manifest.key, enabled=True)  # type: ignore[attr-defined]
+        extra = _load_or_advise_restart(self.bot, registry, manifest.key, reload=True)
         _refresh_changelog(self.bot, manifest.key)
-        extra = _register_slash(self.bot, registry, manifest.key)
         extra += " Run `strife/emoji` if the plugin shipped an emoji/ folder."
         await message.reply(
             f"Updated **{manifest.key}** to v{manifest.version}. Match history was kept.{extra}"
@@ -266,10 +267,9 @@ class AdminCommands(commands.Cog):
                         log.exception("Failed to reload %s after uninstall error", key)
                     else:
                         _register_slash(self.bot, registry, key)
-                        self.bot.config.games.note_game(key, enabled=True)  # type: ignore[attr-defined]
+                        _sync_game_overlay(self.bot, key)
                         _refresh_changelog(self.bot, key)
                 raise
-            self.bot.config.games.note_game(key, enabled=False)  # type: ignore[attr-defined]
             _refresh_changelog(self.bot, key, drop=True)
 
         try:
@@ -290,15 +290,46 @@ class AdminCommands(commands.Cog):
             )
             return
 
-        extra = ""
-        if result.pip_removed:
-            extra = f" Removed pip packages: {', '.join(result.pip_removed)}."
         await message.reply(
             f"Uninstalled **{key}** ({result.origin}). "
             f"Stopped {n_sessions} live match(es) and {n_lobbies} lobby(ies). "
-            f"Deleted {n_matches} match(es) and {n_stats} stat row(s)."
-            f"{extra} Run `strife/sync` if it had slash commands."
+            f"Deleted {n_matches} match(es) and {n_stats} stat row(s). "
+            f"Run `strife/sync` if it had slash commands."
         )
+
+
+def _sync_game_overlay(bot, key: str) -> bool:
+    """Align in-memory catalog enablement with games.yaml. Does not flip an existing row."""
+    manager = bot.plugin_manager
+    enabled = True
+    path = getattr(manager, "games_yaml_path", None)
+    if path is not None:
+        try:
+            enabled = ensure_game_entry(path, key)
+        except PluginError:
+            enabled = True
+    bot.config.games.note_game(key, enabled=enabled)
+    return enabled
+
+
+def _load_or_advise_restart(bot, registry, key: str, *, reload: bool = False) -> str:
+    """Load the plugin now, or tell the operator to restart so extras can install at boot."""
+    manager = bot.plugin_manager
+    record = manager.record_for(key)
+    missing = missing_dependencies(record.dependencies) if record is not None else []
+    try:
+        if reload:
+            manager.reload_one(registry, key)
+        else:
+            manager.load_one(registry, key)
+    except PluginError:
+        if missing:
+            return (
+                f" Restart the bot to install extras ({', '.join(missing)}) "
+                "and load the plugin."
+            )
+        raise
+    return _register_slash(bot, registry, key)
 
 
 def _register_slash(bot, registry, key: str) -> str:

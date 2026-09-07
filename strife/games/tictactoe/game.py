@@ -31,8 +31,6 @@ from strife.presentation.game_ui import message_lead
     description="Two players alternate placing X and O on a 3x3 grid; first to align three wins.",
     tags=("classic", "strategy", "2p"),
     author="Strife",
-    version="1.0.0",
-    platform_version="1.0.0",
     author_link=None,
     source_link=None,
     how_to_play_link="https://en.wikipedia.org/wiki/Tic-tac-toe",

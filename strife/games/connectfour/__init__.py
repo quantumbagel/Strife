@@ -15,8 +15,6 @@ META = GameMetadata(
     description="Drop discs into columns; first to connect 4 horizontally, vertically, or diagonally wins.",
     tags=("classic", "strategy", "2p"),
     author="Strife",
-    version="1.0.0",
-    platform_version="1.0.0",
     author_link=None,
     source_link=None,
     how_to_play_link="https://en.wikipedia.org/wiki/Connect_Four",
@@ -35,3 +33,4 @@ META = GameMetadata(
 )
 
 ConnectFour.metadata = META
+GAME = ConnectFour

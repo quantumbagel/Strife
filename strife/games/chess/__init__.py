@@ -1,3 +1,4 @@
 from strife.games.chess.game import Chess
 
-__all__ = ["Chess"]
+GAME = Chess
+__all__ = ["Chess", "GAME"]
