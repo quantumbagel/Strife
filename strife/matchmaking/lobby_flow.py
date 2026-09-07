@@ -570,11 +570,12 @@ class LobbyFlowMixin:
             ended_view.add_container(container)
             await lobby.surface.update(ended_view)
 
+            game_compiler = self.compiler.for_game(lobby.game_key)
             header_surface = ViewSurface(
-                self.compiler, prefix=P.REPLAY_NOOP, resource_id=thread.id
+                game_compiler, prefix=P.REPLAY_NOOP, resource_id=thread.id
             )
             game_surface = ViewSurface(
-                self.compiler, prefix=P.G_MOVE, resource_id=thread.id
+                game_compiler, prefix=P.G_MOVE, resource_id=thread.id
             )
             game_cfg = self.config.games.for_game(lobby.game_key)
             starting_view = build_game_thread_header_view(

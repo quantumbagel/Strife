@@ -182,7 +182,7 @@ async def _run(args: argparse.Namespace) -> None:
         rng=rng,
         players=players,
         settings=settings,
-        emoji=_load_emoji(),
+        emoji=_load_emoji().bind_game(args.game_key),
         scripted_moves=_parse_scripted(args.move) if args.move else None,
     )
 

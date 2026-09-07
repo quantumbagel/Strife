@@ -106,7 +106,7 @@ def bullet_lines(
 ) -> str:
     mark = bullet
     if mark is None and emoji is not None:
-        mark = emoji.get("bullet")
+        mark = emoji.get("bullet", base=True)
     if mark is None:
         mark = "•"
     return "\n".join(f"{mark} {item}" for item in items)

@@ -34,10 +34,10 @@ from strife.presentation.style import history_block
 
 class Mafia(Game):
     _ROLE_EMOJI = {
-        "mafia": "mafia_werewolf",
-        "villager": "mafia_villager",
-        "doctor": "enable_doctor",
-        "detective": "enable_detective",
+        "mafia": "werewolf",
+        "villager": "villager",
+        "doctor": "doctor",
+        "detective": "detective",
     }
 
     def __init__(self, players, settings, rng):
@@ -57,7 +57,10 @@ class Mafia(Game):
         return self.players[seat].mention
 
     def _role_emoji(self, ctx: GameContext, role: str) -> str:
-        return ctx.emoji.get(self._ROLE_EMOJI.get(role, "user"))
+        key = self._ROLE_EMOJI.get(role)
+        if key is None:
+            return ctx.emoji.get("user", base=True)
+        return ctx.emoji.get(key)
 
     def _alive_roster(self, ctx: GameContext, alive: set[int] | None = None) -> str:
         seats = sorted(alive if alive is not None else self.alive)
@@ -87,7 +90,7 @@ class Mafia(Game):
             emoji=ctx.emoji,
             prefix_emoji="success",
         )
-        forward = ctx.emoji.get("forward")
+        forward = ctx.emoji.get("forward", base=True)
         lines = []
         for player in self.players:
             role = role_map.get(player.seat, "unknown")
@@ -99,7 +102,7 @@ class Mafia(Game):
                 is_bot=player.is_bot,
                 bot_difficulty=player.bot_difficulty,
             )
-            lines.append(f"{ctx.emoji.get('bullet')} {name} {forward} {role_emoji} **{role.title()}**")
+            lines.append(f"{ctx.emoji.get('bullet', base=True)} {name} {forward} {role_emoji} **{role.title()}**")
         container.add_text(TextDisplay(markdown_content="\n".join(lines)))
         view.add_container(container)
         return view
@@ -267,7 +270,7 @@ class Mafia(Game):
                     container,
                     f"{self._name(target)} is **{alignment.upper()}**",
                     emoji=ctx.emoji,
-                    prefix_emoji="enable_detective",
+                    prefix_emoji="detective",
                 )
                 reveal.add_container(container)
                 await ctx.send_private(seat, reveal)
@@ -329,9 +332,9 @@ class Mafia(Game):
                 view = LayoutView()
                 container = Container()
                 message_lead(container, "The game is about to begin.", emoji=ctx.emoji, prefix_emoji="user")
-                forward = ctx.emoji.get("forward")
+                forward = ctx.emoji.get("forward", base=True)
                 role_lines = [
-                    f"{ctx.emoji.get('bullet')} {_get_name(p.seat)} {forward} {self._role_emoji(ctx, roles.get(p.seat, 'unknown'))} **{roles.get(p.seat, 'unknown').title()}**"
+                    f"{ctx.emoji.get('bullet', base=True)} {_get_name(p.seat)} {forward} {self._role_emoji(ctx, roles.get(p.seat, 'unknown'))} **{roles.get(p.seat, 'unknown').title()}**"
                     for p in self.players
                 ]
                 container.add_text(TextDisplay(markdown_content="\n".join(role_lines)))
@@ -371,7 +374,7 @@ class Mafia(Game):
                     container,
                     f"{_get_name(int(args['detective']))} found {_get_name(int(args['target']))} is **{args['alignment'].upper()}**",
                     emoji=ctx.emoji,
-                    prefix_emoji="enable_detective",
+                    prefix_emoji="detective",
                 )
                 view.add_container(container)
                 builder.add(step, view, label="Investigation", actor_seat=int(args["detective"]))
@@ -417,7 +420,7 @@ class Mafia(Game):
                     voter_seat = int(voter_str)
                     target_seat = int(target_str) if (target_str is not None and target_str != "skip") else None
                     vote_lines.append(
-                        f"{ctx.emoji.get('bullet')} {_get_name(voter_seat)} voted for **{_get_name(target_seat) if target_seat is not None else 'Skip'}**"
+                        f"{ctx.emoji.get('bullet', base=True)} {_get_name(voter_seat)} voted for **{_get_name(target_seat) if target_seat is not None else 'Skip'}**"
                     )
                 if vote_lines:
                     container.add_text(TextDisplay(markdown_content="\n".join(vote_lines)))

@@ -41,12 +41,15 @@ def normalize_settings_tab(tab: str | None) -> str:
     return "general"
 
 
-def get_option_emoji(resolver: EmojiResolver, option: SettingOption) -> str:
+def get_option_emoji(
+    resolver: EmojiResolver, option: SettingOption, *, game_key: str | None = None
+) -> str:
+    bound = resolver.bind_game(game_key) if game_key else resolver
     if option.emoji:
-        return resolver.get(option.emoji)
-    if option.key in resolver.config.entries:
-        return resolver.get(option.key)
-    return resolver.get("settings")
+        return bound.get(option.emoji)
+    if option.key in bound.config.entries:
+        return bound.get(option.key)
+    return bound.get("settings", base=True)
 
 
 def _add_title(
@@ -472,7 +475,7 @@ def _add_rules_tab(
     )
 
     for option in meta.settings:
-        opt_emoji = get_option_emoji(emoji, option)
+        opt_emoji = get_option_emoji(emoji, option, game_key=lobby.game_key)
         if option.type == OptionType.BOOL:
             current = bool(lobby.settings.get(option.key, option.default))
             choices = [

@@ -216,7 +216,6 @@ class GameMetadata:
     supports_player_removal: bool = False
     supports_replay: bool = True
     how_to_play_link: str | None = None
-    dependencies: list[str] | tuple[str, ...] = ()
 
     @property
     def supports_bots(self) -> bool:

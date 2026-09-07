@@ -105,16 +105,17 @@ class ReplayService:
             game = self.game_registry.create(
                 detail.game_key, players, detail.settings, detail.seed
             )
+            game_emoji = self.compiler.emoji.bind_game(detail.game_key)
             ctx = ReplayContext(
                 rng=game.rng,
                 players=players,
                 settings=detail.settings,
-                emoji=self.compiler.emoji,
+                emoji=game_emoji,
                 started_at=detail.started_at,
             )
             from strife.presentation.emoji_context import bind_emoji, reset_emoji
 
-            token = bind_emoji(self.compiler.emoji)
+            token = bind_emoji(game_emoji)
             try:
                 frames = await asyncio.wait_for(
                     game.parse_replay(move_records, ctx),
@@ -163,6 +164,7 @@ class ReplayService:
             await self.user_errors.send(interaction, "common.replay_unavailable")
             return
         game_name = self.game_registry.metadata(detail.game_key).name
+        game_compiler = self.compiler.for_game(detail.game_key)
         view = build_replay_view(
             entry.detail,
             0,
@@ -174,9 +176,9 @@ class ReplayService:
             turn_label=entry.frames[0].turn_label,
             text=self.text,
             game_name=game_name,
-            emoji=self.compiler.emoji,
+            emoji=game_compiler.emoji,
         )
-        compiled = self.compiler.compile(view, resource_id=entry.detail.id, prefix=P.R_NAV)
+        compiled = game_compiler.compile(view, resource_id=entry.detail.id, prefix=P.R_NAV)
         files = getattr(view, "files", [])
         if interaction.response.is_done():
             await interaction.followup.send(view=compiled, files=files, ephemeral=True)
@@ -209,6 +211,7 @@ class ReplayService:
             return
         frame = max(0, min(frame, len(entry.frames) - 1))
         game_name = self.game_registry.metadata(entry.detail.game_key).name
+        game_compiler = self.compiler.for_game(entry.detail.game_key)
         view = build_replay_view(
             entry.detail,
             frame,
@@ -220,9 +223,9 @@ class ReplayService:
             turn_label=entry.frames[frame].turn_label,
             text=self.text,
             game_name=game_name,
-            emoji=self.compiler.emoji,
+            emoji=game_compiler.emoji,
         )
-        compiled = self.compiler.compile(view, resource_id=match_id, prefix=P.R_NAV)
+        compiled = game_compiler.compile(view, resource_id=match_id, prefix=P.R_NAV)
         files = getattr(view, "files", [])
         if interaction.response.is_done():
             await interaction.edit_original_response(view=compiled, attachments=files)

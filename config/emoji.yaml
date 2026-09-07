@@ -38,31 +38,31 @@ forward:
   fallback: null
   id: 1525857728256409690
   animated: false
-game_mafia:
+mafia_game:
   fallback: 🐺
-  id: 1525857729300664452
+  id: null
   animated: false
-game_tictactoe:
+tictactoe_game:
   fallback: ⭕
   id: null
   animated: false
-game_connect_four:
+connect_four_game:
   fallback: 🔴
   id: null
   animated: false
-game_chess:
+chess_game:
   fallback: ♟️
   id: null
   animated: false
-game_coup:
+coup_game:
   fallback: 🃏
   id: null
   animated: false
-game_spyfall:
+spyfall_game:
   fallback: 🕵️
   id: null
   animated: false
-game_liars_dice:
+liars_dice_game:
   fallback: 🎲
   id: null
   animated: false
@@ -198,13 +198,13 @@ mafia_count:
   fallback: 🐺
   id: 1525857740008980550
   animated: false
-enable_doctor:
+mafia_doctor:
   fallback: 🧑‍🌾
-  id: 1525857721973342481
+  id: null
   animated: false
-enable_detective:
+mafia_detective:
   fallback: 🔎
-  id: 1525857721092542645
+  id: null
   animated: false
 first_move:
   fallback: ⏱️
@@ -262,27 +262,27 @@ coup_contessa:
   fallback: 🛡️
   id: null
   animated: false
-die_1:
+liars_dice_die_1:
   fallback: ⚀
   id: null
   animated: false
-die_2:
+liars_dice_die_2:
   fallback: ⚁
   id: null
   animated: false
-die_3:
+liars_dice_die_3:
   fallback: ⚂
   id: null
   animated: false
-die_4:
+liars_dice_die_4:
   fallback: ⚃
   id: null
   animated: false
-die_5:
+liars_dice_die_5:
   fallback: ⚄
   id: null
   animated: false
-die_6:
+liars_dice_die_6:
   fallback: ⚅
   id: null
   animated: false

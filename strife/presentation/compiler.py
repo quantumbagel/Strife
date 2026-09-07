@@ -48,6 +48,9 @@ class Compiler:
     def emoji(self) -> EmojiResolver:
         return self._emoji
 
+    def for_game(self, game_key: str) -> Compiler:
+        return Compiler(self._emoji.bind_game(game_key), self._encoder)
+
     def compile(self, view: LayoutView, *, resource_id: int, prefix: str) -> ui.LayoutView:
         self._component_count = 0
         self._text_chars = 0

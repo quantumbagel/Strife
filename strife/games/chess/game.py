@@ -83,7 +83,6 @@ def parse_user_move(board: chess.Board, text: str) -> chess.Move | None:
 
 @game_metadata_from(
     key="chess",
-    dependencies=["chess>=1.11.2", "resvg-py>=0.3.3"],
     name="Chess",
     summary="The classic game of chess.",
     description="Play Chess against another player or a bot. Enter moves using standard text notation like e4 or Nf3.",
@@ -382,7 +381,7 @@ class Chess(TurnBasedGame):
         container = game_container(ctx, lead=lead or status or title, prefix_emoji=status_emoji or "loading")
 
         if self.time_control_active:
-            add_meta(container, f"{ctx.emoji.get('timer')} Clocks: {self._format_clocks()}")
+            add_meta(container, f"{ctx.emoji.get('timer', base=True)} Clocks: {self._format_clocks()}")
 
         gallery = MediaGallery()
         gallery.add_item(MediaGalleryItem(media_url=f"attachment://{filename}", description="Chess board"))

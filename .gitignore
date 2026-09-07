@@ -33,3 +33,6 @@ Thumbs.db
 changes.diff
 example_game_api.py
 *.pyc
+/assets/pixel/
+/plugins/*
+!/plugins/.gitkeep

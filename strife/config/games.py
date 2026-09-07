@@ -29,6 +29,7 @@ class GamesConfig(BaseModel):
     defaults: GameDefaults
     games: dict[str, GameConfig]
     _merged: dict[str, GameConfig] = PrivateAttr(default_factory=dict)
+    _path: Path | None = PrivateAttr(default=None)
 
     def model_post_init(self, __context: object) -> None:
         self._merged = {key: self._merge_config(key, game) for key, game in self.games.items()}
@@ -69,8 +70,20 @@ class GamesConfig(BaseModel):
             return self._merged[key]
         return self._merge_config(key, GameConfig(enabled=False))
 
+    def note_game(self, key: str, *, enabled: bool = True) -> None:
+        existing = self.games.get(key)
+        if existing is not None:
+            existing.enabled = enabled
+            self._merged[key] = self._merge_config(key, existing)
+            return
+        game = GameConfig(enabled=enabled)
+        self.games[key] = game
+        self._merged[key] = self._merge_config(key, game)
+
 
 def load_games_config(path: Path) -> GamesConfig:
     with path.open("r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
-    return GamesConfig.model_validate(data)
+    cfg = GamesConfig.model_validate(data)
+    cfg._path = path
+    return cfg

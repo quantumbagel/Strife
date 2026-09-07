@@ -130,7 +130,7 @@ class Coup(Game):
 
         if challenge_card in self.hands[actor]:
             self.history.append(
-                f"{ctx.emoji.get('success')} {self.players[actor].mention} proved **{challenge_card.title()}**."
+                f"{ctx.emoji.get('success', base=True)} {self.players[actor].mention} proved **{challenge_card.title()}**."
             )
             self.hands[actor].remove(challenge_card)
             self.deck.append(challenge_card)
@@ -144,7 +144,7 @@ class Coup(Game):
             return False
 
         self.history.append(
-            f"{ctx.emoji.get('error')} {self.players[actor].mention} lied about **{challenge_card.title()}**."
+            f"{ctx.emoji.get('error', base=True)} {self.players[actor].mention} lied about **{challenge_card.title()}**."
         )
         await self._lose_influence(
             ctx,
@@ -170,7 +170,7 @@ class Coup(Game):
 
         if claim in self.hands[blocker_seat]:
             self.history.append(
-                f"{ctx.emoji.get('success')} {self.players[blocker_seat].mention} proved **{claim.title()}**."
+                f"{ctx.emoji.get('success', base=True)} {self.players[blocker_seat].mention} proved **{claim.title()}**."
             )
             self.hands[blocker_seat].remove(claim)
             self.deck.append(claim)
@@ -184,7 +184,7 @@ class Coup(Game):
             return True, True
 
         self.history.append(
-            f"{ctx.emoji.get('error')} {self.players[blocker_seat].mention} lied about **{claim.title()}**."
+            f"{ctx.emoji.get('error', base=True)} {self.players[blocker_seat].mention} lied about **{claim.title()}**."
         )
         await self._lose_influence(
             ctx,
@@ -195,7 +195,7 @@ class Coup(Game):
 
     def _role_emoji(self, ctx: GameContext, role: str) -> str:
         fallback = {"duke": "👑", "assassin": "🗡️", "captain": "⚓", "ambassador": "💼", "contessa": "🛡️"}.get(role, "🎴")
-        return ctx.emoji.get(f"coup_{role}") or fallback
+        return ctx.emoji.get(role) or fallback
 
     def _format_hand(self, ctx: GameContext, seat: int, private: bool = False) -> str:
         if private:
@@ -271,7 +271,7 @@ class Coup(Game):
                         if self.coins[actor] > 0:
                             self.coins[actor] -= 1
                             penalty = True
-                        msg = f"{ctx.emoji.get('timer')} {self.players[actor].mention} timed out."
+                        msg = f"{ctx.emoji.get('timer', base=True)} {self.players[actor].mention} timed out."
                         if penalty:
                             msg += " Action skipped and 1 coin lost."
                         else:
@@ -488,10 +488,10 @@ class Coup(Game):
             if not action_failed and not action_blocked:
                 if action_type == "income":
                     self.coins[actor] += 1
-                    self.history.append(f"{ctx.emoji.get('success')} {self.players[actor].mention} took income.")
+                    self.history.append(f"{ctx.emoji.get('success', base=True)} {self.players[actor].mention} took income.")
                 elif action_type == "foreign_aid":
                     self.coins[actor] += 2
-                    self.history.append(f"{ctx.emoji.get('public')} {self.players[actor].mention} took foreign aid.")
+                    self.history.append(f"{ctx.emoji.get('public', base=True)} {self.players[actor].mention} took foreign aid.")
                 elif action_type == "tax":
                     self.coins[actor] += 3
                     self.history.append(
@@ -499,7 +499,7 @@ class Coup(Game):
                     )
                 elif action_type == "coup":
                     self.history.append(
-                        f"{ctx.emoji.get('explosion')} {self.players[actor].mention} staged a coup on {self.players[target].mention}."
+                        f"{ctx.emoji.get('explosion', base=True)} {self.players[actor].mention} staged a coup on {self.players[target].mention}."
                     )
                     await self._lose_influence(
                         ctx, target, f"{self.players[target].mention} must lose influence."
@@ -541,7 +541,7 @@ class Coup(Game):
                         # Exchange Timeout: auto-keep original cards
                         keep_cards = list(self.hands[actor])
                         self.history.append(
-                            f"{ctx.emoji.get('timer')} {self.players[actor].mention} timed out exchanging cards. Original cards kept."
+                            f"{ctx.emoji.get('timer', base=True)} {self.players[actor].mention} timed out exchanging cards. Original cards kept."
                         )
                     else:
                         raw_keep = keep_move.args.get("values", [])
@@ -607,7 +607,7 @@ class Coup(Game):
             lost_card = cards.pop()
             self.revealed[seat].append(lost_card)
             self.history.append(
-                f"{ctx.emoji.get('error')} {self.players[seat].mention} revealed their last card: **{lost_card.title()}**."
+                f"{ctx.emoji.get('error', base=True)} {self.players[seat].mention} revealed their last card: **{lost_card.title()}**."
             )
             self.alive.discard(seat)
             self.coins[seat] = 0
@@ -632,7 +632,7 @@ class Coup(Game):
             # Timeout: auto-reveal the first card
             lost_card = cards[0]
             self.history.append(
-                f"{ctx.emoji.get('timer')} {self.players[seat].mention} timed out choosing a card. Auto-revealed **{lost_card.title()}**."
+                f"{ctx.emoji.get('timer', base=True)} {self.players[seat].mention} timed out choosing a card. Auto-revealed **{lost_card.title()}**."
             )
         else:
             lost_card = move.args.get("value") or (move.args.get("values")[0] if move.args.get("values") else (move.args.get("card")))
@@ -649,7 +649,7 @@ class Coup(Game):
             self.revealed[seat].append(lost_card)
 
         self.history.append(
-            f"{ctx.emoji.get('error')} {self.players[seat].mention} revealed **{lost_card.title()}**."
+            f"{ctx.emoji.get('error', base=True)} {self.players[seat].mention} revealed **{lost_card.title()}**."
         )
         
         if not self.hands[seat]:
@@ -667,7 +667,7 @@ class Coup(Game):
             SelectChoice(
                 label=f"{role.title()} #{idx + 1}",
                 value=str(idx),
-                emoji=f"coup_{role}",
+                emoji=role,
             )
             for idx, role in enumerate(cards)
         ]
@@ -693,7 +693,7 @@ class Coup(Game):
             SelectChoice(
                 label=f"{role.title()} #{idx + 1}",
                 value=str(idx),
-                emoji=f"coup_{role}",
+                emoji=role,
             )
             for idx, role in enumerate(self.exchange_options[seat])
         ]
@@ -761,7 +761,7 @@ class Coup(Game):
         roster_lines = []
         for p in self.players:
             is_active = p.seat == self.current and self.state_phase == "turn"
-            marker = ctx.emoji.get("pointing") if is_active else ctx.emoji.get("bullet")
+            marker = ctx.emoji.get("pointing", base=True) if is_active else ctx.emoji.get("bullet", base=True)
             name = member_line(
                 ctx.emoji,
                 user_id=p.user_id,
@@ -829,7 +829,7 @@ class Coup(Game):
                     label="Tax (Duke) (+3 coins)",
                     value="tax",
                     description="Take 3 coins claiming Duke",
-                    emoji="coup_duke",
+                    emoji="duke",
                     default=(self.selected_action == "tax")
                 ))
                 if self.coins[actor] >= 7:
@@ -845,21 +845,21 @@ class Coup(Game):
                         label="Assassinate (-3 coins)",
                         value="assassinate",
                         description="Assassinate another player (Can be blocked by Contessa)",
-                        emoji="coup_assassin",
+                        emoji="assassin",
                         default=(self.selected_action == "assassinate")
                     ))
                 action_choices.append(SelectChoice(
                     label="Steal (Captain)",
                     value="steal",
                     description="Steal 2 coins from another player (Can be blocked by Captain/Ambassador)",
-                    emoji="coup_captain",
+                    emoji="captain",
                     default=(self.selected_action == "steal")
                 ))
                 action_choices.append(SelectChoice(
                     label="Exchange (Ambassador)",
                     value="exchange",
                     description="Draw 2 cards and choose which to keep",
-                    emoji="coup_ambassador",
+                    emoji="ambassador",
                     default=(self.selected_action == "exchange")
                 ))
 

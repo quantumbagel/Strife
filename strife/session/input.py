@@ -76,7 +76,7 @@ class SessionInputMixin:
         seat = self._seat_for_user(interaction.user.id)
         if seat is None:
             view = build_feedback_view(
-                icon=self.surface.compiler.emoji.get("error"),
+                icon=self.surface.compiler.emoji.get("error", base=True),
                 title=self.text.get("errors.not_a_player"),
                 body=self.text.get("errors_help.not_a_player"),
                 body_heading=self.text.get("common.error_fix"),

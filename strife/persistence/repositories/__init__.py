@@ -86,6 +86,14 @@ class UserStats:
 _ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 
 
+def _status_rowcount(status: str) -> int:
+    parts = status.split()
+    try:
+        return int(parts[-1])
+    except (IndexError, ValueError):
+        return 0
+
+
 def generate_match_code(rng: Any) -> str:
     return "".join(rng.choice(_ALPHABET) for _ in range(6))
 
@@ -400,6 +408,11 @@ class MatchRepository:
             ],
         )
 
+    async def delete_for_game(self, game_key: str) -> int:
+        async with self._pool.acquire() as conn:
+            status = await conn.execute("DELETE FROM matches WHERE game_key = $1", game_key)
+        return _status_rowcount(status)
+
 
 class MoveRepository:
     def __init__(self, pool: asyncpg.Pool) -> None:
@@ -519,3 +532,11 @@ class UserRepository:
                 draws=row["draws"],
                 played=row["played"],
             )
+
+    async def delete_stats_for_game(self, game_key: str) -> int:
+        async with self._pool.acquire() as conn:
+            status = await conn.execute(
+                "DELETE FROM user_game_stats WHERE game_key = $1",
+                game_key,
+            )
+        return _status_rowcount(status)

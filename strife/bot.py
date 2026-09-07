@@ -15,6 +15,7 @@ from strife.commands.server_settings import ServerSettingsService
 from strife.commands.strife_group import register_strife_group
 from strife.config import load_app_config
 from strife.engine.registry import GameRegistry
+from strife.plugins.manager import PluginManager
 from strife.engine.workers import start_workers, shutdown_workers
 from strife.lifecycle.service import LifecycleService
 from strife.logging import configure_logging, get_logger
@@ -53,6 +54,7 @@ class StrifeBot(commands.AutoShardedBot):
         self.settings = settings
         self.pool: asyncpg.Pool | None = None
         self.game_registry: GameRegistry | None = None
+        self.plugin_manager: PluginManager | None = None
         self.sessions: SessionRegistries | None = None
         self.router: InteractionRouter | None = None
         self.emoji: EmojiResolver | None = None
@@ -75,8 +77,19 @@ class StrifeBot(commands.AutoShardedBot):
             log.info("Applied migrations: %s", ", ".join(applied))
 
         log.info("Strife %s (platform %s)", __version__, __platform_version__)
+        self.plugin_manager = PluginManager.from_paths(
+            config_dir=self.settings.config_dir,
+            plugins_dir=self.settings.plugins_dir,
+        )
         self.game_registry = GameRegistry()
-        self.game_registry.discover()
+        if self.settings.sync_plugin_deps:
+            try:
+                installed = await asyncio.to_thread(self.plugin_manager.ensure_dependencies)
+                if installed:
+                    log.info("Installed plugin extras: %s", ", ".join(installed))
+            except Exception:
+                log.exception("Failed to sync plugin extras")
+        self.plugin_manager.load(self.game_registry)
 
         self.emoji = EmojiResolver(self.config.emoji)
         await self.emoji.sync(self)

@@ -4,9 +4,10 @@ This document describes the contract for implementing a Strife game.
 
 ## Overview
 
-1. Subclass `Game` in `strife/games/<key>/game.py`.
-2. Attach `GameMetadata` via `@game_metadata(...)` or `GameClass.metadata = META`.
-3. Games under `strife/games/` are auto-discovered at startup.
+1. Add `plugin.toml` (`key`, `version`, `platform_version`, `dependencies`) next to the package.
+2. Subclass `Game` in `game.py` and export it from `__init__.py`.
+3. Attach `GameMetadata` via `@game_metadata(...)` or `GameClass.metadata = META`. `metadata.key` must match `plugin.toml`.
+4. Builtins under `strife/games/` and git installs under `plugins/` are loaded at startup from those manifests.
 
 Runtime interaction uses `GameContext`: request player input, update the board, send private messages, record non-input events, and reply to query buttons. Games never see Discord types.
 
@@ -76,6 +77,7 @@ Mark them `query=True`. That is enough — they are not moves even if listed in 
 async def handle_query(self, seat, source, ctx) -> bool:
     if source == "peek":
         view = query_panel(ctx, title=f"Role: {self.role[seat]}", prefix_emoji="peek")
+        # "peek" is a platform emoji (see strife/presentation/base_emojis.py)
         await ctx.respond_query(view)
         return True
     return False

@@ -111,6 +111,12 @@ INIT_PY = '''from {module}.game import {cls}
 __all__ = ["{cls}"]
 '''
 
+PLUGIN_TOML = '''key = "{key}"
+version = "1.0.0"
+platform_version = "{platform_version}"
+dependencies = []
+'''
+
 
 def _ensure_games_yaml(key: str) -> None:
     if not GAMES_YAML.exists():
@@ -160,6 +166,10 @@ def main() -> int:
     )
     (game_dir / "__init__.py").write_text(
         INIT_PY.format(module=module, cls=cls),
+        encoding="utf-8",
+    )
+    (game_dir / "plugin.toml").write_text(
+        PLUGIN_TOML.format(key=key, platform_version=PLATFORM_VERSION),
         encoding="utf-8",
     )
     _ensure_games_yaml(key)

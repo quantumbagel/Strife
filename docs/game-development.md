@@ -4,10 +4,11 @@ This guide walks through building a Strife game. For the method reference table,
 
 ## Quick start
 
-1. Scaffold a game: `python scripts/scaffold_game.py my_game "My Game"`
-2. Implement `play()` in `strife/games/my_game/game.py`
-3. Run locally: `python scripts/run_game.py my_game`
-4. Games under `strife/games/` are auto-discovered at bot startup — no `bot.py` or `strife.session` edits needed.
+1. Scaffold a builtin: `python scripts/scaffold_game.py my_game "My Game"` (writes `plugin.toml`)
+2. Or copy `templates/game-plugin/` and install with `strife/install <git-url>`
+3. Implement `play()` in `game.py`. List third-party libraries in `plugin.toml`, not in the platform `pyproject.toml`.
+4. Run locally: `python scripts/run_game.py my_game`
+5. Loaded at startup from `plugin.toml` — no `bot.py` or `strife.session` edits needed. See [plugins.md](plugins.md).
 
 ## Minimal turn-based game
 
@@ -317,6 +318,8 @@ Platform commands (catalog, about, settings, profile, errors) set the visual lan
 - Buttons: `SECONDARY` default, `PRIMARY` for the main CTA, `SUCCESS` / `DANGER` only when the action itself confirms or destroys
 - Peeks, query errors, and slash-command feedback use the same header/body panels — never bare text
 
+Emoji: plugin files live in `<package>/emoji/<stem>.webp` and are registered as `{key}_{stem}`. `ctx.emoji.get("duke")` is Coup's `duke.webp`. Platform chrome (`loading`, `error`, `success`, `peek`, …) is listed in [`strife/presentation/base_emojis.py`](../strife/presentation/base_emojis.py); pass `base=True` so a plugin stem of the same name cannot shadow it.
+
 [`strife/presentation/game_ui.py`](../strife/presentation/game_ui.py):
 
 - `action_status(ctx, player, prefix_emoji=...)` — standard "who can act" line
@@ -340,7 +343,7 @@ If `supports_player_removal` is set, implement `remove_player(seat)` to update a
 - [ ] Bots work for every declared difficulty
 - [ ] Replays render correctly (including forfeits and bot takeovers)
 - [ ] `final_view()` shows a sensible end state (optional but recommended)
-- [ ] Game emoji configured in `config/emoji.yaml`
+- [ ] Game art in `<package>/emoji/` (`game.webp`, pieces, roles). Platform names from `strife/presentation/base_emojis.py` via `ctx.emoji.get("loading", base=True)`
 - [ ] Run locally with `python scripts/run_game.py <key>`
 - [ ] Query buttons (peek, etc.) omitted from `sources` and handled in `handle_query()`
 - [ ] Replay views show game state only — omit action rows when `ctx.is_replay`

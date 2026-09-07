@@ -69,43 +69,6 @@ def _validate_versions(metadata: GameMetadata) -> bool:
     return True
 
 
-def check_dependencies(dependencies: list[str]) -> bool:
-    """Return True when every requirement is already installed. Never installs packages."""
-    import importlib.metadata
-    import importlib.util
-
-    if not dependencies:
-        return True
-
-    missing = []
-    for dep in dependencies:
-        dep_name = dep
-        for op in (">=", "==", "<=", ">", "<", "!=", "~="):
-            if op in dep_name:
-                dep_name = dep_name.split(op)[0].strip()
-                break
-
-        try:
-            importlib.metadata.distribution(dep_name)
-        except importlib.metadata.PackageNotFoundError:
-            normalized = dep_name.replace("-", "_")
-            spec = None
-            try:
-                spec = importlib.util.find_spec(normalized)
-            except (ModuleNotFoundError, ValueError):
-                pass
-            if spec is None:
-                missing.append(dep)
-
-    if missing:
-        log.error(
-            "Missing game dependencies (install them at deploy time, not at runtime): %s",
-            ", ".join(missing),
-        )
-        return False
-    return True
-
-
 class GameRegistry:
     def __init__(self) -> None:
         self._games: dict[str, type[Game]] = {}
@@ -148,8 +111,21 @@ class GameRegistry:
         except Exception as e:
             log.exception("Unexpected error registering game class %s: %s", game_cls.__name__, e)
 
+    def unregister(self, key: str) -> bool:
+        return self._games.pop(key, None) is not None
+
     def discover(self, package: str = "strife.games") -> None:
-        """Import every subpackage under *package* and register Game subclasses."""
+        """Load plugins. Default path uses plugin.toml via PluginManager."""
+        if package == "strife.games":
+            from pathlib import Path
+
+            from strife.plugins.manager import PluginManager
+
+            PluginManager.from_paths(
+                config_dir=Path("config"),
+                plugins_dir=Path("plugins"),
+            ).load(self)
+            return
         pkg = importlib.import_module(package)
         for _finder, name, is_pkg in pkgutil.iter_modules(pkg.__path__, pkg.__name__ + "."):
             if not is_pkg:
@@ -159,16 +135,13 @@ class GameRegistry:
             except Exception:
                 log.exception("Failed to import game package %s", name)
                 continue
-            for attr_name in dir(module):
-                obj = getattr(module, attr_name)
-                if (
-                    isinstance(obj, type)
-                    and issubclass(obj, Game)
-                    and obj is not Game
-                    and hasattr(obj, "metadata")
-                    and obj.metadata is not None
-                ):
-                    self.register(obj)
+            from strife.plugins.loader import game_classes
+
+            for game_cls in game_classes(module):
+                self.register(game_cls)
+
+    def contains(self, key: str) -> bool:
+        return key in self._games
 
     def get(self, key: str) -> type[Game]:
         if key not in self._games:

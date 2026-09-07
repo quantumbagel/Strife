@@ -69,7 +69,7 @@ class TicTacToe(TurnBasedGame):
         first_mover = self._starting_seat()
         self.current = first_mover
         other = 1 - first_mover
-        self.marks = {first_mover: "tictactoe_x", other: "tictactoe_o"}
+        self.marks = {first_mover: "x", other: "o"}
 
     def _idx(self, col: int, row: int) -> int:
         return row * 3 + col

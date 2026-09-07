@@ -4,7 +4,7 @@ This document describes how a Strife game is **plugged into** the platform and *
 
 Strife does **not** run games in a separate process, container, or VM. Isolation is an **API sandbox**: game code is an in-process plugin that talks to the host only through `GameContext` and Discord-free layout objects. Three hosts implement that API (live Discord session, replay, local CLI), so the same `play()` can run without knowing which host is behind it.
 
-**Trust model:** plugin code is trusted to *be a game*, not to be a perfect game. Authors will try to implement rules and a board; they will not steal the bot token, fork-bomb the host, or reach through into matchmaking. The sandbox exists so a buggy `play()` (uncaught exception, bad bot, hung query) ruins **that match**, and so games stay portable across live / replay / CLI. It is not a security boundary against a hostile plugin.
+**Trust model:** plugin code is trusted to *be a game*, not to be a perfect game. Authors will try to implement rules and a board; they will not steal the bot token, fork-bomb the host, or reach through into matchmaking. The sandbox exists so a buggy `play()` (uncaught exception, bad bot, hung query) ruins **that match**, and so games stay portable across live / replay / CLI. It is not a security boundary against a hostile plugin. `strife/install` is owner-only; review a third-party repo before installing it.
 
 ## Mental model
 
@@ -23,7 +23,7 @@ A game is a **rules engine plus UI trees**. It does not send Discord messages, e
    GameContext protocol                    ← sandbox wall
             │
             ▼
-   Game subclass (strife/games/<key>/)     ← plugin
+   Game subclass (builtin or plugins/<key>/)  ← plugin
 ```
 
 Everything above the wall can change (Discord library, thread model, storage) without games changing. Everything below the wall can change (new game, new bot, new board) without the host knowing the rules.
@@ -32,10 +32,11 @@ Everything above the wall can change (Discord library, thread model, storage) wi
 
 | Layer | Package | Role |
 |-------|---------|------|
-| Plugin | `strife/games/<key>/` | Rules, metadata, bots, board `LayoutView`s |
+| Plugin | `strife/games/<key>/` or `plugins/<key>/` | Rules, `plugin.toml`, metadata, bots, board `LayoutView`s |
 | Contract | `strife/engine/game.py`, `context.py`, `metadata.py`, `platform.py` | `Game`, `GameContext`, `GameMetadata`, `PLATFORM_VERSION` |
-| Registry | `strife/engine/registry.py` | Discover, validate, instantiate |
-| Operator config | `config/games.yaml` | Enable/disable, timeouts, setting overrides |
+| Registry | `strife/engine/registry.py` | Validate, instantiate |
+| Plugin lifecycle | `strife/plugins/` | Manifest, install, update, uninstall, extras |
+| Operator config | `config/games.yaml`, `config/plugins.yaml` | Enable/disable, uninstall overlay, timeouts |
 | Presentation | `strife/presentation/` | Discord-free components → compiled Discord views |
 | Routing | `strife/routing/` | Decode `custom_id` → lobby / game / catalog / replay |
 | Matchmaking | `strife/matchmaking/` | Lobbies, start match, promote to session |
@@ -46,39 +47,46 @@ Everything above the wall can change (Discord library, thread model, storage) wi
 
 ## 1. What a game plugin is
 
-A game is a Python package under `strife/games/<key>/` that:
+A game is a Python package with a `plugin.toml` at its root. Shipped builtins live under `strife/games/<folder>/`. Third-party plugins live under `plugins/<key>/` after `strife/install <git-url>`. Both are the same kind of plugin; builtins can be uninstalled too.
 
-1. Exports a `Game` subclass from the package `__init__.py` (so `dir(module)` can find it).
-2. Attaches `GameMetadata` via `@game_metadata_from(...)`, `@game_metadata(META)`, or `Cls.metadata = META`.
-3. Implements `play(ctx) -> GameOutcome`. Other methods are required only when metadata declares the matching capability.
+1. Declares `key`, `version`, `platform_version`, and `dependencies` in `plugin.toml` (read **before** import).
+2. Exports a `Game` subclass from the package `__init__.py`.
+3. Attaches `GameMetadata` via `@game_metadata_from(...)`, `@game_metadata(META)`, or `Cls.metadata = META`. `metadata.key` must match `plugin.toml`.
+4. Implements `play(ctx) -> GameOutcome`. Other methods are required only when metadata declares the matching capability.
 
 Typical layout:
 
 ```
-strife/games/tictactoe/
-  __init__.py     # re-export TicTacToe
+strife/games/tictactoe/          # or plugins/my_game/
+  plugin.toml     # install-time manifest
+  __init__.py     # re-export the Game subclass
   game.py         # Game subclass + metadata
   bot.py          # optional bot policy
+  emoji/          # optional; uploaded as {key}_{stem} (e.g. duke.webp → coup_duke)
 ```
 
 Optional extras:
 
-- `dependencies` in `__init__.py` (Chess): call `check_dependencies(...)` and raise `ImportError` if missing. Discovery then **skips** the package instead of crashing the bot.
+- `dependencies` in `plugin.toml` (Chess: `chess`, `resvg-py`). The host pip-installs them at install/sync time. `check_dependencies` only **skips** the plugin if they are missing.
 - `slash_moves` on metadata (Chess `/chess move`): extra Discord commands that submit the same `Move` objects as buttons.
 - `bot.py` used by `bot_move()`.
-- Game-specific emoji keys in `config/emoji.yaml` (`game_<key>`, piece/role art).
+- Game-specific emoji in `emoji/` (`game.webp` plus piece/role art). Uploaded as `{key}_{stem}`. Platform chrome uses `ctx.emoji.get("loading", base=True)` from the list in `strife/presentation/base_emojis.py`.
 
-Games may import engine types, presentation components, and third-party libraries. They should not import matchmaking, routing, persistence, `strife.session`, or `strife.bot`.
+Games may import engine types, presentation components, and third-party libraries listed in `plugin.toml`. They should not import matchmaking, routing, persistence, `strife.session`, or `strife.bot`.
+
+Operator install/uninstall is documented in [plugins.md](plugins.md). The GitHub template is `templates/game-plugin/`.
 
 ## 2. Discovery and registration
 
-On startup, `StrifeBot.setup_hook` constructs a `GameRegistry` and calls `discover()`:
+On startup, `StrifeBot.setup_hook` constructs a `PluginManager` and loads into a `GameRegistry`:
 
 ```
-GameRegistry.discover("strife.games")
-  → pkgutil.iter_modules over strife.games
-  → import each subpackage
-  → register every Game subclass that has metadata
+PluginManager.load(registry)
+  → read strife/games/*/plugin.toml (skip config/plugins.yaml `removed`)
+  → read plugins/*/plugin.toml
+  → pip-install missing extras if STRIFE_SYNC_PLUGIN_DEPS
+  → skip if platform_version incompatible or extras missing
+  → import package, register Game subclasses
 ```
 
 `register()` is fail-soft:
@@ -129,7 +137,7 @@ Fields:
 | `turn_timeout_*` | Copied onto `GameSession` at start |
 | `settings_overrides` | Operator defaults that overlay metadata settings (e.g. Mafia `mafia_count_default`) |
 
-Disabled games remain in the registry so replays of old matches can still load `parse_replay`. They are just not offered as new lobbies.
+Disabled games remain in the registry so replays of old matches can still load `parse_replay`. They are just not offered as new lobbies. **Uninstall** is stronger: it drops the plugin from the registry and deletes matches, moves, and per-game stats for that `game_key`. **Update** (`strife/update`) replaces a git plugin's files in place and keeps history. See [plugins.md](plugins.md).
 
 ## 4. The sandbox wall: `GameContext`
 
@@ -346,7 +354,7 @@ Attachments stay behind the wall: `LayoutView.files` is `list[ViewFile]`. The ho
 Because everything shares one process and one event loop:
 
 - A **tight CPU loop** or other non-awaiting work in `play()` / `bot_move` / `handle_query` / `render` freezes every match and every command. `asyncio.wait_for` only cancels if the code yields. First-party bots and Chess live `render` run on the dedicated CPU pool (`run_cpu` / `STRIFE_CPU_POOL_SIZE`).
-- A **native crash** (segfault in an extension such as `resvg-py`) or `os._exit()` kills the process. Docker `restart: unless-stopped` brings it back with no live sessions.
+- A **native crash** (segfault in an extension such as a plugin extra) or `os._exit()` kills the process. Docker `restart: unless-stopped` brings it back with no live sessions.
 - Unbounded allocation can OOM the process.
 
 Those are reliability problems, not an untrusted-code problem.
@@ -364,10 +372,10 @@ Those are reliability problems, not an untrusted-code problem.
 ## 11. End-to-end: from package to first click
 
 ```
-strife/games/my_game/          config/games.yaml enabled: true
+plugin.toml + package          config/games.yaml enabled: true
         │                              │
         ▼                              ▼
- registry.discover()            CatalogService / /play autocomplete
+ PluginManager.load()           CatalogService / /play autocomplete
         │                              │
         └──────────► LobbyService.create_lobby(key)
                               │
@@ -400,13 +408,13 @@ The same `Game` class is constructed three more times without Discord:
 
 Authoring steps live in [game-development.md](game-development.md). From the **host** side, a game is exposed when:
 
-1. Package exists under `strife/games/<key>/` and exports the `Game` subclass.
-2. Metadata `key` is unique, `version` / `platform_version` are valid, `platform_version` is compatible with this host, and capabilities match implementations.
-3. Optional extras: `check_dependencies` in `__init__.py` so a missing library skips the game instead of failing startup.
-4. `config/games.yaml` has `games.<key>.enabled: true` (otherwise it stays registered-but-hidden).
-5. Optional `game_<key>` (and piece/role) entries in `config/emoji.yaml`; upload with `strife/emoji`.
-6. Optional `slash_moves` — registered on the next command tree sync.
-7. Restart (or process start) so `discover()` imports the package.
+1. Package has `plugin.toml` (in-tree under `strife/games/` or installed into `plugins/`) and exports the `Game` subclass.
+2. Manifest `key` matches metadata, `version` / `platform_version` are valid, `platform_version` is compatible with this host, and capabilities match implementations.
+3. Extras listed in `plugin.toml` are installed (image build / `strife/install` / boot sync). Missing extras skip the game instead of failing startup.
+4. The plugin is not in `config/plugins.yaml` `removed`.
+5. `config/games.yaml` has `games.<key>.enabled: true` (otherwise it stays registered-but-hidden). Git install, restore, and update set this (preserving other fields). Uninstall sets `enabled: false`.
+6. Optional `game_<key>` (and piece/role) entries; upload with `strife/emoji`.
+7. Optional `slash_moves` — registered on the next command tree sync.
 
 No edits to `bot.py`, the router, matchmaking, or `strife.session` are required for a standard button-driven game.
 
@@ -414,8 +422,10 @@ No edits to `bot.py`, the router, matchmaking, or `strife.session` are required 
 
 - [game-api.md](game-api.md) — method contract, move log kinds, query vs action
 - [game-development.md](game-development.md) — tutorial, presentation style, checklist
-- `scripts/scaffold_game.py` — package template
+- `scripts/scaffold_game.py` — in-tree builtin scaffold (writes `plugin.toml`)
+- `templates/game-plugin/` — GitHub template for third-party plugins
+- `docs/plugins.md` — install, uninstall, overlay
 - `scripts/run_game.py` — third host (CLI sandbox)
 - `strife/games/test/` — API showcase (disabled in `games.yaml` by default)
 - `strife/games/tictactoe/` — smallest complete `TurnBasedGame`
-- `strife/games/chess/` — slash moves, extra dependencies, file attachments
+- `strife/games/chess/` — slash moves, `plugin.toml` extras, file attachments

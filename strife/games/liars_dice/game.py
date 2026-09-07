@@ -168,7 +168,7 @@ class LiarsDice(Game):
                     challenger_name = self.players[challenger].mention
                     bidder_name = self.players[bidder].mention
 
-                    bullet = ctx.emoji.get("bullet")
+                    bullet = ctx.emoji.get("bullet", base=True)
                     reveal_lines = [
                         f"**Bid:** {bid_q} × {self._die_emoji(ctx, bid_v)}",
                         f"**Actual count:** {actual_count} × {self._die_emoji(ctx, bid_v)}",
@@ -282,7 +282,7 @@ class LiarsDice(Game):
         container = Container()
         message_lead(container, lead, emoji=ctx.emoji, prefix_emoji=prefix_emoji)
 
-        die_mark = ctx.emoji.get("game_liars_dice")
+        die_mark = ctx.emoji.get("game")
         roster_lines = []
         for p in self.players:
             name = member_line(
@@ -296,10 +296,10 @@ class LiarsDice(Game):
                 dice = die_mark * self.dice_counts[p.seat]
                 roster_lines.append(f"{name}: {dice}")
             else:
-                roster_lines.append(f"{name}: {ctx.emoji.get('error')} Out")
+                roster_lines.append(f"{name}: {ctx.emoji.get('error', base=True)} Out")
         add_section(container, "Players", "\n".join(roster_lines))
 
-        pointing = ctx.emoji.get("pointing")
+        pointing = ctx.emoji.get("pointing", base=True)
         if self.current_bid is not None:
             bid_q, bid_v = self.current_bid
             bidder_name = self.players[self.last_bidder].mention if self.last_bidder is not None else "?"
@@ -488,14 +488,14 @@ class LiarsDice(Game):
                 view = query_panel(
                     ctx,
                     title="Your dice",
-                    prefix_emoji="game_liars_dice",
+                    prefix_emoji="game",
                     body="You have no dice left in this round.",
                 )
             else:
                 view = query_panel(
                     ctx,
                     title="Your dice",
-                    prefix_emoji="game_liars_dice",
+                    prefix_emoji="game",
                     body=self._format_hand(ctx, hand),
                 )
             await ctx.respond_query(view)

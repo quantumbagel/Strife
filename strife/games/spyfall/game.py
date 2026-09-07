@@ -111,7 +111,7 @@ class Spyfall(Game):
                     priv_container,
                     "You are the spy. Blend in and guess the location.",
                     emoji=ctx.emoji,
-                    prefix_emoji="game_spyfall",
+                    prefix_emoji="game",
                 )
             else:
                 message_lead(
@@ -326,7 +326,7 @@ class Spyfall(Game):
         add_section(
             container,
             "Locations",
-            "\n".join(f"{ctx.emoji.get('bullet')} {loc}" for loc in self.LOCATIONS),
+            "\n".join(f"{ctx.emoji.get('bullet', base=True)} {loc}" for loc in self.LOCATIONS),
         )
         view.add_container(container)
         return view
@@ -523,7 +523,7 @@ class Spyfall(Game):
                 view = query_panel(
                     ctx,
                     title="You are the spy",
-                    prefix_emoji="game_spyfall",
+                    prefix_emoji="game",
                     body="Blend in and guess the location.",
                 )
             else:

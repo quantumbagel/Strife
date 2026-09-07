@@ -29,7 +29,7 @@ class Player:
         resolver = emoji or active_emoji()
         base = self._base_name()
         if (self.is_bot or self.user_id is None) and resolver is not None:
-            return f"{resolver.get('bot_indicator')} {base}"
+            return f"{resolver.get('bot_indicator', base=True)} {base}"
         return base
 
     @property
@@ -46,9 +46,9 @@ class Player:
         prefix = ""
         if emoji:
             if creator_id is not None and self.user_id == creator_id:
-                prefix += f"{emoji.get('creator')} "
+                prefix += f"{emoji.get('creator', base=True)} "
             if owner_ids is not None and self.user_id in owner_ids:
-                prefix += f"{emoji.get('admin')} "
+                prefix += f"{emoji.get('admin', base=True)} "
 
         return f"{prefix}{self.mention_for(emoji)}"
 

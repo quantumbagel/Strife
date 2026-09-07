@@ -37,7 +37,7 @@ class ConnectFour(TurnBasedGame):
 
     def _action_status(self, ctx: GameContext, seat: int) -> str:
         player = self.players[seat]
-        color = "connect_four_red" if seat == 0 else "connect_four_yellow"
+        color = "red" if seat == 0 else "yellow"
         mark = ctx.emoji.get(color)
         return f"{mark} {player.mention} to act"
 
@@ -194,17 +194,17 @@ class ConnectFour(TurnBasedGame):
                 occupant = self.board[idx]
                 if highlight and idx in highlight:
                     if occupant == 0:
-                        row_emojis.append(ctx.emoji.get("connect_four_red"))
+                        row_emojis.append(ctx.emoji.get("red"))
                     elif occupant == 1:
-                        row_emojis.append(ctx.emoji.get("connect_four_yellow"))
+                        row_emojis.append(ctx.emoji.get("yellow"))
                     else:
-                        row_emojis.append(ctx.emoji.get("connect_four_empty"))
+                        row_emojis.append(ctx.emoji.get("empty"))
                 elif occupant == 0:
-                    row_emojis.append(ctx.emoji.get("connect_four_red"))
+                    row_emojis.append(ctx.emoji.get("red"))
                 elif occupant == 1:
-                    row_emojis.append(ctx.emoji.get("connect_four_yellow"))
+                    row_emojis.append(ctx.emoji.get("yellow"))
                 else:
-                    row_emojis.append(ctx.emoji.get("connect_four_empty"))
+                    row_emojis.append(ctx.emoji.get("empty"))
             board_text += " ".join(row_emojis) + "\n"
 
         add_body(container, board_text)

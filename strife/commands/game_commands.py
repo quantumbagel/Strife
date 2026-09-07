@@ -104,6 +104,44 @@ def create_slash_command(
     return cmd
 
 
+def slash_group_for_game(
+    meta,
+    sessions: SessionRegistries,
+    user_errors: UserErrorPresenter,
+    user_success: UserSuccessPresenter,
+) -> app_commands.Group | None:
+    if not meta.slash_moves:
+        return None
+    group = app_commands.Group(name=meta.key, description=f"{meta.name} commands")
+    for slash_move in meta.slash_moves:
+        cmd = create_slash_command(
+            meta.key, slash_move, sessions, user_errors, user_success
+        )
+        group.add_command(cmd)
+    return group
+
+
+def register_slash_group_for_game(
+    tree: app_commands.CommandTree,
+    meta,
+    sessions: SessionRegistries,
+    user_errors: UserErrorPresenter,
+    user_success: UserSuccessPresenter,
+) -> bool:
+    group = slash_group_for_game(meta, sessions, user_errors, user_success)
+    if group is None:
+        return False
+    if tree.get_command(meta.key) is not None:
+        tree.remove_command(meta.key)
+    tree.add_command(group)
+    return True
+
+
+def remove_slash_group_for_game(tree: app_commands.CommandTree, key: str) -> None:
+    if tree.get_command(key) is not None:
+        tree.remove_command(key)
+
+
 def register_game_slash_commands(
     tree: app_commands.CommandTree,
     registry: GameRegistry,
@@ -115,11 +153,4 @@ def register_game_slash_commands(
     for meta in registry.all():
         if games_config is not None and not games_config.for_game(meta.key).enabled:
             continue
-        if meta.slash_moves:
-            group = app_commands.Group(name=meta.key, description=f"{meta.name} commands")
-            for slash_move in meta.slash_moves:
-                cmd = create_slash_command(
-                    meta.key, slash_move, sessions, user_errors, user_success
-                )
-                group.add_command(cmd)
-            tree.add_command(group)
+        register_slash_group_for_game(tree, meta, sessions, user_errors, user_success)

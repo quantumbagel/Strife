@@ -66,10 +66,12 @@ python -m pip install -e .
 python -m strife
 ```
 
+Game extras (Chess: `chess`, `resvg-py`) are declared in each plugin's `plugin.toml`, not in this package. Docker installs shipped extras at image build; a host install pip-installs missing extras on boot unless `STRIFE_SYNC_PLUGIN_DEPS=false`. Compose mounts `./plugins` for git-installed games. `strife/install <git-url>` needs `git` on PATH (the Docker image already has it).
+
 After the bot is online, in a server where you are listed in `STRIFE_OWNER_IDS`:
 
 - `strife/sync` — register slash commands (set `STRIFE_SYNC_ON_START=true` to sync on every boot)
-- `strife/emoji` — upload application emoji from `assets/emoji/`
+- `strife/emoji` — upload application emoji from `assets/emoji/` (platform set) and each plugin's `emoji/` folder
 
 ## Owner commands
 
@@ -80,10 +82,15 @@ Message the bot (or mention it) as an owner:
 | `strife/sync` | Push the slash-command tree (global, `local`, or a guild id) |
 | `strife/emoji` | Re-upload application emoji |
 | `strife/dbreset confirm` | Wipe the database and re-run migrations |
+| `strife/plugins` | List builtin and installed game plugins |
+| `strife/install <git-url>` | Install a game from a GitHub (or other git) plugin repo |
+| `strife/install <key>` | Restore an uninstalled builtin game |
+| `strife/update <key> [ref]` | Replace a git plugin's files without deleting match history |
+| `strife/uninstall <key> confirm` | Remove a game (builtin or installed) and delete its match history |
 
 ## Write a game
 
-See [docs/game-development.md](docs/game-development.md) and [docs/game-api.md](docs/game-api.md). How games are discovered, isolated from Discord, and exposed in the catalog is in [docs/game-architecture.md](docs/game-architecture.md). Each plugin has its own `version` and a `platform_version` targeting this game API. Scaffold with `python scripts/scaffold_game.py <key> "Title"` and try it with `python scripts/run_game.py <key>`.
+See [docs/game-development.md](docs/game-development.md) and [docs/game-api.md](docs/game-api.md). How games are discovered, isolated from Discord, and exposed in the catalog is in [docs/game-architecture.md](docs/game-architecture.md). Install, update, and uninstall (including wiping history) is in [docs/plugins.md](docs/plugins.md). Each plugin has `plugin.toml` with its own `version`, `platform_version`, and extras. Scaffold an in-tree builtin with `python scripts/scaffold_game.py <key> "Title"`, or copy `templates/game-plugin/` and `strife/install <url>`. Try locally with `python scripts/run_game.py <key>`.
 
 ## License
 

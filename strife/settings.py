@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     database_max_size: int = 20
     cpu_pool_size: int = 8
     sync_on_start: bool = False
+    plugins_dir: Path = Path("plugins")
+    sync_plugin_deps: bool = True
 
     @field_validator("owner_ids", mode="before")
     @classmethod

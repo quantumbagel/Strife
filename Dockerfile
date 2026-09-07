@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
@@ -18,12 +18,13 @@ RUN pip install --no-cache-dir \
     "PyYAML>=6.0" \
     "pydantic>=2" \
     "pydantic-settings>=2" \
-    "chess>=1.11.2" \
-    "resvg-py>=0.3.3"
+    "packaging>=24"
+
+COPY strife/ ./strife/
+RUN python -m strife.plugins sync-deps --builtins-only
 
 COPY config/ ./config/
 COPY migrations/ ./migrations/
 COPY assets/ ./assets/
-COPY strife/ ./strife/
 
 CMD ["python", "-m", "strife"]

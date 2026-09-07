@@ -224,8 +224,19 @@ class LayoutView:
         self.children.append(section)
         return self
 
-    def header(self, emoji_name: str, title: str, *, emoji_resolver: object | None = None) -> LayoutView:
-        emoji = emoji_resolver.get(emoji_name) if emoji_resolver is not None else emoji_name  # type: ignore[union-attr]
+    def header(
+        self,
+        emoji_name: str,
+        title: str,
+        *,
+        emoji_resolver: object | None = None,
+        base: bool = False,
+    ) -> LayoutView:
+        emoji = (
+            emoji_resolver.get(emoji_name, base=base)  # type: ignore[union-attr]
+            if emoji_resolver is not None
+            else emoji_name
+        )
         self.children.append(
             TextDisplay(
                 markdown_content=f"### {emoji} {title}",
