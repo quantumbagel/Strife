@@ -1,8 +1,8 @@
 [[release]]
 version = "1.0.0"
 date = "2026-09-07"
-summary = "7×6 alignment with three bot strengths."
+summary = "Drop four in a row."
 added = [
-  "Drop discs to connect four",
+  "7×6 grid",
   "Easy, medium, and hard bots",
 ]

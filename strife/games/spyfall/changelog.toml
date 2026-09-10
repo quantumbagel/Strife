@@ -1,8 +1,8 @@
 [[release]]
 version = "1.0.0"
 date = "2026-09-07"
-summary = "Spyfall with location peek and accusations."
+summary = "One spy. Everyone else knows the location."
 added = [
-  "Secret location, spy vs town, timed discussion",
-  "Peek, accusations, and location guess for the spy",
+  "Timed discussion, accusations, spy can guess the location",
+  "Peek",
 ]

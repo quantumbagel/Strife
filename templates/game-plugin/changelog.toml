@@ -1,11 +1,10 @@
-# Player-facing history. Shown in /strife about → Changes.
-# Keep the latest [[release]] version in sync with plugin.toml.
-# Newest first. Empty arrays may be omitted.
+# Shown in /strife about → Changes.
+# Keep the latest version in sync with plugin.toml. Newest first.
 
 [[release]]
 version = "1.0.0"
 date = ""  # TODO: YYYY-MM-DD of the first ship
 summary = "Initial release."
 added = [
-  "Pass-to-win loop and an easy bot",
+  "Pass to win, easy bot",
 ]

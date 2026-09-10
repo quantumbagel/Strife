@@ -374,7 +374,7 @@ back_btn = "Back"
 
 [changes]
 title = "### {logo} Strife {forward} Changes"
-subtitle = "-# {time} Recent notes for the bot, the game API, and installed games."
+subtitle = "-# {time} Bot, game API, and games."
 bot_btn = "Bot"
 platform_btn = "Platform"
 games_btn = "Games"

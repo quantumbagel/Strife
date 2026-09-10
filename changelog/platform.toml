@@ -1,66 +1,66 @@
-# Game API history (PLATFORM_VERSION). Shown in /strife about → Changes.
-# Bump this file when GameContext, metadata, or presentation types games import change.
+# Game API history. Shown in /strife about → Changes.
+# Bump when GameContext or types games import change.
 
 [[release]]
 version = "1.0.0"
 date = "2026-08-21"
-summary = "Stable plugin API: plugin.toml, GameContext, and three hosts."
+summary = "plugin.toml, GameContext, live / CLI / replay."
 added = [
-  "plugin.toml with key, version, platform_version, and PEP 508 extras",
-  "platform_version compatibility (same major, host ≥ target)",
-  "GameContext protocol: request_input(s), update, send_private, record_event, respond_query",
-  "TurnBasedGame (reset / apply_move / render) shared by live play and replay",
-  "Live, CLI (scripts/run_game.py), and replay hosts over the same Game class",
-  "Capability flags fail-closed: missing parse_replay, bot_move, or remove_player skips registration",
+  "plugin.toml (key, version, platform_version, extras)",
+  "Host only loads games written for this major",
+  "request_input, update, DMs, record_event, respond_query",
+  "TurnBasedGame: reset, apply_move, render",
+  "Same game class on Discord, CLI, and replay",
+  "Missing parse_replay, bot_move, or remove_player skips the game",
 ]
 changed = [
-  "Games import strife.engine and strife.presentation only — not session, routing, or Discord",
-  "Live inputs and replay log rows are the same Move type (args; arguments is an alias)",
-  "Query buttons are query=True + handle_query; they are not moves and are not logged",
-  "Group actions use request_inputs(..., record=False) then one record_event",
+  "Games import strife.engine and strife.presentation only",
+  "Live clicks and replay rows are the same Move type",
+  "Peek is query=True, not a move",
+  "Group votes: collect silently, then one record_event",
 ]
 removed = [
-  "Lobby-assigned roles; games stamp player.role_key themselves",
+  "Lobby-assigned roles",
 ]
 
 [[release]]
 version = "0.3.0"
 date = "2026-08-15"
-summary = "Discord-free layouts and a shared visual language."
+summary = "Layouts are dataclasses. Shared helpers."
 added = [
-  "LayoutView / Container / Button / Select dataclasses compiled by the host",
-  "game_ui helpers: game_container, add_controls, query_panel, action_status, message_lead",
-  "run_cpu for bot search and heavy render so play() does not block the event loop",
+  "LayoutView, Container, Button, Select — the host compiles them",
+  "game_container, add_controls, query_panel",
+  "run_cpu so heavy bots don't freeze the bot",
 ]
 changed = [
-  "Emoji on controls is a string key, not a Discord PartialEmoji",
-  "Board action rows are omitted in replay (ctx.is_replay / add_controls)",
+  "Emoji on buttons is a name, not a Discord emoji object",
+  "Replay hides action rows",
 ]
 
 [[release]]
 version = "0.2.0"
 date = "2026-07-14"
-summary = "Slash moves, peek, and isolation around a clumsy play()."
+summary = "Slash moves, peek, timeouts around play()."
 added = [
-  "metadata.slash_moves (Chess /chess move) submitting the same Move as a button",
-  "handle_query + respond_query for peek and ephemeral sub-views",
-  "Per-call timeouts on bot_move, handle_query, final_view, and parse_replay",
-  "System log kinds (forfeit, game_end, bot_takeover, timeout) that games cannot emit",
+  "slash_moves (same Move as a button)",
+  "handle_query for peek",
+  "Timeouts on bot_move, handle_query, final_view, parse_replay",
+  "forfeit, game_end, bot_takeover, timeout — host-only log events",
 ]
 changed = [
-  "Games must not import discord or encode custom_ids; the host compiles and routes",
+  "Games don't import discord or build custom_ids",
 ]
 fixed = [
-  "ReplayBuilder / iter_replay coalescing bot_takeover into the next visible frame",
+  "Bot takeover banners attach to the next replay frame",
 ]
 
 [[release]]
 version = "0.1.0"
 date = "2026-06-22"
-summary = "First game loop: metadata, play(), bots, and a move log for replay."
+summary = "play(), bots, settings, replay log."
 added = [
-  "Game subclass with GameMetadata (player count, settings, bots, tags)",
-  "play(ctx) returning GameOutcome; parse_replay for finished matches",
-  "bot_move(difficulty, seat) and lobby SettingOption knobs",
-  "Seeded rng so rematch/replay can reconstruct the same shuffle",
+  "Game + metadata (player count, settings, bots)",
+  "play() returns GameOutcome; parse_replay for finished matches",
+  "bot_move and lobby settings",
+  "Seeded rng so rematch can reshuffle the same way",
 ]

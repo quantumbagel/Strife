@@ -1,121 +1,121 @@
-# Bot product history (strife.__version__). Shown in /strife about → Changes.
-# Newest first. Do not bump PLATFORM_VERSION here — that lives in platform.toml.
+# Bot history. Shown in /strife about → Changes.
+# Newest first. Game API versions go in platform.toml.
 
 [[release]]
 version = "1.0.1"
 date = "2026-09-10"
-summary = "Chess variants, a lobby select fix, and shorter docs."
+summary = "Chess variants, a lobby fix, shorter docs."
 added = [
-  "Chess 1.1.0: variants, numbered clocks, and creator color",
+  "Chess variants, clocks you type, pick white or black",
 ]
 changed = [
-  "Shorter README and game-author docs",
+  "Shorter docs",
 ]
 fixed = [
-  "Remove-bot dropdown showed raw bot_indicator markup",
+  "Remove-bot menu showed raw emoji codes",
 ]
 
 [[release]]
 version = "1.0.0"
 date = "2026-09-07"
-summary = "Plugins install from git, and Changes shows what shipped."
+summary = "Install games from git. Changes tab in About."
 added = [
-  "strife/install, update, and uninstall for git plugin repos and builtins",
-  "Plugin emoji uploaded as {key}_{stem} from each package's emoji/ folder",
-  "/strife about → Changes for bot, game API, and per-game notes",
-  "GitHub game-plugin template (templates/game-plugin/) as the third-party authoring path",
-  "Privacy notes for a public instance (docs/privacy.md)",
+  "strife/install, update, and uninstall",
+  "Each game can ship its own emoji",
+  "Changes in /strife about",
+  "GitHub template for new games",
+  "Privacy page",
 ]
 changed = [
-  "Game extras live in plugin.toml, not the host pyproject.toml",
-  "Catalog cards show the latest changelog date next to the game version",
+  "Game libraries live in plugin.toml, not the bot package",
+  "Catalog shows each game's last update date",
 ]
 fixed = [
-  "Privacy and occupancy bugs on rematch, forfeit, and lobby start",
+  "Rematch, forfeit, and lobby start could leave people stuck",
 ]
 
 [[release]]
 version = "0.6.0"
 date = "2026-08-21"
-summary = "Shipped platform 1.0.0 and split the live host from the plugin API."
+summary = "Games are plugins. Discord is just the host."
 added = [
-  "Plugin-facing engine (Game, GameContext, metadata) separate from strife.session",
-  "Auto-sharded gateway, sized Postgres pool, and a dedicated CPU worker pool",
+  "Game API separate from the live Discord session",
+  "Sharding, a Postgres pool, and a CPU worker pool",
 ]
 changed = [
-  "Games assign roles in play(); the lobby Roles tab is gone",
-  "Live Discord session is a host behind GameContext, not a class games import",
+  "Games deal their own roles; the lobby Roles tab is gone",
+  "Games don't import the live session anymore",
 ]
 removed = [
-  "Deprecated GameSession import path games were still reaching through",
+  "Old GameSession import path",
 ]
 
 [[release]]
 version = "0.5.0"
 date = "2026-08-15"
-summary = "Shippable v1: Docker, unified chrome, and launch-game wiring."
+summary = "Docker, matching UI, launch games on."
 added = [
-  "Docker image that syncs builtin plugin extras at build",
-  "Forum channels rejected; lobbies need a guild text channel",
+  "Docker image",
+  "Lobbies need a normal text channel (no forums)",
 ]
 changed = [
-  "Catalog, about, settings, profile, and errors share one layout language",
-  "Launch games wired for public play (test game stays disabled)",
+  "Catalog, about, settings, profile, and errors look the same",
+  "Launch games are on; the test game stays off",
 ]
 fixed = [
   "Spyfall bots during discussion",
-  "Persist-on-shutdown leaving occupancy stuck",
+  "A restart could leave people stuck in a match",
 ]
 
 [[release]]
 version = "0.4.0"
 date = "2026-08-01"
-summary = "Public instance."
+summary = "Public invite."
 added = [
-  "Public invite path and owner ops (strife/sync, strife/emoji, strife/dbreset)",
+  "Public invite, plus strife/sync, strife/emoji, and strife/dbreset",
 ]
 
 [[release]]
 version = "0.3.0"
 date = "2026-07-14"
-summary = "Chess, turn clocks, and match isolation."
+summary = "Chess, turn clocks, hung games stay isolated."
 added = [
-  "Chess with /chess move (SAN or UCI) and optional time control",
-  "Turn timeouts, strikes, skip/pass/abandon, and bot takeover",
-  "Lobby slash fallbacks (join, leave, ready) with creator-only tools on the message",
+  "Chess (/chess move)",
+  "Turn timeouts, strikes, skip, and bot takeover",
+  "Join, leave, and ready as slash commands too",
 ]
 changed = [
-  "play(), bot_move, handle_query, and final_view are time-boxed so a hung game abandons that match only",
+  "A hung game only kills that match",
 ]
 fixed = [
-  "Coup replay frames and timeout copy",
-  "Tic-Tac-Toe bots and board images in the API test game",
+  "Coup replay and timeout text",
+  "Tic-Tac-Toe bots and the test game's board images",
 ]
 
 [[release]]
 version = "0.2.0"
 date = "2026-07-08"
-summary = "Social games, peek, and rematch that does not double-seat."
+summary = "Social games, peek, rematch that doesn't double-book you."
 added = [
-  "Coup, Mafia, Spyfall, and Liar's Dice with peek (and DMs when open)",
-  "Connect Four and a fuller Tic-Tac-Toe with bots",
+  "Coup, Mafia, Spyfall, and Liar's Dice",
+  "Connect Four, and Tic-Tac-Toe with bots",
 ]
 changed = [
-  "Join, leave, ready, and errors go through one presenter and config/text.toml",
+  "Join, leave, ready, and errors share one set of copy",
 ]
 fixed = [
-  "Rematch opening a second lobby while the first was still live",
-  "Outcome mentions and Mafia bot votes counting toward the tally",
+  "Rematch could open a second lobby while the first was still live",
+  "Outcome mentions, and Mafia bots counting toward the vote",
 ]
 
 [[release]]
 version = "0.1.0"
 date = "2026-06-22"
-summary = "First thread-based host: slash to enter, a lobby message to marshal, a public thread to play."
+summary = "Lobbies, a public game thread, rematch."
 added = [
-  "/play lobbies, ready-up, and a public {Game} (#code) thread",
-  "/strife catalog, profile, replay, forfeit, about, and server default channel",
-  "Private lobbies with request-to-join, approve/deny, and blacklist",
-  "Application emoji upload and per-game art on catalog cards",
-  "Rematch on the old lobby message; thread locks when the match ends",
+  "/play, ready-up, and a public {Game} (#code) thread",
+  "/strife catalog, profile, replay, forfeit, about, and server channel",
+  "Private lobbies with join requests and a blacklist",
+  "Custom emoji on catalog cards",
+  "Rematch on the old lobby message; the thread locks when the game ends",
 ]

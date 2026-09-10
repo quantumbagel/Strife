@@ -1,19 +1,14 @@
-"""Player-facing changelog files for the bot, the game API, and each plugin.
+"""Changelogs for the bot, the game API, and each plugin.
 
-Format (TOML, newest first)::
+Shown in /strife about → Changes. Newest ``[[release]]`` first::
 
-    [[release]]
     version = "1.0.0"
     date = "2026-09-07"
     summary = "Initial release."
     added = ["A thing"]
-    changed = []
-    fixed = []
-    removed = []
 
-Host files live in ``changelog/bot.toml`` and ``changelog/platform.toml``.
-Each plugin ships ``changelog.toml`` next to ``plugin.toml``. Missing or
-invalid files are empty — they never skip plugin registration.
+Host: ``changelog/bot.toml``, ``changelog/platform.toml``.
+Games: ``changelog.toml`` next to ``plugin.toml``. A missing file is fine.
 """
 
 from __future__ import annotations

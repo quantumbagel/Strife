@@ -1,7 +1,7 @@
 [[release]]
 version = "1.0.0"
 date = "2026-09-07"
-summary = "API showcase used to exercise the plugin contract."
+summary = "Kitchen sink for the game API."
 added = [
-  "Layouts, group input, queries, private messages, and settings",
+  "Layouts, group input, peeks, DMs, and settings",
 ]

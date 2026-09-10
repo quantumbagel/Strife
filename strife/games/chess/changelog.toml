@@ -1,20 +1,20 @@
 [[release]]
 version = "1.1.0"
 date = "2026-09-10"
-summary = "Variants and custom clocks."
+summary = "Variants, clocks you type, pick your color."
 added = [
   "Chess960, Crazyhouse, King of the Hill, Three-check, Atomic, Antichess, Horde, Racing Kings",
-  "Creator picks white or black",
+  "Lobby creator can play white or black",
 ]
 changed = [
-  "Set clock minutes and increment as numbers",
+  "Clock is minutes + increment, not a preset list",
 ]
 
 [[release]]
 version = "1.0.0"
 date = "2026-09-07"
-summary = "Chess with SAN/UCI slash moves and optional clocks."
+summary = "Standard chess. Type your moves."
 added = [
-  "/chess move for SAN or UCI input",
-  "Board render, time-control setting, random and capture-priority bots",
+  "/chess move — e4, Nf3, or e2e4",
+  "Optional clock, random and capture-priority bots",
 ]

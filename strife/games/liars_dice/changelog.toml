@@ -1,8 +1,8 @@
 [[release]]
 version = "1.0.0"
 date = "2026-09-07"
-summary = "Liar's Dice with hidden hands and peek."
+summary = "Bid, call bluffs, peek your dice."
 added = [
-  "Bids on dice totals, challenges, and wild ones",
-  "Peek at your dice; DMs when open",
+  "Wild ones",
+  "DMs when they work",
 ]

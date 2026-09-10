@@ -1,8 +1,8 @@
 [[release]]
 version = "1.0.0"
 date = "2026-09-07"
-summary = "Coup with peek-only hidden cards (no DMs)."
+summary = "Peek your cards. No DMs."
 added = [
   "Income, foreign aid, coup, steal, tax, assassinate, exchange",
-  "Challenges, blocks, and ephemeral exchange / lose-influence panels",
+  "Challenges and blocks. Exchange and lose-influence happen in a private panel",
 ]
