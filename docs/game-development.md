@@ -1,18 +1,19 @@
-# Game Development Guide
+# Game development
 
-This guide walks through building a Strife game. For the player / operator / author interface, see [interfaces.md](interfaces.md). For the method reference table, see [game-api.md](game-api.md). For how games are discovered, sandboxed, and exposed on Discord, see [game-architecture.md](game-architecture.md).
+Build a game, run it locally, ship it. Method tables: [game-api.md](game-api.md). Install/uninstall: [plugins.md](plugins.md). Player/operator surfaces: [interfaces.md](interfaces.md).
 
 ## Quick start
 
-1. Scaffold a builtin: `python scripts/scaffold_game.py my_game "My Game"` (writes `plugin.toml` and `changelog.toml`)
-2. Or **Use this template** on a GitHub copy of `templates/game-plugin/`, then `strife/install <git-url>`
-3. Implement `play()` in `game.py`. List third-party libraries in `plugin.toml`, not in the platform `pyproject.toml`.
-4. Run locally: `python scripts/run_game.py my_game`
-5. Loaded at startup from `plugin.toml` — no `bot.py` or `strife.session` edits needed. See [plugins.md](plugins.md).
+1. Builtin: `python scripts/scaffold_game.py my_game "My Game"`
+2. Or **Use this template** on `templates/game-plugin/`, then `strife/install <git-url>`
+3. Implement `play()` in `game.py`. Third-party libs go in `plugin.toml`, not the platform `pyproject.toml`
+4. `python scripts/run_game.py my_game`
 
-## Minimal turn-based game
+No `bot.py` or `strife.session` edits. The host loads `plugin.toml` at startup.
 
-The simplest path is `TurnBasedGame` ([`strife/engine/turn_based.py`](../strife/engine/turn_based.py)). See [`strife/games/tictactoe/`](../strife/games/tictactoe/) for a complete example.
+## Turn-based games
+
+Subclass `TurnBasedGame`. See [`strife/games/tictactoe/`](../strife/games/tictactoe/).
 
 ```python
 from strife.engine import TurnBasedGame, game_metadata_from, PlayerCount, PlayerOrder, Move
@@ -34,21 +35,19 @@ class MyGame(TurnBasedGame):
     async def bot_move(self, difficulty, seat) -> Move: ...
 ```
 
-`take_turn` renders, waits, and calls `apply_move` so live play and replay share one rules path. Hide live controls with `add_controls(container, ctx, row)` — they are omitted when `ctx.is_replay`.
+`take_turn` renders, waits, and calls `apply_move` — live play and replay share that path. Wrap live buttons in `add_controls(container, ctx, row)` so they disappear in replay.
 
-Implement `render_final()` when the finished board looks different from a normal turn.
+Override `render_final()` if the finished board looks different.
 
-## Metadata and lobby settings
+## Metadata and settings
 
 Attach metadata with `@game_metadata_from(...)` or `@game_metadata(META)`.
 
-`plugin.toml` `version` is this plugin's semver. `platform_version` is the Strife game API it targets (currently `1.0.0`). The host stamps both onto metadata at load and skips games whose `platform_version` is newer than, or a different major from, the running platform. See [game-api.md](game-api.md#versions).
+In `plugin.toml`: `version` is this game’s semver; `platform_version` is the API it targets (now `1.0.0`). The host copies both onto metadata and skips the game if the platform doesn’t match. See [game-api.md](game-api.md#versions).
 
-Ship `changelog.toml` next to `plugin.toml`. Players browse it in `/strife about` → Changes (alongside bot and platform notes). Newest `[[release]]` first; bump that file whenever you bump `version`.
+`changelog.toml` sits next to `plugin.toml`. Newest `[[release]]` first. Bump it when you bump `version`. Players see it in `/strife about` → Changes.
 
-Lobby settings use `SettingOption` entries. Read them at runtime with `self.setting("key")`, which falls back to the metadata default.
-
-For `OptionType.CHOICE` settings, map each choice value to a custom emoji key with `choice_emojis`:
+Lobby knobs are `SettingOption`. Read them with `self.setting("key")` (falls back to the default).
 
 ```python
 SettingOption(
@@ -58,38 +57,30 @@ SettingOption(
     type=OptionType.CHOICE,
     default="random",
     choices=("random", "creator"),
-    emoji="first_move",  # section header emoji
+    emoji="first_move",
     choice_emojis=(("random", "restart"), ("creator", "creator")),
 )
 ```
 
-Unset choices fall back to the option-level `emoji`, then `"pointing"`.
+Missing `choice_emojis` fall back to the option’s `emoji`, then `"pointing"`.
 
-Declare capabilities explicitly:
+Capabilities:
 
-- `supports_replay=True` (default) — requires `parse_replay` or `TurnBasedGame`
-- `bots=(BotSpec(...),)` — requires `bot_move()`
-- `supports_player_removal=True` — requires `remove_player()`
+- `supports_replay=True` (default) — implement `parse_replay`, or use `TurnBasedGame`
+- `bots=(BotSpec(...),)` — implement `bot_move()`
+- `supports_player_removal=True` — implement `remove_player()`
 
-## The game loop
+## Game loop
 
-Use `GameContext` inside `play()`:
-
-| Call                                                         | When                              |
-|--------------------------------------------------------------|-----------------------------------|
-| `ctx.request_input(view, actor=seat, sources={...}, timeout_seconds=, timeout_consequence=)` | One player acts |
-| `ctx.request_inputs(view, actors={...}, until="all"\|"any", per_seat_sources=)` | Multiple players act |
-| `ctx.request_inputs(..., record=False)`                      | Collect inputs without logging each one |
-| `ctx.update(view)`                                           | Refresh the board without waiting |
-| `ctx.send_private(seat, view)`                               | DM hidden information             |
-| `ctx.record_event(source, arguments)`                        | Log a non-input event for replays |
-| `ctx.respond_query(view)`                                    | Reply to a peek / query button    |
-
-Player inputs are recorded automatically. Use `record_event` for phase transitions and hidden reveals.
-
-**Important:** only **action** inputs (sources listed in `request_input`) and **explicit** `record_event` calls end up in the move log. Query buttons, link buttons, and other auxiliary UI do not — and should not be replayed. See [What gets recorded vs replayed](#what-gets-recorded-vs-replayed) below.
-
-### Interaction argument shapes
+| Call | When |
+|------|------|
+| `ctx.request_input(view, actor=seat, sources={...})` | One player |
+| `ctx.request_inputs(view, actors={...}, until="all"\|"any")` | Several players |
+| `ctx.request_inputs(..., record=False)` | Collect clicks without logging each one |
+| `ctx.update(view)` | Refresh the board |
+| `ctx.send_private(seat, view)` | DM hidden info |
+| `ctx.record_event(source, arguments)` | Log a non-input event |
+| `ctx.respond_query(view)` | Reply to a peek / query button |
 
 | Component | `Move.args` |
 |-----------|-------------|
@@ -97,184 +88,67 @@ Player inputs are recorded automatically. Use `record_event` for phase transitio
 | Single select | `{"value": "id"}` |
 | Multi select | `{"values": ["a", "b"]}` |
 
-## Action buttons vs query buttons vs link buttons
+## Buttons
 
-**Doing something is not the same as making a move, and making a move is not the same as logging a replay step.** A board can show many clickable controls. Solo actions (tile clicks) log one step each. Group actions (7 players voting) should log **one** resolution step — see [Group actions](#group-actions-collect-many-record-one) below.
-
-There are three kinds of in-game controls:
-
-### Action buttons (game moves)
-
-Action buttons **must** appear in the `sources` set passed to `request_input` or `request_inputs`. When clicked, they resolve the pending input and are recorded as moves.
+**Moves** must be in `sources`. They resolve `request_input` and go in the log.
 
 ```python
 row.add_button(Button(source="vote_guilty", label="Guilty", style=ButtonStyle.DANGER))
 move = await ctx.request_input(view, actor=seat, sources={"vote_guilty", "vote_innocent"})
 ```
 
-### Query buttons (peek, help, open ephemeral UI)
-
-Query buttons have a `source` string and **`query=True`**. The host strips them from allowed move sources even if you list them in `sources`. Mark them `query=True` and handle them in `handle_query()` — they are not moves. Use them for:
-
-- Peeking at hidden information (role, hand, secret location)
-- Opening a private ephemeral panel without submitting an action
-- Showing "cannot act" or other validation messages
+**Queries** (`query=True`) are peeks, help, or a private panel. They are not moves, even if you list them in `sources`. Handle them in `handle_query`:
 
 ```python
-# On the board — peek sits next to action buttons
-row.add_button(Button(source="pass", label="Pass", style=ButtonStyle.SECONDARY))
-row.add_button(Button(source="peek", label="Peek Info", emoji="peek", query=True, style=ButtonStyle.SECONDARY))
+row.add_button(Button(source="pass", label="Pass"))
+row.add_button(Button(source="peek", label="Peek", emoji="peek", query=True))
 move = await ctx.request_input(view, actor=seat, sources={"pass"})
-```
 
-Implement the handler on your game class:
-
-```python
-async def handle_query(self, seat: int, source: str, ctx: GameContext) -> bool:
+async def handle_query(self, seat, source, ctx) -> bool:
     if source == "peek":
-        role = self.role.get(seat, "unknown")
-        view = query_panel(ctx, title=f"Your role: {role.title()}", prefix_emoji="user")
+        view = query_panel(ctx, title=f"Your role: {self.role[seat]}", prefix_emoji="user")
         await ctx.respond_query(view)
         return True
     return False
 ```
 
-Return `True` when handled. Return `False` to fall through to normal move submission (which will fail if the source was not in `sources`).
+Return `True` if you handled it. Use `query_panel` for peeks and query errors — don’t send Discord messages from game code.
 
-**Replay:** omit action rows during replay (`if not ctx.is_replay:`) so replays show game state only.
-
-**Ephemeral notices:** use `query_panel` + `ctx.respond_query` so peeks and query errors match platform command styling. Do not send Discord messages from game code.
+**Links** open a URL. No `source`:
 
 ```python
-view = query_panel(ctx, title="Your cards", prefix_emoji="peek", body=hand_text)
-await ctx.respond_query(view)
+Button(label="How to Play", style=ButtonStyle.LINK, url="https://en.wikipedia.org/wiki/Example")
 ```
 
-### Ephemeral sub-views (query opens, action completes)
+**Ephemeral then act** (Coup): a query button opens a private panel; the control *inside* that panel is the real move (`sources={"exchange_select"}`). See [`strife/games/coup/`](../strife/games/coup/).
 
-Coup uses a two-step pattern for actions that are easier in a private panel:
+## Recording and replay
 
-1. Public board shows a **query** button (e.g. `exchange_open`) — not in `sources`.
-2. `handle_query` sends an ephemeral view via `ctx.respond_query` containing the real control (e.g. a `Select` with `source="exchange_select"`).
-3. `play()` waits with `sources={"exchange_select"}` — clicks on the ephemeral control submit the move.
+| What | Examples | In the log? | Replay frame? |
+|------|----------|-------------|---------------|
+| Solo move | Tile click, pass | `game` (auto) | Yes |
+| Group resolution | Vote tally | one `game` `record_event` | Yes |
+| System | Forfeit, cancel, bot takeover | `system` (host) | Banner / early stop |
+| Peek / link | Peek role, rules URL | No | No |
 
-The launcher is a query; the control inside the ephemeral message is an action. See [`strife/games/coup/`](../strife/games/coup/) (`exchange_open`, `lose_influence_open`).
-
-### Link buttons (external URLs)
-
-Link buttons open a URL and never touch the game loop. No `source` is needed:
-
-```python
-Button(
-    label="How to Play",
-    style=ButtonStyle.LINK,
-    url="https://en.wikipedia.org/wiki/Example",
-)
-```
-
-See [`strife/games/test/`](../strife/games/test/) for link buttons mixed with action and select components.
-
-## What gets recorded vs replayed
-
-Replays rebuild public game state from the **move log**, not from every button click. A control can be a real game action live without deserving its own replay step.
-
-Think in four buckets:
-
-| Bucket | Examples | Kind | Appears in replay? |
-|--------|----------|------|-------------------|
-| **Solo moves** | Tile click, pass, single bid | `game` | Yes — one frame per entry |
-| **Group resolutions** | 7-player vote tally | `game` (`record_event` once) | Yes — one frame |
-| **System events** | Forfeit, cancel, bot takeover | `system` | Metadata only (banner, early stop) |
-| **Queries** | Peek role, peek hand | *(not logged)* | No |
-| **Links / static UI** | Rules URL | *(not logged)* | No |
-
-### Group actions: collect many, record one
-
-When several players act at once (votes, simultaneous bids, night actions resolved together), each click matters live but replay should show **one action** with the combined result.
-
-1. Collect with `record=False` so individual clicks stay out of the log.
-2. Apply results to game state in `play()`.
-3. Emit a single `record_event` with everything `parse_replay` needs — this is a **`game`** entry.
-4. In `parse_replay`, handle only `game` entries for state — check `move.is_game` before applying.
-
-System entries (`forfeit`, `game_end`, `bot_takeover`) are recorded by the engine. Do not emit these from game code. On timeout with bots enabled, the lifecycle writes a **`bot_takeover`** system entry first, then the bot's move as a separate **`game`** entry — never flags on the move itself.
+Several players acting at once (votes, night actions): collect with `record=False`, then one `record_event` with the combined result. Don’t log seven vote clicks.
 
 ```python
-# 7 players vote — one replay step, not seven
 votes = await ctx.request_inputs(
-    day_view,
-    actors=set(self.alive),
-    sources={"vote"},
-    until="all",
-    record=False,  # do not log each vote click
+    day_view, actors=set(self.alive), sources={"vote"}, until="all", record=False,
 )
-tally = Counter()
-for seat, move in votes.items():
-    target = parse_target(move)
-    if target is not None:
-        tally[target] += 1
-lynched = resolve_lynch(tally)
-
-await ctx.record_event("day_outcome", {
-    "lynched": lynched,
-    "votes": {seat: m.args.get("target") for seat, m in votes.items()},
-    "history": list(self.history),
-})
+await ctx.record_event("day_outcome", {"lynched": lynched, "votes": {...}})
 ```
 
-`parse_replay` then handles `"day_outcome"` once and renders a single "Lynch Vote" frame. See [`strife/games/mafia/`](../strife/games/mafia/) and [`strife/games/spyfall/`](../strife/games/spyfall/) (`accusation_resolve`).
+`parse_replay` should apply `"day_outcome"`, not `"vote"`. See mafia and spyfall.
 
-Use the default `record=True` when each input **is** its own replay step (tic-tac-toe tile clicks, Coup's main action).
+Leave `record=True` when each click *is* a replay step (tic-tac-toe tiles).
 
-### Rules of thumb
+Don’t record peeks. Don’t emit `forfeit` / `game_end` / `bot_takeover` / `timeout` — the host does that.
 
-1. **Solo actions** — leave `record=True` (default); one input → one log entry → one replay frame.
-2. **Simultaneous group actions** — `record=False` while collecting, then one `record_event` for the resolution.
-3. **Peek / help** — `handle_query`; never recorded.
-4. **In replay views**, omit action rows (`if not ctx.is_replay:`) so only game state is shown.
+### Custom `parse_replay`
 
-### Common mistakes
-
-```python
-# Wrong — 7 vote clicks create 7 replay frames
-votes = await ctx.request_inputs(view, actors=voters, sources={"vote"}, until="all")
-for seat, move in votes.items():
-    await ctx.record_event("cast_vote", {"seat": seat, ...})
-
-# Wrong — parse_replay handles per-vote sources when you wanted one frame
-if move.source == "vote":
-    ...
-
-# Right — collect silently, record resolution once
-votes = await ctx.request_inputs(..., record=False)
-await ctx.record_event("day_outcome", {"votes": {...}, "lynched": seat})
-# parse_replay: only handle "day_outcome"
-```
-
-```python
-# Wrong — peek is not a move; do not record it
-await ctx.record_event("peek", {"seat": seat, "role": role})
-
-# Wrong — peek without query=True would be a move if listed in sources
-row.add_button(Button(source="peek", label="Peek"))  # missing query=True
-move = await ctx.request_input(view, actor=seat, sources={"pass", "peek"})
-```
-
-## Bots
-
-Implement `async def bot_move(self, difficulty: str, seat: int) -> Move`. Return a `Move` with the same `source` string your buttons/selects use. The session time-boxes every call to 10s, including `self.bot_move(...)` from `play()`.
-
-Put CPU-heavy search in `run_cpu` from `strife.engine.workers` (see tic-tac-toe / mafia). That uses the dedicated CPU pool instead of the default asyncio thread pool. A tight loop on the event loop will freeze the bot; the timeout cannot interrupt it.
-
-## Replays
-
-### TurnBasedGame (recommended for turn-based games)
-
-Implement `reset`, `apply_move`, and `render`. Replay frame building is handled for you.
-
-### Custom replays
-
-Use helpers from [`strife/engine/replay.py`](../strife/engine/replay.py):
+`TurnBasedGame` builds frames from `reset` / `apply_move` / `render`. Otherwise:
 
 ```python
 from strife.engine import ReplayBuilder, iter_replay
@@ -293,72 +167,59 @@ for step in iter_replay(moves, self.players):
 return builder.build()
 ```
 
-`iter_replay` walks the log in order, skips metadata-only `bot_takeover` rows, and attaches takeover banners to the next visible frame. Replay views do **not** need to match the live board — a dedicated `_view_replay` is fine. Build frames with `ReplayBuilder`, not by constructing `ReplayFrame` by hand. Test with `python scripts/run_game.py <key> --replay`.
+`iter_replay` skips metadata-only `bot_takeover` rows and hangs the banner on the next real frame. Replay views don’t have to match the live board. Test with `python scripts/run_game.py <key> --replay`.
 
-## Roles, private messages, and simultaneous input
+## Bots
 
-- Roles: declare `roles` (named identities, DM copy). Assign in the game class (`__init__` / `play()`) and stamp `player.role_key`. If players choose, collect that with `request_inputs`, not the lobby.
-- Private messages: `await ctx.send_private(seat, view)` sends a DM; record the event for replay.
-- Simultaneous input: `ctx.request_inputs(..., until="all")` waits for every actor; `until="any"` returns on the first response.
+`async def bot_move(self, difficulty: str, seat: int) -> Move` — same `source` strings as your buttons. The host caps the call at 10s.
 
-See [`strife/games/test/`](../strife/games/test/) for a guided tour of every API feature.
+Heavy search goes through `run_cpu` (`strife.engine.workers`). A tight loop on the event loop freezes the whole bot; the timeout can’t interrupt it.
 
-## Ephemeral queries (`handle_query`)
+## Roles and DMs
 
-See [Action buttons vs query buttons vs link buttons](#action-buttons-vs-query-buttons-vs-link-buttons) above for the full pattern. In short: put peek/help buttons on the board, leave them out of `sources`, and handle them in `handle_query()`. Used by Coup, Mafia, Spyfall, and Liars Dice.
+Declare `roles` (`RoleSpec`) for catalog copy and DMs. Assign in `__init__` / `play()` and set `player.role_key`. If players pick, use `request_inputs`, not the lobby.
 
-## Presentation style
+`ctx.send_private(seat, view)` DMs a player. `request_inputs(..., until="all")` waits for everyone; `until="any"` returns on the first answer.
 
-Platform commands (catalog, about, settings, profile, errors) set the visual language. Games should match it. The contract lives in [`strife/presentation/style.py`](../strife/presentation/style.py).
+## Look and feel
+
+Match catalog / about / settings. Details in [`strife/presentation/style.py`](../strife/presentation/style.py).
 
 - One `Container` per message
-- Header: `### {custom emoji} Title` — breadcrumbs use the `forward` emoji
-- One `-#` subtitle for status, counts, or a hint
-- Visible separators between sections; custom application emoji only (no ⚠️ 🕵️ 📍 ⏱️ decoration)
-- `**Section Title**` headings, calm sentence-case copy, Title Case button labels
-- Buttons: `SECONDARY` default, `PRIMARY` for the main CTA, `SUCCESS` / `DANGER` only when the action itself confirms or destroys
-- Peeks, query errors, and slash-command feedback use the same header/body panels — never bare text
+- Header `### {emoji} Title`; breadcrumbs use `forward`
+- One `-#` subtitle
+- Custom application emoji only (no ⚠️ 🕵️ 📍)
+- Sentence-case copy, Title Case buttons
+- `SECONDARY` default, `PRIMARY` for the main action, `SUCCESS` / `DANGER` only when the click itself confirms or destroys
 
-Emoji: plugin files live in `<package>/emoji/<stem>.webp` and are registered as `{key}_{stem}`. `ctx.emoji.get("duke")` is Coup's `duke.webp`. Platform chrome (`loading`, `error`, `success`, `peek`, …) is listed in [`strife/presentation/base_emojis.py`](../strife/presentation/base_emojis.py); pass `base=True` so a plugin stem of the same name cannot shadow it.
+Plugin art: `<package>/emoji/<stem>.webp` → `{key}_{stem}`. `ctx.emoji.get("duke")` is Coup’s `duke.webp`. Platform chrome (`loading`, `error`, `peek`, …) is in [`base_emojis.py`](../strife/presentation/base_emojis.py); pass `base=True`.
 
-[`strife/presentation/game_ui.py`](../strife/presentation/game_ui.py):
+Helpers in [`game_ui.py`](../strife/presentation/game_ui.py): `action_status`, `message_lead`, `game_container`, `query_panel`.
 
-- `action_status(ctx, player, prefix_emoji=...)` — standard "who can act" line
-- `message_lead(container, text, emoji=..., prefix_emoji=...)` — optional contextual lead above game content
-- `game_container(ctx, lead=..., prefix_emoji=...)` — container with optional lead
-- `query_panel(ctx, title=..., prefix_emoji=..., body=...)` — ephemeral peek / notice
-- `ctx.respond_query(view)` — send that panel (host compiles and replies)
+## Forfeits
 
-Use `message_lead` for phase-specific context (e.g. "Waiting for votes..."). Omit the lead for self-explanatory boards.
+The host injects `forfeit` and `game_end`. Use `forfeit_outcome()` from [`outcomes.py`](../strife/engine/outcomes.py). If `supports_player_removal`, implement `remove_player(seat)`.
 
-## Forfeits and player removal
+## Checklist
 
-The engine injects `forfeit` and `game_end` moves into the log. Use `forfeit_outcome()` from [`strife/engine/outcomes.py`](../strife/engine/outcomes.py) to build a standard outcome when a forfeit ends the game.
-
-If `supports_player_removal` is set, implement `remove_player(seat)` to update alive-player tracking.
-
-## Checklist 
-
-- [ ] Metadata complete (name, summary, player count, tags). `version` / `platform_version` live in `plugin.toml`.
-- [ ] `__init__.py` exports `GAME = YourGameClass`
-- [ ] `changelog.toml` latest release matches `plugin.toml` `version`
+- [ ] Name, summary, player count, tags. Versions live in `plugin.toml`
+- [ ] `__init__.py` exports `GAME`
+- [ ] `changelog.toml` latest version matches `plugin.toml`
 - [ ] `play()` returns `GameOutcome` with per-seat `results` and `player_descriptions`
-- [ ] Bots work for every declared difficulty
-- [ ] Replays render correctly (including forfeits and bot takeovers)
-- [ ] `final_view()` shows a sensible end state (optional but recommended)
-- [ ] Game art in `<package>/emoji/` (`game.webp`, pieces, roles). Platform names from `strife/presentation/base_emojis.py` via `ctx.emoji.get("loading", base=True)`
-- [ ] Run locally with `python scripts/run_game.py <key>`
-- [ ] Query buttons marked `query=True` and handled in `handle_query()`
-- [ ] Replay views show game state only — omit action rows when `ctx.is_replay`
-- [ ] Group actions use `request_inputs(..., record=False)` plus one `record_event` for replay
-- [ ] `parse_replay` handles resolution events, not every per-player click source
+- [ ] Bots for every declared difficulty
+- [ ] Replays work, including forfeits and bot takeovers
+- [ ] Query buttons have `query=True` and a `handle_query` handler
+- [ ] Replay views hide action rows (`add_controls` or `if not ctx.is_replay`)
+- [ ] Group actions: `record=False` + one `record_event`
+- [ ] Art in `<package>/emoji/` (`game.webp`, pieces, roles)
+- [ ] `python scripts/run_game.py <key>`
 
-## Examples by complexity
+## Examples
 
-| Game                                        | Why read it                                       |
-|---------------------------------------------|---------------------------------------------------|
-| [tictactoe](../strife/games/tictactoe/)     | Minimal `TurnBasedGame`, bots, decorator metadata |
-| [connectfour](../strife/games/connectfour/) | Turn-based replay, emoji grid UI                    |
-| [test](../strife/games/test/)               | Every API feature in one place                    |
-| [coup](../strife/games/coup/)               | Multi-phase flow, `handle_query`, semantic events |
-| [mafia](../strife/games/mafia/)             | Roles, private messages, player removal           |
+| Game | Why |
+|------|-----|
+| [tictactoe](../strife/games/tictactoe/) | Smallest `TurnBasedGame` |
+| [connectfour](../strife/games/connectfour/) | Emoji grid, turn-based replay |
+| [test](../strife/games/test/) | Every API feature |
+| [coup](../strife/games/coup/) | Phases, peek, semantic events |
+| [mafia](../strife/games/mafia/) | Roles, DMs, player removal |

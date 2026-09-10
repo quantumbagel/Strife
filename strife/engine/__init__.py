@@ -1,10 +1,7 @@
-"""Public game-plugin API.
+"""What game plugins import.
 
-Authors should import from ``strife.engine`` and ``strife.presentation`` —
-not persistence, compiler, routing, or the live host (``strife.session``).
-
-The live Discord session (``GameSession``, ``LiveContext``) lives in
-``strife.session``. This package is the contract games type against.
+Use ``strife.engine`` and ``strife.presentation``. Not persistence, the
+compiler, routing, or ``strife.session`` (that is the live Discord host).
 
 Typical imports::
 

@@ -1,59 +1,59 @@
 # Strife
 
-A thread-based Discord gaming platform (**platform 1.0.0**). Start a lobby with `/play`, play in a public game thread, then rematch, replay, or check your profile.
+Discord board games in a public thread. `/play` starts a lobby; the match runs in `{Game} (#ABC123)`. Then rematch, replay, or check your profile.
 
-How players, operators, and game authors are supposed to talk to the bot — and where the current code still drifts — is in [docs/interfaces.md](docs/interfaces.md).
+This is the rewrite of [PlayCord](https://github.com/PlayCord/bot). Platform **1.0.0**.
 
-This is the rewrite of [PlayCord](https://github.com/PlayCord/bot).
+How slash, lobby, thread, and owner commands are supposed to work: [docs/interfaces.md](docs/interfaces.md).
 
-## Invite / permissions
+## Invite
 
-Create an application in the [Discord Developer Portal](https://discord.com/developers/applications), add a bot, and enable these **Privileged Gateway Intents**:
+In the [Discord Developer Portal](https://discord.com/developers/applications), create an app, add a bot, and turn on:
 
 - Server Members
 - Message Content
 
-Invite the bot with `applications.commands` and `bot`. Needed bot permissions:
+Invite with `applications.commands` and `bot`. Permissions:
 
 - View Channels, Send Messages, Send Messages in Threads
 - Create Public Threads, Manage Threads
 - Embed Links, Attach Files, Use External Emojis
 - Add Reactions, Read Message History
-- Mention Everyone is **not** required
+- Mention Everyone is **not** needed
 
-Application (bot) emoji are uploaded with `strife/emoji` after the first run.
+Upload application emoji with `strife/emoji` after the first run.
 
-If you publish a public invite, set the application's privacy-policy URL to `docs/privacy.md` on your hosting site (or the copy in this repo).
+If you publish a public invite, point the app’s privacy-policy URL at [docs/privacy.md](docs/privacy.md) (or a hosted copy).
 
 ## Commands
 
-Slash **starts** things; the lobby **message** marshals the table; the public **thread** is the match. Full contract: [docs/interfaces.md](docs/interfaces.md).
+Slash starts things. The lobby message seats the table. The thread is the match.
 
 | Command | What it does |
 |---------|----------------|
 | `/play` | Start a lobby (`game:` required, `private:` optional) |
-| `/strife catalog` | Browse games (Play posts a public lobby in the channel) |
-| `/strife profile` | Wins, losses, and recent matches (`user:`, `game:`, `page:` optional) |
+| `/strife catalog` | Browse games. Play posts a public lobby in the channel |
+| `/strife profile` | Wins, losses, recent matches (`user:`, `game:`, `page:` optional) |
 | `/strife replay` | Open a finished match by 6-character code |
 | `/strife forfeit` | Forfeit a **live** game (leave a lobby with Leave / `/strife lobby leave`) |
-| `/strife settings` | Open lobby settings (creator edits; members can view) |
+| `/strife settings` | Lobby settings (creator edits; members can view) |
 | `/strife server` | Default lobby channel (administrators) |
-| `/strife about` | About the project, attributions, and **Changes** (bot, game API, and games) |
-| `/strife lobby join/leave/ready` | Join by creator, leave, toggle ready. Other lobby tools are on the lobby message and Settings |
+| `/strife about` | About, attributions, and Changes |
+| `/strife lobby join/leave/ready` | Join by creator, leave, ready. Everything else is on the lobby message |
 
-Chess uses `/chess move` with SAN or UCI (`e4`, `Nf3`, `e2e4`) — there are no piece buttons on the board.
+Chess has no piece buttons. Type `/chess move` (`e4`, `Nf3`, `e2e4`).
 
-Hidden-info games have a **Peek** button on the board. Mafia, Spyfall, and Liar's Dice also DM the role/hand when DMs are open. **Coup is peek-only.** Peek still works if DMs are closed.
+Hidden-info games have **Peek** on the board. Mafia, Spyfall, and Liar’s Dice also DM the role/hand when DMs work. **Coup is peek-only.**
 
-## Launch games
+## Games
 
-Tic-Tac-Toe, Connect Four, Chess, Coup, Mafia, Spyfall, Liar's Dice.
+Tic-Tac-Toe, Connect Four, Chess, Coup, Mafia, Spyfall, Liar’s Dice.
 
 The API Test game stays in the tree for developers and is disabled by default.
 
 ## Self-host
 
-Requires **Python 3.14** and PostgreSQL.
+Needs **Python 3.14** and PostgreSQL.
 
 ```bash
 cp .env.example .env
@@ -69,34 +69,46 @@ python -m pip install -e .
 python -m strife
 ```
 
-Game extras (Chess: `chess`, `resvg-py`) are declared in each plugin's `plugin.toml`, not in this package. Docker installs shipped extras at image build; a host install pip-installs missing extras on boot unless `STRIFE_SYNC_PLUGIN_DEPS=false`. Compose mounts `./plugins` for git-installed games. `strife/install <git-url>` needs `git` on PATH (the Docker image already has it).
+Game extras (Chess: `chess`, `resvg-py`) live in each plugin’s `plugin.toml`, not this package. Docker installs shipped extras at image build. A host install pip-installs missing extras on boot unless `STRIFE_SYNC_PLUGIN_DEPS=false`. Compose mounts `./plugins`. `strife/install` needs `git` on PATH (the Docker image has it).
 
-After the bot is online, in a server where you are listed in `STRIFE_OWNER_IDS`:
+Once the bot is online, in a server where you are in `STRIFE_OWNER_IDS`:
 
-- `strife/sync` — register slash commands (set `STRIFE_SYNC_ON_START=true` to sync on every boot)
-- `strife/emoji` — upload application emoji from `assets/emoji/` (platform set) and each plugin's `emoji/` folder
+- `strife/sync` — register slash commands (`STRIFE_SYNC_ON_START=true` to sync every boot)
+- `strife/emoji` — upload `assets/emoji/` and each plugin’s `emoji/` folder
 
 ## Owner commands
 
-As an owner (`STRIFE_OWNER_IDS`), type `strife/…` at the **start** of a message in any channel or DM. A mention prefix is not accepted.
+Type `strife/…` at the **start** of a message. Mentions are ignored.
 
 | Command | What it does |
 |---------|----------------|
-| `strife/sync` | Push the slash-command tree (global, `local`, or a guild id) |
+| `strife/sync` | Push slash commands (global, `local`, or a guild id) |
 | `strife/emoji` | Re-upload application emoji |
 | `strife/dbreset confirm` | Wipe the database and re-run migrations |
-| `strife/plugins` | List builtin and installed game plugins |
-| `strife/install <git-url> [ref]` | Install a game from a git plugin repo |
-| `strife/install <key>` | Restore an uninstalled builtin game |
-| `strife/update <key> [ref]` | Replace a git plugin's files without deleting match history |
-| `strife/uninstall <key> confirm` | Remove a game (builtin or installed) and delete its match history |
+| `strife/plugins` | List builtin and installed games |
+| `strife/install <git-url> [ref]` | Install a game from git |
+| `strife/install <key>` | Restore an uninstalled builtin |
+| `strife/update <key> [ref]` | Replace a git plugin’s files; keep match history |
+| `strife/uninstall <key> confirm` | Remove a game and delete its match history |
 
-To **hide** a game without deleting history, set `enabled: false` in `config/games.yaml`. Uninstall wipes matches and stats for that key. See [docs/plugins.md](docs/plugins.md).
+To hide a game without deleting history, set `enabled: false` in `config/games.yaml`. Uninstall wipes matches and stats. See [docs/plugins.md](docs/plugins.md).
 
 ## Write a game
 
-See [docs/interfaces.md](docs/interfaces.md) for the player / operator / author contract, [docs/game-development.md](docs/game-development.md) and [docs/game-api.md](docs/game-api.md) for implementing a game. How games are discovered, isolated from Discord, and exposed in the catalog is in [docs/game-architecture.md](docs/game-architecture.md). Install, update, and uninstall (including wiping history) is in [docs/plugins.md](docs/plugins.md). Each plugin has `plugin.toml` (`version`, `platform_version`, extras) and `changelog.toml` (shown in `/strife about` → Changes, with bot and platform notes). Scaffold an in-tree builtin with `python scripts/scaffold_game.py <key> "Title"`. Third-party games start from the GitHub template in `templates/game-plugin/` (**Use this template**, then `strife/install <url>`). Try locally with `python scripts/run_game.py <key>`.
+| Doc | For |
+|-----|-----|
+| [game-development.md](docs/game-development.md) | Tutorial |
+| [game-api.md](docs/game-api.md) | Methods and move log |
+| [plugins.md](docs/plugins.md) | Install / update / uninstall |
+| [game-architecture.md](docs/game-architecture.md) | How the host loads a game |
+
+```bash
+python scripts/scaffold_game.py my_game "My Game"
+python scripts/run_game.py my_game
+```
+
+Third-party games: GitHub template in `templates/game-plugin/`, then `strife/install <url>`. Each plugin has `plugin.toml` and `changelog.toml` (shown in `/strife about` → Changes).
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Privacy notes for a public instance are in [docs/privacy.md](docs/privacy.md).
+MIT. See [LICENSE](LICENSE). Public-instance privacy notes: [docs/privacy.md](docs/privacy.md).

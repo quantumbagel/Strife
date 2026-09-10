@@ -1,20 +1,20 @@
-# Platform (base) emoji
+# Platform emoji
 
-Files in this folder are the **host** set. Plugin art does not belong here.
+Host chrome only. Plugin art does not belong here.
 
-Games resolve these names only with `base=True`:
+Games resolve these names with `base=True`:
 
 ```python
 ctx.emoji.get("loading", base=True)
 ```
 
-The canonical name list is [`strife/presentation/base_emojis.py`](../../strife/presentation/base_emojis.py). `strife/emoji` uploads a file from this folder only when its stem is in that list.
+Names: [`strife/presentation/base_emojis.py`](../../strife/presentation/base_emojis.py). `strife/emoji` uploads a file from this folder only if its stem is on that list.
 
-Game-specific art goes in the plugin package:
+Game art lives in the plugin:
 
 ```
-strife/games/coup/emoji/duke.webp   # Discord name: coup_duke
-plugins/my_game/emoji/token.webp    # Discord name: my_game_token
+strife/games/coup/emoji/duke.webp   # coup_duke
+plugins/my_game/emoji/token.webp    # my_game_token
 ```
 
-Then `ctx.emoji.get("duke")` (with the game bound) resolves `coup_duke`.
+Then `ctx.emoji.get("duke")` (game bound) is `coup_duke`.

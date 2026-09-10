@@ -28,7 +28,7 @@ from strife.presentation.components import (
     walk_interactive,
 )
 from strife.presentation.emoji import EmojiResolver, get_game_emoji
-from strife.presentation.roster import bot_label, member_line
+from strife.presentation.roster import member_line
 from strife.routing import prefixes as P
 
 
@@ -186,11 +186,11 @@ def _add_general_tab(
                         placeholder=text.get("lobby.remove_bot_placeholder"),
                         choices=[
                             SelectChoice(
-                                label=bot_label(emoji, bot.name, difficulty=bot.difficulty),
+                                label=bot.name,
                                 value=bot.name,
                                 description=text.get(
                                     "lobby.remove_bot_desc",
-                                    name=bot_label(emoji, bot.name),
+                                    name=bot.name,
                                 ),
                                 emoji="leave",
                             )

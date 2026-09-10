@@ -25,6 +25,7 @@ services:
     environment:
       STRIFE_DATABASE_URL: postgresql://strife:strife@db:5432/strife
     volumes:
+      - ./strife:/app/strife
       - ./config:/app/config
       - ./plugins:/app/plugins
     restart: unless-stopped

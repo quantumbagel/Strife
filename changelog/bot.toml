@@ -2,6 +2,20 @@
 # Newest first. Do not bump PLATFORM_VERSION here — that lives in platform.toml.
 
 [[release]]
+version = "1.0.1"
+date = "2026-09-10"
+summary = "Chess variants, a lobby select fix, and shorter docs."
+added = [
+  "Chess 1.1.0: variants, numbered clocks, and creator color",
+]
+changed = [
+  "Shorter README and game-author docs",
+]
+fixed = [
+  "Remove-bot dropdown showed raw bot_indicator markup",
+]
+
+[[release]]
 version = "1.0.0"
 date = "2026-09-07"
 summary = "Plugins install from git, and Changes shows what shipped."

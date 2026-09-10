@@ -294,3 +294,15 @@ unlock:
   fallback: 🔓
   id: null
   animated: false
+enable_detective:
+  fallback: null
+  id: 1525857721092542645
+  animated: false
+enable_doctor:
+  fallback: null
+  id: 1525857721973342481
+  animated: false
+game_mafia:
+  fallback: null
+  id: 1525857729300664452
+  animated: false

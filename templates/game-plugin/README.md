@@ -1,86 +1,77 @@
 # Strife game plugin
 
-This repository is a **GitHub template**. Create a new game from it, then install that repo on a running bot.
+GitHub template for a Strife game. Create a repo from it, then install that repo on a running bot.
 
-The package is **not standalone**. You need [Strife](https://github.com/quantumbagel/Strife) (Python **3.14**) — a checkout to try locally, or a running bot to `strife/install`. `strife/install` clones this **repository root**; keep `plugin.toml` at the root.
+This package is not standalone. You need [Strife](https://github.com/quantumbagel/Strife) (Python **3.14**) — a checkout to try locally, or a running bot for `strife/install`. Keep `plugin.toml` at the repository root; install clones this root.
 
 ## 1. Use the template
 
-On GitHub: **Use this template** → **Create a new repository**. Do not fork.
+GitHub: **Use this template** → **Create a new repository**. Don’t fork.
 
-Replace `TODO` / `my_game` everywhere, and put your name in `LICENSE` before you publish:
+Replace `TODO` / `my_game` everywhere, and put your name in `LICENSE`:
 
-| File | What to change |
-|------|----------------|
+| File | Change |
+|------|--------|
 | `plugin.toml` | `key`, `version`, `platform_version`, `dependencies` |
-| `game.py` | `@game_metadata_from(...)` (`key` must match `plugin.toml`) and the class name |
+| `game.py` | `@game_metadata_from(...)` (`key` matches `plugin.toml`) and the class name |
 | `__init__.py` | `GAME =` that class |
 | `changelog.toml` | First `[[release]]` — `version` matches `plugin.toml`; set `date` |
 | `LICENSE` | Copyright holder |
 
-`key` is a lowercase identifier (`letter`, then letters/digits/underscore, max 32). It is the Discord slash-group name if you add `slash_moves`.
+`key` is lowercase (`letter`, then letters/digits/underscore, max 32). It’s the Discord slash-group name if you add `slash_moves`.
 
-## 2. Implement the game
+## 2. Implement
 
-Import from `strife.engine` and `strife.presentation` only. Do not import `strife.session`, `strife.bot`, matchmaking, routing, or persistence.
+Import from `strife.engine` and `strife.presentation` only.
 
-Put art in `emoji/`. Catalog uses **`emoji/game.webp`** (uploaded as `{key}_game`). Without it, catalog falls back to the platform game icon. Extra stems (`token.webp`) become `{key}_{stem}`. In `play()`, `ctx.emoji.get("token")` resolves your file. Platform chrome (`loading`, `error`, `success`, `peek`, …) uses `ctx.emoji.get("loading", base=True)`. After install, run `strife/emoji` if you shipped an `emoji/` folder.
+Art goes in `emoji/`. Catalog uses **`emoji/game.webp`** (`{key}_game`). Extra stems become `{key}_{stem}`. In `play()`, `ctx.emoji.get("token")` is your file. Platform chrome uses `ctx.emoji.get("loading", base=True)`. After install, `strife/emoji` if you shipped `emoji/`.
 
-List third-party libraries in `plugin.toml` `dependencies` (PEP 508). The host pip-installs them at boot / `sync-deps`, not during live `strife/install`. Do not import those extras at module top until they are listed here. Do not call `pip` from game code. Do not add a `pyproject.toml` / `requirements.txt` for extras.
+Third-party libs: `plugin.toml` `dependencies` (PEP 508). The host pip-installs them at boot, not during live `strife/install`. Don’t add a `pyproject.toml` / `requirements.txt` for extras.
 
-When you ship a release, bump `version` in `plugin.toml`, add a `[[release]]` at the top of `changelog.toml`, and keep `platform_version` on the API you actually use. Do not duplicate semver on `GameMetadata`.
+Ship a release: bump `version` in `plugin.toml`, add a `[[release]]` at the top of `changelog.toml`. Don’t put semver on `GameMetadata`.
 
-Optional patterns (see shipped games in the Strife repo, not required here):
+Optional:
 
-- Lobby knobs: `SettingOption` on metadata, read with `self.setting("key")`
-- Peek / help: `Button(..., query=True)` and `handle_query` → `ctx.respond_query`
+- Lobby knobs: `SettingOption`, read with `self.setting("key")`
+- Peek: `Button(..., query=True)` and `handle_query` → `ctx.respond_query`
 - Text moves: `slash_moves=` on metadata, then `strife/sync`
-- Heavier bots: a `bot.py` module used from `bot_move`
+- Heavier bots: a `bot.py` used from `bot_move`
 
-## 3. Install on the bot
-
-An owner runs:
+## 3. Install
 
 ```
 strife/install https://github.com/you/your-game
 ```
 
-Optional ref (branch, tag, or SHA): `strife/install https://github.com/you/your-game v1.2.0`
+Optional ref: `strife/install https://github.com/you/your-game v1.2.0`
 
-Then:
+Then `strife/emoji` if you shipped `emoji/`, `strife/sync` if you declared `slash_moves`. The game appears in `/play` once `games.yaml` has `enabled: true` (install creates that row if the key is new).
 
-- `strife/emoji` if you shipped `emoji/`
-- `strife/sync` if the game declares `slash_moves`
-- `/play` — the game appears once `games.yaml` has `enabled: true` (install creates that row if the key is new)
-
-Update later with `strife/update <key> [ref]`. That keeps match history.
+Later: `strife/update <key> [ref]` (keeps match history).
 
 ## Layout
 
 ```
-plugin.toml       # required at repo root: key, version, platform_version, dependencies
-changelog.toml    # shown in /strife about → Changes; newest [[release]] first
-LICENSE           # replace the TODO copyright holder
-__init__.py       # GAME = the Game subclass
-game.py           # rules + metadata
+plugin.toml       # key, version, platform_version, dependencies
+changelog.toml    # /strife about → Changes
+LICENSE
+__init__.py       # GAME = the class
+game.py
 emoji/            # optional; catalog icon is game.webp
 ```
 
-`plugin.toml` is the install-time source of truth. The host reads it **before** importing your package.
+## Docs
 
-## Contract
+In the [Strife](https://github.com/quantumbagel/Strife) repo:
 
-From the [Strife](https://github.com/quantumbagel/Strife) repo:
-
-- [Game API](https://github.com/quantumbagel/Strife/blob/main/docs/game-api.md) — method contract
-- [Game development](https://github.com/quantumbagel/Strife/blob/main/docs/game-development.md) — tutorial
-- [Game architecture](https://github.com/quantumbagel/Strife/blob/main/docs/game-architecture.md) — host/plugin boundary
-- [Plugins](https://github.com/quantumbagel/Strife/blob/main/docs/plugins.md) — install / update / uninstall
-- [Interfaces](https://github.com/quantumbagel/Strife/blob/main/docs/interfaces.md) — player / operator / author contract
+- [Game development](https://github.com/quantumbagel/Strife/blob/main/docs/game-development.md)
+- [Game API](https://github.com/quantumbagel/Strife/blob/main/docs/game-api.md)
+- [Plugins](https://github.com/quantumbagel/Strife/blob/main/docs/plugins.md)
+- [Interfaces](https://github.com/quantumbagel/Strife/blob/main/docs/interfaces.md)
 
 ## Local check
 
-From a **Strife** checkout (not this repo), copy this package to `plugins/<key>/` (folder name does not have to match `key`, but `plugin.toml` `key` must):
+From a **Strife** checkout, copy this package to `plugins/<key>/`:
 
 ```
 python scripts/run_game.py <key>

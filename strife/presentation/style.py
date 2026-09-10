@@ -1,31 +1,18 @@
-"""Shared Components V2 layout language.
+"""Shared layout helpers. Games should look like catalog / about / settings.
 
-Platform commands (catalog, about, settings, profile, errors/success) established
-this look. Games and remaining command surfaces should use the same helpers.
-
-Layout
-------
 One ``Container`` per message.
 
-1. Header — ``### {emoji} Title``. Breadcrumbs use the ``forward`` emoji:
-   ``Strife {forward} Catalog``.
-2. Subtitle — one ``-#`` line for counts, status, or a short hint.
-3. Divider — a visible separator between major sections. Use an invisible
-   spacer when you only need air, not a rule.
-4. Body — sentence-case copy, ``**Section Title**`` headings, custom-emoji
-   bullets. Metadata and hints stay on ``-#`` lines.
-5. Actions — ``SECONDARY`` by default, ``PRIMARY`` for the main CTA,
-   ``SUCCESS`` / ``DANGER`` only when the action itself confirms or destroys.
+1. Header — ``### {emoji} Title``. Breadcrumbs use ``forward``.
+2. Subtitle — one ``-#`` line.
+3. Divider — visible between sections; invisible spacer for air.
+4. Body — sentence case, ``**Section Title**``, custom-emoji bullets.
+   Hints stay on ``-#`` lines.
+5. Buttons — ``SECONDARY`` default, ``PRIMARY`` for the main action,
+   ``SUCCESS`` / ``DANGER`` only when the click itself confirms or destroys.
 
-Rules
------
-- Custom application emoji only. Do not decorate chrome with unicode
-  (⚠️ 🕵️ 📍 ⏱️ 💥 👑). Game-piece glyphs (dice faces, X/O, role keys) are
-  fine when they come from the emoji catalog.
-- Title Case button labels. Short, calm copy — no ALL CAPS, no ornamental
-  titles like ``C O U P``.
-- Feedback (success / error / query notice) is header + optional body, never
-  a bare ``send_message("...")``.
+Custom application emoji only — no ⚠️ 🕵️ 📍 ⏱️ in chrome. Piece glyphs
+(dice, X/O) are fine from the emoji catalog. Title Case labels. Feedback
+is header + optional body, never a bare ``send_message``.
 """
 
 from __future__ import annotations

@@ -1,4 +1,16 @@
 [[release]]
+version = "1.1.0"
+date = "2026-09-10"
+summary = "Variants and custom clocks."
+added = [
+  "Chess960, Crazyhouse, King of the Hill, Three-check, Atomic, Antichess, Horde, Racing Kings",
+  "Creator picks white or black",
+]
+changed = [
+  "Set clock minutes and increment as numbers",
+]
+
+[[release]]
 version = "1.0.0"
 date = "2026-09-07"
 summary = "Chess with SAN/UCI slash moves and optional clocks."

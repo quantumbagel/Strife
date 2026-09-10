@@ -30,6 +30,8 @@ htmlcov/
 Thumbs.db
 
 # Local scratch
+.playwright-mcp/
+.grok/
 changes.diff
 example_game_api.py
 *.pyc

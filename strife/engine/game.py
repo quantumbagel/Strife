@@ -12,19 +12,16 @@ from strife.presentation.components import LayoutView
 
 
 class Game(ABC):
-    """Base class for all Strife games.
+    """Base class for a Strife game. See ``docs/game-api.md``.
 
-    Contract summary (see ``docs/game-api.md`` for full details):
-
-    * ``play(ctx)`` — **required** — main game loop.
-    * ``parse_replay(moves, ctx)`` — required when ``metadata.supports_replay``.
-    * ``bot_move(difficulty, seat)`` — required when ``metadata.supports_bots``.
-    * ``remove_player(seat)`` — required when ``metadata.supports_player_removal``.
-    * ``final_view``, ``handle_query`` — optional hooks.
-    * Query buttons: set ``query=True`` on the control and handle them in
-      ``handle_query()``. They are not moves.
-    * Group inputs (votes, etc.): ``request_inputs(..., record=False)`` then one
-      ``record_event`` for replay — not one log entry per player.
+    * ``play(ctx)`` — required. Return ``GameOutcome`` when finished.
+    * ``parse_replay`` — required when ``supports_replay``.
+    * ``bot_move`` — required when ``metadata.bots`` is set.
+    * ``remove_player`` — required when ``supports_player_removal``.
+    * ``final_view``, ``handle_query`` — optional.
+    * Peek/help buttons: ``query=True`` and ``handle_query``. Not moves.
+    * Group inputs: ``request_inputs(..., record=False)`` then one
+      ``record_event`` — not one log row per player.
     """
 
     metadata: ClassVar[GameMetadata]

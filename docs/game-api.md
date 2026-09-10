@@ -1,144 +1,108 @@
-# Game API Reference
+# Game API
 
-This document describes the method-level contract for implementing a Strife game. The product-level player / operator / author interface (and current drift from it) is [interfaces.md](interfaces.md).
+What a game class must implement. Surfaces players actually see: [interfaces.md](interfaces.md). Tutorial: [game-development.md](game-development.md).
 
-## Overview
+## Setup
 
-1. Add `plugin.toml` (`key`, `version`, `platform_version`, `dependencies`) and `changelog.toml` next to the package.
-2. Subclass `Game` in `game.py` and export it as `GAME` from `__init__.py`.
-3. Attach `GameMetadata` via `@game_metadata(...)` or `GameClass.metadata = META`. `metadata.key` must match `plugin.toml`. The host stamps `version` / `platform_version` from the manifest.
-4. Builtins under `strife/games/` and git installs under `plugins/` are loaded at startup from those manifests.
+1. `plugin.toml` (`key`, `version`, `platform_version`, `dependencies`) and `changelog.toml` next to the package
+2. Subclass `Game` in `game.py`, export it as `GAME` from `__init__.py`
+3. Attach `GameMetadata` (`@game_metadata` / `@game_metadata_from`). `metadata.key` must match `plugin.toml`. The host stamps `version` / `platform_version` from the manifest
+4. Builtins live in `strife/games/`; git installs in `plugins/`
 
-Runtime interaction uses `GameContext`: request player input, update the board, send private messages, record non-input events, and reply to query buttons. Games never see Discord types.
+Import from `strife.engine` and `strife.presentation` only — not persistence, the compiler, or `strife.session`. Games never see Discord types.
 
-Import the plugin surface from `strife.engine` and `strife.presentation` — not persistence, the view compiler, or the live host (`strife.session`). Live inputs and replay log rows are the same `Move` type (`args`, `source`, `kind`). `arguments` is a compatibility alias of `args`.
+Live clicks and replay log rows are the same `Move` (`args`, `source`, `kind`). `arguments` is an alias of `args`.
+
+Talk to the host through `GameContext`: input, board updates, DMs, `record_event`, query replies.
 
 ## Versions
 
-This host is **platform 1.0.0** (`PLATFORM_VERSION` in `strife.engine`).
-
-Each game declares two independent semver strings in **`plugin.toml`** (the host copies them onto `GameMetadata` at load):
+This host is **platform 1.0.0**.
 
 | Field | Meaning |
 |-------|---------|
-| `version` | The plugin's own version (Tic-Tac-Toe 1.0.0 vs Coup 1.0.0 are unrelated) |
+| `version` | This plugin’s semver (Tic-Tac-Toe 1.0.0 vs Coup 1.0.0 are unrelated) |
 | `platform_version` | The game API this plugin was written for |
 
-Registration skips a game when `platform_version` is not compatible with the host: same major, and the host is greater than or equal to the target (minor, then patch). A 1.0.0 game runs on 1.2.0; a 1.2.0 game does not run on 1.0.0; a 2.0.0 game does not run on 1.x.
+The game loads if major versions match and the host is ≥ the target. A 1.0.0 game runs on 1.2.0; a 1.2.0 game does not run on 1.0.0.
 
-`changelog.toml` is **not** a load gate. Players see it under `/strife about` → Changes. Keep the latest `[[release]].version` in sync with `plugin.toml`. Host notes live in `changelog/bot.toml` (product) and `changelog/platform.toml` (this API).
-
-```python
-# plugin.toml is the source of truth for version / platform_version
-@game_metadata_from(
-    key="my_game",
-    name="My Game",
-    ...
-)
-```
+`changelog.toml` is not a load gate. Players see it in `/strife about` → Changes. Keep the latest `[[release]].version` in sync with `plugin.toml`. Host notes: `changelog/bot.toml`, `changelog/platform.toml`.
 
 ## Required methods
 
-| Method                       | Required when                      | Purpose                                            |
-|------------------------------|------------------------------------|----------------------------------------------------|
-| `play(ctx)`                  | Always                             | Main game loop; return `GameOutcome` when finished |
-| `parse_replay(moves, ctx)`   | `metadata.supports_replay`         | Build a list of `ReplayFrame` for match replays    |
-| `bot_move(difficulty, seat)` | `metadata.bots` is non-empty       | Choose a move for bot players                      |
-| `remove_player(seat)`        | `metadata.supports_player_removal` | Update game state when a player leaves mid-game    |
+| Method | When | Does |
+|--------|------|------|
+| `play(ctx)` | Always | Game loop; return `GameOutcome` when finished |
+| `parse_replay(moves, ctx)` | `supports_replay` | Build replay frames |
+| `bot_move(difficulty, seat)` | `metadata.bots` | Pick a move for a bot |
+| `remove_player(seat)` | `supports_player_removal` | Update state when someone leaves |
 
-Registration validates these capabilities and **skips the game** (error log) when an implementation is missing. Default `supports_replay=True`, so a raw `Game` without `parse_replay` or `TurnBasedGame` will not appear in `/play`.
+Missing a required method **skips the game** (error log). Default `supports_replay=True`, so a raw `Game` without `parse_replay` (and not `TurnBasedGame`) won’t show up in `/play`.
 
 ## Optional hooks
 
-| Method                                                  | Purpose                                                  |
-|---------------------------------------------------------|----------------------------------------------------------|
-| `final_view(ctx, outcome)`                              | Custom end-state UI shown after the game ends            |
-| `handle_query(seat, source, ctx)` | Ephemeral peek / auxiliary UI (return `True` if handled) |
+| Method | Does |
+|--------|------|
+| `final_view(ctx, outcome)` | End-state UI |
+| `handle_query(seat, source, ctx)` | Peek / extra UI. Return `True` if handled |
 
-## Action buttons vs query buttons vs link buttons
+## Moves vs queries vs links
 
-**Not every clickable control is a move.** Players may peek, open help, or launch ephemeral UI without advancing the game. Those interactions are live-only: they are not written to the move log and should not produce replay frames.
+| Kind | How | In the log? | Replay? |
+|------|-----|-------------|---------|
+| Solo move | `request_input(..., sources={...})` | Yes (default) | One frame |
+| Group input | `request_inputs(..., record=False)` + `record_event` | One event | One frame |
+| Query | `Button(..., query=True)` + `handle_query` | No | No |
+| Link | `Button(style=ButtonStyle.LINK, url=...)` | No | No |
 
-Not every control on the board is a game move. Strife supports three kinds of interactive elements:
-
-| Kind | How to build | In move log? | In replay? |
-|------|--------------|--------------|------------|
-| **Solo move** | `request_input(..., sources={...})` | Yes (auto, default) | Yes — one frame |
-| **Group input** | `request_inputs(..., record=False)` + `record_event` | One resolution event | Yes — one frame |
-| **Query** | `Button(..., query=True)` + `handle_query` | No | No |
-| **Link** | `Button(style=ButtonStyle.LINK, url=...)` | No | No |
-
-### Query buttons (`handle_query`)
-
-Use query buttons for read-only or auxiliary UI that should **not** advance the game: peek at hidden info, open an ephemeral sub-view, or show validation errors.
-
-Mark them `query=True`. That is enough — they are not moves even if listed in `sources`. When a player clicks, the router calls `handle_query`. If it returns `True`, the interaction is done.
+`query=True` is enough — not a move even if listed in `sources`. Hide live rows in replay with `add_controls(container, ctx, row)`.
 
 ```python
 async def handle_query(self, seat, source, ctx) -> bool:
     if source == "peek":
         view = query_panel(ctx, title=f"Role: {self.role[seat]}", prefix_emoji="peek")
-        # "peek" is a platform emoji (see strife/presentation/base_emojis.py)
         await ctx.respond_query(view)
         return True
     return False
-```
 
-```python
-row.add_button(Button(source="peek", label="Peek", query=True, style=ButtonStyle.SECONDARY))
+row.add_button(Button(source="peek", label="Peek", query=True))
 move = await ctx.request_input(view, actor=seat, sources={"pass"})
 ```
 
-Hide action rows during replay with `add_controls(container, ctx, row)` (no-op when `ctx.is_replay`).
-
-**Examples:** Mafia (peek role), Spyfall (peek location), Coup (peek cards, `exchange_open` ephemeral launcher).
-
-### Link buttons
-
-External links need no `source`:
+Link buttons need no `source`:
 
 ```python
 Button(label="Rules", style=ButtonStyle.LINK, url="https://example.com/rules")
 ```
 
-## Move logging
+## Move log
 
-The move log drives replay. Each entry has a **kind**:
+| Kind | Who writes it | Examples | Replay |
+|------|---------------|----------|--------|
+| `game` | `request_input` (default), `record_event` | tile click, `day_outcome` | Apply state / render |
+| `system` | Host | `forfeit`, `game_end`, `bot_takeover`, `timeout` | Banners, early end — not rules |
 
-| Kind | Recorded by | Examples | Replay role |
-|------|-------------|----------|-------------|
-| `game` | `request_input` (default), `record_event` | tile click, `day_outcome`, `accusation_resolve` | Apply state / render frames |
-| `system` | Engine only (`_record_system`) | `forfeit`, `game_end`, `bot_takeover`, `timeout` | Metadata (takeover banners, early end) — not game rules |
+Games only emit **`game`** via `record_event`. `record_event` rejects the four system names.
 
-Games should only emit **`game`** entries via `record_event`. System events are injected by the session and lifecycle (forfeits, cancellations, bot takeover, timeout). `record_event` rejects those four names.
-
-`parse_replay` should iterate the full log (to preserve order and handle system events via `system_replay_info`) but only apply **`game`** entries to state. Check `move.is_game` before updating game state. `TurnBasedGame` does this automatically.
-
-`total_turns` on saved matches counts **game** log entries (actions) only.
-
-### Recording patterns
+`parse_replay` walks the full log (order + system banners via `system_replay_info`) but only applies `move.is_game`. `TurnBasedGame` does this for you. `total_turns` counts game entries only.
 
 | Pattern | Recording |
 |---------|-----------|
-| Solo move (`request_input`, default) | Auto-recorded as `game` |
-| Group input (`request_inputs`, `record=False`) | Not auto-recorded — emit one `game` `record_event` after |
-| Resolution / phase change | `record_event("day_outcome", {...})` → `game` |
-| Query / peek | Not recorded |
-| Forfeit / timeout / cancel | Engine → `system` |
+| Solo `request_input` | Auto, `game` |
+| Group `request_inputs(..., record=False)` | You emit one `record_event` |
+| Phase change | `record_event("day_outcome", {...})` |
+| Peek | Not recorded |
+| Forfeit / timeout / cancel | Host → `system` |
 
-Player inputs with `record=True` (default) are stored as `game` entries automatically. Do not call `record_event` for them unless you need custom argument shapes.
-
-For simultaneous actions (votes, group bids), pass `record=False` to `request_inputs`, then one `record_event` with the combined result.
-
-Semantic events should use:
+Don’t `record_event` a player click that was already recorded. For votes, `record=False` then one combined event.
 
 ```python
 await ctx.record_event("night_outcome", {"day": self.day, "victim": seat})
 ```
 
-Use stable event names and argument keys so `parse_replay()` can replay them. `parse_replay` should ignore sources that were never logged (e.g. `"peek"`).
+Stable names and keys so `parse_replay` can read them. Ignore sources that were never logged (`"peek"`).
 
-## Interaction args shape
+## Args
 
 | Component | `Move.args` |
 |-----------|-------------|
@@ -148,34 +112,28 @@ Use stable event names and argument keys so `parse_replay()` can replay them. `p
 
 ## Settings
 
-Read lobby settings with `self.setting("key")`, which falls back to the metadata default:
-
 ```python
 mode = self.setting("first_move", "random")
 ```
 
+Falls back to the metadata default, then the argument.
+
 ## Roles
 
-Named identities belong to the game class. The lobby does not collect or assign them.
+The lobby does not deal roles. Declare `RoleSpec` for catalog copy and DMs. Assign in `__init__` / `play()` and set `player.role_key`. If players pick, `request_inputs` after the match starts. Game-wide knobs (mafia count) stay on `SettingOption`.
 
-Declare `roles` (`RoleSpec`) for catalog copy and DMs. Assign in `__init__` / `play()` (random deal, composition from settings, or `request_inputs` if players pick) and stamp `player.role_key` for results. Secret per-player data uses `request_inputs` after the match starts, not a lobby form.
+## Host-injected sources
 
-Game-wide knobs (mafia count, enable doctor) stay on `SettingOption`.
+- `forfeit` — also a live `Move` when `supports_player_removal`
+- `timeout` — live move when the consequence is skip/strike
+- `game_end` — cancelled or timed out
+- `bot_takeover` — **system** row, then the bot’s **game** move. Use `iter_replay()` so the banner sticks to the next frame
 
-## Special move sources
+Handle these with `system_replay_info()` from `strife.engine.replay`.
 
-The engine may inject these sources into the move log:
+## Also
 
-- `forfeit` — player forfeited (may also be injected as a live `Move` when `supports_player_removal`)
-- `timeout` — injected live move when the timeout consequence is skip/strike
-- `game_end` — session cancelled or timed out
-- Bot takeover is a **`system`** `bot_takeover` entry, separate from the bot's subsequent **`game`** move. Use `iter_replay()` so takeover banners attach to the next real frame.
-
-Replay implementations should handle these via `system_replay_info()` from `strife.engine.replay`.
-
-## Further reading
-
-- [Game Development Guide](game-development.md) — tutorial and checklist
-- [Game Exposure and Sandbox Architecture](game-architecture.md) — discovery, GameContext isolation, catalog/slash exposure
-- `strife/games/tictactoe/` — minimal turn-based example
-- `strife/games/test/` — full API integration showcase
+- [game-development.md](game-development.md) — tutorial
+- [game-architecture.md](game-architecture.md) — load path and isolation
+- `strife/games/tictactoe/` — small turn-based example
+- `strife/games/test/` — API showcase

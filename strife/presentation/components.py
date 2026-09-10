@@ -78,6 +78,12 @@ class Button:
 
 @dataclass
 class SelectChoice:
+    """One option in a string select.
+
+    ``label`` and ``description`` are plain text. Discord does not render
+    markdown or custom-emoji mentions in them; put custom emoji in ``emoji``.
+    """
+
     label: str
     value: str
     description: str | None = None
