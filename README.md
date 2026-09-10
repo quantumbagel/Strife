@@ -112,4 +112,4 @@ Third-party games: GitHub template in `templates/game-plugin/`, then `strife/ins
 
 ## License
 
-GPLv3. See [LICENSE](LICENSE). Public-instance privacy notes: [docs/privacy.md](docs/privacy.md).
+GPLv3: [LICENSE](LICENSE). Data privacy notes: [docs/privacy.md](docs/privacy.md).
