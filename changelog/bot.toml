@@ -2,6 +2,14 @@
 # Newest first. Game API versions go in platform.toml.
 
 [[release]]
+version = "1.0.2"
+date = "2026-09-10"
+summary = "Slash autocompletes explain empty lists."
+added = [
+  "Slash autocompletes explain empty lists (not hosting a lobby, no bots, no replays)",
+]
+
+[[release]]
 version = "1.0.1"
 date = "2026-09-10"
 summary = "Chess variants, a lobby fix, shorter docs."

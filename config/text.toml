@@ -265,6 +265,18 @@ lobby_failed_to_start = "An unexpected error occurred during lobby creation. Ple
 lobby_starting = "The game thread is opening. Join, leave, and ready will be available on the next lobby."
 need_text_channel = "Use **/play** in a regular text channel. Forum posts and forum channels cannot host game threads."
 
+[autocomplete]
+not_creator_add_bots = "You are not in a lobby where you are the creator, so you cannot add bots"
+not_creator_remove_bots = "You are not in a lobby where you are the creator, so you cannot remove bots"
+not_creator_change_options = "You are not in a lobby where you are the creator, so you cannot change options"
+game_has_no_bots = "This game does not support bots"
+lobby_full = "This lobby is full, so you cannot add bots"
+no_bots_to_remove = "There are no bots in this lobby to remove"
+game_has_no_options = "This game has no configurable rules"
+choose_option_key_first = "Choose an option key first"
+unknown_option = "That option is not available in this lobby"
+no_completed_matches = "You have no completed matches to replay"
+
 [game]
 move_submitted = "Move submitted."
 

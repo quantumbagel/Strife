@@ -4,10 +4,16 @@ import discord
 from discord import app_commands
 
 from strife.commands.about import AboutService
+from strife.commands.autocomplete import (
+    bot_add_difficulty_choices,
+    bot_remove_name_choices,
+    option_key_choices,
+    option_value_choices,
+    replay_match_choices_or_notice,
+)
 from strife.commands.catalog import CatalogService
 from strife.commands.server_settings import ServerSettingsService
 from strife.engine.errors import SessionError
-from strife.engine.metadata import OptionType, int_setting_bounds
 from strife.lifecycle.service import LifecycleService
 from strife.matchmaking.service import LobbyService
 from strife.presentation.user_error import ErrorContext
@@ -28,6 +34,15 @@ def register_strife_group(
     registry,
 ) -> None:
     group = app_commands.Group(name="strife", description="Strife platform commands")
+
+    def _creator_lobby_meta(user_id: int):
+        lobby_obj = lobby.lobby_by_creator(user_id)
+        if lobby_obj is None:
+            return None, None
+        try:
+            return lobby_obj, registry.metadata(lobby_obj.game_key)
+        except KeyError:
+            return lobby_obj, None
 
     @group.command(name="catalog", description="Browse available games")
     @app_commands.describe(page="Page number")
@@ -108,9 +123,11 @@ def register_strife_group(
     ) -> list[app_commands.Choice[str]]:
         matches = await replay.autocomplete_matches(interaction.user.id, limit=25)
         choices: list[app_commands.Choice[str]] = []
+        has_completed = False
         for match in matches:
             if match.status != "completed":
                 continue
+            has_completed = True
             game_name = registry.metadata(match.game_key).name
 
             result = getattr(match, "result", None)
@@ -140,7 +157,12 @@ def register_strife_group(
             if current.lower() not in label.lower() and current.lower() not in match.code.lower():
                 continue
             choices.append(app_commands.Choice(name=label[:100], value=match.code))
-        return choices[:25]
+        return replay_match_choices_or_notice(
+            choices,
+            has_completed=has_completed,
+            current=current,
+            text=replay.text,
+        )
 
     @group.command(name="about", description="Information about the Strife platform")
     async def about_cmd(interaction: discord.Interaction) -> None:
@@ -157,21 +179,8 @@ def register_strife_group(
     async def bot_add_difficulty_autocomplete(
         interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        lobby_obj = lobby.lobby_of_user(interaction.user.id)
-        if lobby_obj is None:
-            return []
-        meta = registry.metadata(lobby_obj.game_key)
-        choices = []
-        for spec in meta.bots or ():
-            haystack = f"{spec.difficulty} {spec.description}".lower()
-            if current.lower() in haystack:
-                choices.append(
-                    app_commands.Choice(
-                        name=spec.display_label(),
-                        value=spec.difficulty,
-                    )
-                )
-        return choices[:25]
+        lobby_obj, meta = _creator_lobby_meta(interaction.user.id)
+        return bot_add_difficulty_choices(lobby_obj, meta, lobby.text, current)
 
     @bot_group.command(name="remove", description="Remove a bot from your lobby")
     @app_commands.describe(name="Bot name")
@@ -182,73 +191,10 @@ def register_strife_group(
     async def bot_remove_name_autocomplete(
         interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        lobby_obj = lobby.lobby_of_user(interaction.user.id)
-        if lobby_obj is None:
-            return []
-        return [
-            app_commands.Choice(name=bot.name, value=bot.name)
-            for bot in lobby_obj.bots
-            if current.lower() in bot.name.lower()
-        ][:25]
+        lobby_obj, _meta = _creator_lobby_meta(interaction.user.id)
+        return bot_remove_name_choices(lobby_obj, lobby.text, current)
 
     lobby_group = app_commands.Group(name="lobby", description="Manage game lobbies", parent=group)
-
-    def _option_key_choices(lobby_obj, current: str) -> list[app_commands.Choice[str]]:
-        if lobby_obj is None:
-            return []
-        try:
-            meta = registry.metadata(lobby_obj.game_key)
-        except KeyError:
-            return []
-        needle = current.lower()
-        return [
-            app_commands.Choice(name=option.title[:100], value=option.key)
-            for option in meta.settings
-            if needle in option.title.lower() or needle in option.key.lower()
-        ][:25]
-
-    def _option_value_choices(
-        lobby_obj, key: str | None, current: str
-    ) -> list[app_commands.Choice[str]]:
-        if lobby_obj is None or not key:
-            return []
-        try:
-            meta = registry.metadata(lobby_obj.game_key)
-        except KeyError:
-            return []
-        option = next((o for o in meta.settings if o.key == key), None)
-        if option is None:
-            return []
-
-        needle = current.lower()
-        if option.type == OptionType.BOOL:
-            values = [("On", "true"), ("Off", "false")]
-            return [
-                app_commands.Choice(name=label, value=value)
-                for label, value in values
-                if needle in label.lower() or needle in value
-            ]
-        if option.type == OptionType.CHOICE:
-            return [
-                app_commands.Choice(name=choice.capitalize()[:100], value=choice)
-                for choice in option.choices or ()
-                if needle in choice.lower()
-            ][:25]
-        if option.type == OptionType.INT:
-            minimum, maximum = int_setting_bounds(option)
-            current_value = lobby_obj.settings.get(option.key, option.default)
-            suggestions = {
-                str(current_value),
-                str(option.default),
-                str(minimum),
-                str(maximum),
-            }
-            return [
-                app_commands.Choice(name=value, value=value)
-                for value in sorted(suggestions, key=lambda item: (len(item), item))
-                if needle in value
-            ][:25]
-        return []
 
     @lobby_group.command(name="join", description="Join a lobby by its creator")
     @app_commands.describe(creator="Lobby creator to join")
@@ -298,7 +244,8 @@ def register_strife_group(
     async def lobby_option_key_autocomplete(
         interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        return _option_key_choices(lobby.lobby_of_user(interaction.user.id), current)
+        lobby_obj, meta = _creator_lobby_meta(interaction.user.id)
+        return option_key_choices(lobby_obj, meta, lobby.text, current)
 
     @lobby_option.autocomplete("value")
     async def lobby_option_value_autocomplete(
@@ -307,7 +254,8 @@ def register_strife_group(
         key = None
         if interaction.namespace is not None:
             key = getattr(interaction.namespace, "key", None)
-        return _option_value_choices(lobby.lobby_of_user(interaction.user.id), key, current)
+        lobby_obj, meta = _creator_lobby_meta(interaction.user.id)
+        return option_value_choices(lobby_obj, meta, key, lobby.text, current)
 
     @lobby_group.command(name="approve", description="Approve a pending join request")
     @app_commands.describe(user="Player to approve")
