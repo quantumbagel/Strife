@@ -7,8 +7,12 @@ from strife.commands.about import AboutService
 from strife.commands.autocomplete import (
     bot_add_difficulty_choices,
     bot_remove_name_choices,
+    catalog_game_choices,
+    named_id_choices,
+    open_lobby_creator_choices,
     option_key_choices,
     option_value_choices,
+    parse_user_id,
     replay_match_choices_or_notice,
 )
 from strife.commands.catalog import CatalogService
@@ -64,13 +68,25 @@ def register_strife_group(
     async def profile_game_autocomplete(
         interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        choices: list[app_commands.Choice[str]] = []
-        needle = current.lower()
-        for meta in registry.all():
-            if needle and needle not in meta.key.lower() and needle not in meta.name.lower():
-                continue
-            choices.append(app_commands.Choice(name=meta.name, value=meta.key))
-        return choices[:25]
+        return catalog_game_choices(
+            list(registry.all()),
+            current,
+            lobby.text,
+            empty_key="autocomplete.no_games",
+        )
+
+    async def _require_user_id(interaction: discord.Interaction, raw: str) -> int | None:
+        user_id = parse_user_id(raw)
+        if user_id is None:
+            await lobby.user_errors.send(interaction, "errors.unknown_user")
+            return None
+        return user_id
+
+    def _game_name(game_key: str) -> str:
+        try:
+            return registry.metadata(game_key).name
+        except KeyError:
+            return game_key
 
     @group.command(name="settings", description="Open lobby settings")
     async def settings_cmd(interaction: discord.Interaction) -> None:
@@ -171,9 +187,13 @@ def register_strife_group(
     bot_group = app_commands.Group(name="bot", description="Manage lobby bots", parent=group)
 
     @bot_group.command(name="add", description="Add bots to your lobby")
-    @app_commands.describe(difficulty="Bot difficulty", number="How many bots")
-    async def bot_add(interaction: discord.Interaction, difficulty: str | None = None, number: int = 1) -> None:
-        await lobby.add_bots(interaction, difficulty, max(1, min(number, 5)))
+    @app_commands.describe(difficulty="Bot difficulty", number="How many bots (1-5)")
+    async def bot_add(
+        interaction: discord.Interaction,
+        difficulty: str | None = None,
+        number: app_commands.Range[int, 1, 5] = 1,
+    ) -> None:
+        await lobby.add_bots(interaction, difficulty, int(number))
 
     @bot_add.autocomplete("difficulty")
     async def bot_add_difficulty_autocomplete(
@@ -198,8 +218,23 @@ def register_strife_group(
 
     @lobby_group.command(name="join", description="Join a lobby by its creator")
     @app_commands.describe(creator="Lobby creator to join")
-    async def lobby_join(interaction: discord.Interaction, creator: discord.User) -> None:
-        await lobby.join_by_creator(interaction, creator.id)
+    async def lobby_join(interaction: discord.Interaction, creator: str) -> None:
+        creator_id = await _require_user_id(interaction, creator)
+        if creator_id is None:
+            return
+        await lobby.join_by_creator(interaction, creator_id)
+
+    @lobby_join.autocomplete("creator")
+    async def lobby_join_creator_autocomplete(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        return open_lobby_creator_choices(
+            lobby.registries.lobbies.values(),
+            guild_id=interaction.guild_id,
+            game_name=_game_name,
+            current=current,
+            text=lobby.text,
+        )
 
     @lobby_group.command(name="leave", description="Leave your current lobby")
     async def lobby_leave(interaction: discord.Interaction) -> None:
@@ -211,8 +246,32 @@ def register_strife_group(
 
     @lobby_group.command(name="kick", description="Kick a player from your lobby")
     @app_commands.describe(user="Player to kick")
-    async def lobby_kick(interaction: discord.Interaction, user: discord.User) -> None:
-        await lobby.kick_member(interaction, user.id)
+    async def lobby_kick(interaction: discord.Interaction, user: str) -> None:
+        user_id = await _require_user_id(interaction, user)
+        if user_id is None:
+            return
+        await lobby.kick_member(interaction, user_id)
+
+    @lobby_kick.autocomplete("user")
+    async def lobby_kick_user_autocomplete(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        lobby_obj, _meta = _creator_lobby_meta(interaction.user.id)
+        kickable = []
+        if lobby_obj is not None:
+            kickable = [
+                (member.user_id, member.display_name)
+                for member in lobby_obj.members
+                if member.user_id != lobby_obj.creator_id
+            ]
+        return named_id_choices(
+            kickable,
+            current,
+            lobby.text,
+            lobby=lobby_obj,
+            empty_key="autocomplete.no_one_to_kick",
+            not_creator_key="autocomplete.not_creator_kick",
+        )
 
     @lobby_group.command(name="end", description="End your lobby")
     async def lobby_end(interaction: discord.Interaction) -> None:
@@ -259,13 +318,53 @@ def register_strife_group(
 
     @lobby_group.command(name="approve", description="Approve a pending join request")
     @app_commands.describe(user="Player to approve")
-    async def lobby_approve(interaction: discord.Interaction, user: discord.User) -> None:
-        await lobby.approve_request(interaction, user.id)
+    async def lobby_approve(interaction: discord.Interaction, user: str) -> None:
+        user_id = await _require_user_id(interaction, user)
+        if user_id is None:
+            return
+        await lobby.approve_request(interaction, user_id)
+
+    @lobby_approve.autocomplete("user")
+    async def lobby_approve_user_autocomplete(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        lobby_obj, _meta = _creator_lobby_meta(interaction.user.id)
+        pending = []
+        if lobby_obj is not None:
+            pending = list(lobby_obj.pending_requests.items())
+        return named_id_choices(
+            pending,
+            current,
+            lobby.text,
+            lobby=lobby_obj,
+            empty_key="autocomplete.no_pending_requests",
+            not_creator_key="autocomplete.not_creator_approve",
+        )
 
     @lobby_group.command(name="deny", description="Deny a pending join request")
     @app_commands.describe(user="Player to deny")
-    async def lobby_deny(interaction: discord.Interaction, user: discord.User) -> None:
-        await lobby.deny_request(interaction, user.id)
+    async def lobby_deny(interaction: discord.Interaction, user: str) -> None:
+        user_id = await _require_user_id(interaction, user)
+        if user_id is None:
+            return
+        await lobby.deny_request(interaction, user_id)
+
+    @lobby_deny.autocomplete("user")
+    async def lobby_deny_user_autocomplete(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        lobby_obj, _meta = _creator_lobby_meta(interaction.user.id)
+        pending = []
+        if lobby_obj is not None:
+            pending = list(lobby_obj.pending_requests.items())
+        return named_id_choices(
+            pending,
+            current,
+            lobby.text,
+            lobby=lobby_obj,
+            empty_key="autocomplete.no_pending_requests",
+            not_creator_key="autocomplete.not_creator_deny",
+        )
 
     @lobby_group.command(name="preapprove", description="Pre-approve a player for a private lobby")
     @app_commands.describe(user="Player to pre-approve")
@@ -274,8 +373,33 @@ def register_strife_group(
 
     @lobby_group.command(name="revoke-approval", description="Revoke a player's pre-approval")
     @app_commands.describe(user="Player to revoke")
-    async def lobby_revoke_approval(interaction: discord.Interaction, user: discord.User) -> None:
-        await lobby.revoke_approval(interaction, user.id)
+    async def lobby_revoke_approval(interaction: discord.Interaction, user: str) -> None:
+        user_id = await _require_user_id(interaction, user)
+        if user_id is None:
+            return
+        await lobby.revoke_approval(interaction, user_id)
+
+    @lobby_revoke_approval.autocomplete("user")
+    async def lobby_revoke_user_autocomplete(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        lobby_obj, _meta = _creator_lobby_meta(interaction.user.id)
+        preapproved = []
+        if lobby_obj is not None:
+            seated = {member.user_id for member in lobby_obj.members}
+            preapproved = [
+                (user_id, f"User {user_id}")
+                for user_id in lobby_obj.approved
+                if user_id not in seated
+            ]
+        return named_id_choices(
+            preapproved,
+            current,
+            lobby.text,
+            lobby=lobby_obj,
+            empty_key="autocomplete.no_preapproved_users",
+            not_creator_key="autocomplete.not_creator_revoke",
+        )
 
     @lobby_group.command(name="blacklist-add", description="Blacklist a player from your lobby")
     @app_commands.describe(user="Player to blacklist")
@@ -284,7 +408,27 @@ def register_strife_group(
 
     @lobby_group.command(name="blacklist-remove", description="Remove a player from the blacklist")
     @app_commands.describe(user="Player to unblacklist")
-    async def lobby_blacklist_remove(interaction: discord.Interaction, user: discord.User) -> None:
-        await lobby.blacklist_remove(interaction, user.id)
+    async def lobby_blacklist_remove(interaction: discord.Interaction, user: str) -> None:
+        user_id = await _require_user_id(interaction, user)
+        if user_id is None:
+            return
+        await lobby.blacklist_remove(interaction, user_id)
+
+    @lobby_blacklist_remove.autocomplete("user")
+    async def lobby_blacklist_remove_user_autocomplete(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        lobby_obj, _meta = _creator_lobby_meta(interaction.user.id)
+        blocked = []
+        if lobby_obj is not None:
+            blocked = [(user_id, f"User {user_id}") for user_id in lobby_obj.blacklist]
+        return named_id_choices(
+            blocked,
+            current,
+            lobby.text,
+            lobby=lobby_obj,
+            empty_key="autocomplete.no_blacklisted_users",
+            not_creator_key="autocomplete.not_creator_unblacklist",
+        )
 
     tree.add_command(group)

@@ -65,6 +65,7 @@ class Spyfall(Game):
         self.pending_accuse: dict[int, int] = {}
         self.pending_guess: dict[int, str] = {}
         self._passes: set[int] = set()
+        self._notice: str | None = None
 
     def active_seats(self) -> set[int]:
         return set(self.alive)
@@ -142,12 +143,15 @@ class Spyfall(Game):
                 val = move.args.get("value")
                 if val is not None:
                     target = int(val)
-                    if target in self.alive and target != actor_seat:
+                    if target == actor_seat:
+                        self._notice = "You cannot accuse yourself."
+                    elif target in self.alive:
                         self.pending_accuse[actor_seat] = target
                 continue
 
             if move.source == "location_select":
                 if actor_seat != self.spy:
+                    self._notice = "Only the spy can guess the location."
                     continue
                 val = move.args.get("value")
                 if val is not None:
@@ -163,10 +167,12 @@ class Spyfall(Game):
 
             elif move.source == "guess_location":
                 if actor_seat != self.spy:
+                    self._notice = "Only the spy can guess the location."
                     continue
 
                 guess = self.pending_guess.get(actor_seat)
                 if not guess:
+                    self._notice = "Choose a location first."
                     continue
                 if guess == self.location:
                     winner_faction = "spy"
@@ -186,8 +192,13 @@ class Spyfall(Game):
             elif move.source == "accuse":
                 target = self.pending_accuse.get(actor_seat)
                 if target is None:
+                    self._notice = "Choose a player to accuse first."
                     continue
-                if target not in self.alive or target == actor_seat:
+                if target == actor_seat:
+                    self._notice = "You cannot accuse yourself."
+                    continue
+                if target not in self.alive:
+                    self._notice = "That player is no longer in the game."
                     continue
 
                 self.accused_player = target
@@ -308,11 +319,20 @@ class Spyfall(Game):
     def _discussion_view(self, ctx: GameContext) -> LayoutView:
         view = self._discussion_view_replay(ctx)
         container = view.containers[0]
+        add_body(
+            container,
+            "-# Accuse someone else. Only the spy can guess the location.",
+        )
+        if self._notice:
+            add_body(container, self._notice)
+            self._notice = None
         other_choices = [
             SelectChoice(label=p.display_name, value=str(p.seat))
             for p in self.players
             if p.seat in self.alive
         ]
+        if not other_choices:
+            other_choices = [SelectChoice(label="No one to accuse", value="_")]
         row1 = ActionRow()
         row1.add_select(
             Select(

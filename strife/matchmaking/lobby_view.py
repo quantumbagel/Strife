@@ -162,6 +162,14 @@ def build_lobby_view(
     join_style = ButtonStyle.SECONDARY if can_r else ButtonStyle.SUCCESS
     ready_style = ButtonStyle.SUCCESS if can_r else ButtonStyle.PRIMARY
 
+    if lobby_full:
+        container.add_text(
+            TextDisplay(
+                markdown_content=text.get("lobby.lobby_full_join_hint"),
+                size_style=TextSize.BODY,
+            )
+        )
+
     controls = ActionRow()
     if not lobby_full:
         join_label = (
@@ -212,6 +220,19 @@ def build_lobby_view(
             )
         )
         pending_items = list(lobby.pending_requests.items())[:25]
+        container.add_text(
+            TextDisplay(
+                markdown_content=text.get("lobby.join_requests_creator_hint"),
+                size_style=TextSize.BODY,
+            )
+        )
+        if lobby_full:
+            container.add_text(
+                TextDisplay(
+                    markdown_content=text.get("lobby.approve_full_hint"),
+                    size_style=TextSize.BODY,
+                )
+            )
         if not lobby_full:
             container.add_described_select(
                 DescribedSelect(

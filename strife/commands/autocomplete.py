@@ -6,6 +6,8 @@ explanatory choice instead, so the user can see why the list is empty.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Sequence
+
 from discord import app_commands
 
 from strife.config.text import TextConfig
@@ -22,6 +24,17 @@ def notice_choices(message: str) -> list[app_commands.Choice[str]]:
     return [app_commands.Choice(name=label, value=label)]
 
 
+def parse_user_id(raw: str) -> int | None:
+    text = raw.strip()
+    if text.startswith("<@") and text.endswith(">"):
+        text = text[2:-1]
+        if text.startswith("!"):
+            text = text[1:]
+    if text.isdigit():
+        return int(text)
+    return None
+
+
 def _filter(choices: list[app_commands.Choice[str]], current: str) -> list[app_commands.Choice[str]]:
     needle = current.lower()
     if not needle:
@@ -31,6 +44,21 @@ def _filter(choices: list[app_commands.Choice[str]], current: str) -> list[app_c
         for choice in choices
         if needle in choice.name.lower() or needle in choice.value.lower()
     ][:25]
+
+
+def catalog_game_choices(
+    metas: Sequence[GameMetadata],
+    current: str,
+    text: TextConfig,
+    *,
+    empty_key: str,
+) -> list[app_commands.Choice[str]]:
+    if not metas:
+        return notice_choices(text.get(empty_key))
+    return _filter(
+        [app_commands.Choice(name=meta.name[:CHOICE_NAME_MAX], value=meta.key) for meta in metas],
+        current,
+    )
 
 
 def bot_add_difficulty_choices(
@@ -135,6 +163,57 @@ def option_value_choices(
             if needle in value
         ][:25]
     return notice_choices(text.get("autocomplete.unknown_option"))
+
+
+def named_id_choices(
+    pairs: Sequence[tuple[int, str]],
+    current: str,
+    text: TextConfig,
+    *,
+    lobby: Lobby | None,
+    empty_key: str,
+    not_creator_key: str,
+) -> list[app_commands.Choice[str]]:
+    if lobby is None:
+        return notice_choices(text.get(not_creator_key))
+    if not pairs:
+        return notice_choices(text.get(empty_key))
+    return _filter(
+        [
+            app_commands.Choice(name=name[:CHOICE_NAME_MAX], value=str(user_id))
+            for user_id, name in pairs
+        ],
+        current,
+    )
+
+
+def open_lobby_creator_choices(
+    lobbies: Iterable[Lobby],
+    *,
+    guild_id: int | None,
+    game_name: Callable[[str], str],
+    current: str,
+    text: TextConfig,
+) -> list[app_commands.Choice[str]]:
+    choices: list[app_commands.Choice[str]] = []
+    seen: set[int] = set()
+    for lobby in lobbies:
+        if guild_id is not None and lobby.guild_id != guild_id:
+            continue
+        if lobby.starting or lobby.launching:
+            continue
+        if lobby.creator_id in seen:
+            continue
+        seen.add(lobby.creator_id)
+        creator_name = next(
+            (member.display_name for member in lobby.members if member.user_id == lobby.creator_id),
+            str(lobby.creator_id),
+        )
+        label = f"{creator_name} — {game_name(lobby.game_key)}"[:CHOICE_NAME_MAX]
+        choices.append(app_commands.Choice(name=label, value=str(lobby.creator_id)))
+    if not choices:
+        return notice_choices(text.get("autocomplete.no_open_lobbies"))
+    return _filter(choices, current)
 
 
 def replay_match_choices_or_notice(

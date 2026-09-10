@@ -104,7 +104,7 @@ class LobbyFlowMixin:
             self.registries.add_lobby(lobby)
             view = self._build_lobby_view(lobby, meta)
             from_component = interaction.type == discord.InteractionType.component
-            if posted_elsewhere or from_component:
+            if posted_elsewhere:
                 if not interaction.response.is_done():
                     await interaction.response.defer(ephemeral=True)
                 await surface.send(channel, view)
@@ -113,6 +113,11 @@ class LobbyFlowMixin:
                     "lobby.created_in_channel",
                     mention=channel.mention,
                 )
+            elif from_component:
+                await surface.edit_interaction(interaction, view)
+                catalog_message = surface.message
+                await surface.send(channel, view)
+                surface.add_mirror(catalog_message)
             else:
                 await surface.send(interaction, view)
             lobby.message_id = surface.message_id
@@ -310,6 +315,10 @@ class LobbyFlowMixin:
     ) -> Lobby | None:
         lobby = self.lobby_of_user(interaction.user.id)
         if lobby is None:
+            loc = self.registries.location_of(interaction.user.id)
+            if loc is not None and loc.kind == "game":
+                await self._error(interaction, "errors.in_game_use_forfeit")
+                return None
             await self._error(interaction, "errors.not_in_lobby")
             return None
         if creator_only and lobby.creator_id != interaction.user.id:

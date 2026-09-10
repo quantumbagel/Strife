@@ -1,4 +1,12 @@
 [[release]]
+version = "1.0.1"
+date = "2026-09-10"
+summary = "Accuse and guess explain invalid clicks."
+changed = [
+  "Self-accusing, guessing without a location, and non-spy guesses now say why they failed",
+]
+
+[[release]]
 version = "1.0.0"
 date = "2026-09-07"
 summary = "One spy. Everyone else knows the location."

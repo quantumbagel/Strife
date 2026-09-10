@@ -197,16 +197,24 @@ class Mafia(Game):
             ]
             private = LayoutView()
             container = Container()
-            message_lead(
-                container,
-                f"Choose a target as **{role.title()}**",
-                emoji=ctx.emoji,
-                prefix_emoji="loading",
-            )
-            row = ActionRow()
             source = source_map[role]
-            row.add_select(Select(source=source, placeholder="Choose a target", choices=choices))
-            container.add_action_row(row)
+            if choices:
+                message_lead(
+                    container,
+                    f"Choose a target as **{role.title()}**",
+                    emoji=ctx.emoji,
+                    prefix_emoji="loading",
+                )
+                row = ActionRow()
+                row.add_select(Select(source=source, placeholder="Choose a target", choices=choices))
+                container.add_action_row(row)
+            else:
+                message_lead(
+                    container,
+                    "No valid targets tonight.",
+                    emoji=ctx.emoji,
+                    prefix_emoji="hmm",
+                )
             private.add_container(container)
             private_views[seat] = private
             per_seat_sources[seat] = {source}

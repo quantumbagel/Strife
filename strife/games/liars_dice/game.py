@@ -34,6 +34,7 @@ class LiarsDice(Game):
         self.history: list[str] = []
         self.pending_quantity: int | None = None
         self.pending_value: int | None = None
+        self._notice: str | None = None
 
     def active_seats(self) -> set[int]:
         return set(self.alive)
@@ -51,6 +52,29 @@ class LiarsDice(Game):
         total_dice = self._total_alive_dice()
         curr_q, curr_v = self.current_bid
         return curr_q == total_dice and curr_v == 6
+
+    def _bid_quantities(self) -> list[int]:
+        total_dice = self._total_alive_dice()
+        start = 1
+        if self.current_bid is not None:
+            curr_q, curr_v = self.current_bid
+            start = curr_q + 1 if curr_v == 6 else curr_q
+        if start > total_dice:
+            return []
+        end = min(total_dice, start + 24)
+        return list(range(start, end + 1))
+
+    def _bid_values(self, quantity: int | None) -> list[int]:
+        faces = self._legal_face_values()
+        if self.current_bid is None:
+            return faces
+        curr_q, curr_v = self.current_bid
+        qty = quantity if quantity is not None else curr_q
+        if qty > curr_q:
+            return faces
+        if qty == curr_q:
+            return [value for value in faces if value > curr_v]
+        return []
 
     def _validate_bid(self, quantity: int, value: int) -> tuple[bool, str | None]:
         total_dice = self._total_alive_dice()
@@ -123,10 +147,13 @@ class LiarsDice(Game):
             # 2. Bidding loop
             while True:
                 seat = self.current
+                lead = self._notice or self._action_status(ctx, seat)
+                prefix = "error" if self._notice else "loading"
+                self._notice = None
                 view = self._round_view(
                     ctx,
-                    lead=self._action_status(ctx, seat),
-                    prefix_emoji="loading",
+                    lead=lead,
+                    prefix_emoji=prefix,
                 )
 
                 sources = {"quantity_select", "value_select", "bid", "challenge"}
@@ -136,6 +163,11 @@ class LiarsDice(Game):
                     val = move.args.get("value")
                     if val is not None:
                         self.pending_quantity = int(val)
+                        if (
+                            self.pending_value is not None
+                            and self.pending_value not in self._bid_values(self.pending_quantity)
+                        ):
+                            self.pending_value = None
                     continue
 
                 if move.source == "value_select":
@@ -222,6 +254,7 @@ class LiarsDice(Game):
 
                 elif move.source == "bid":
                     if self._is_max_bid():
+                        self._notice = "The bid is already at the maximum. Call Liar!"
                         continue
 
                     quantity = self.pending_quantity
@@ -231,12 +264,14 @@ class LiarsDice(Game):
                     if value is None:
                         value = move.args.get("value")
                     if quantity is None or value is None:
+                        self._notice = "Choose both quantity and value."
                         continue
                     quantity = int(quantity)
                     value = int(value)
 
-                    is_valid, _reason = self._validate_bid(quantity, value)
+                    is_valid, reason = self._validate_bid(quantity, value)
                     if not is_valid:
+                        self._notice = reason or "That bid is not higher than the current bid."
                         continue
 
                     self.current_bid = (quantity, value)
@@ -318,26 +353,15 @@ class LiarsDice(Game):
         view = self._round_view_replay(ctx, lead=lead, prefix_emoji=prefix_emoji)
         container = view.containers[0]
 
-        total_dice = self._total_alive_dice()
-        min_q = 1
-        if self.current_bid is not None:
-            min_q = self.current_bid[0]
-
-        max_q = total_dice
-        low_q = min_q
-        if max_q - low_q + 1 > 25:
-            max_q = low_q + 24
-
+        at_max_bid = self._is_max_bid()
         quantity_choices = [
             SelectChoice(
                 label=str(q),
                 value=str(q),
                 default=(self.pending_quantity == q),
             )
-            for q in range(low_q, max_q + 1)
+            for q in self._bid_quantities()
         ]
-
-        val_start = 1 if not self.settings.get("wild_ones", True) else 2
         value_choices = [
             SelectChoice(
                 label=f"Value {v}",
@@ -345,49 +369,64 @@ class LiarsDice(Game):
                 emoji=f"die_{v}",
                 default=(self.pending_value == v),
             )
-            for v in range(val_start, 7)
+            for v in self._bid_values(self.pending_quantity)
         ]
 
-        at_max_bid = self._is_max_bid()
         pending_text = ""
-        if self.pending_quantity is not None and self.pending_value is not None:
-            pending_text = (
-                f"**Pending bid:** {self.pending_quantity} × "
-                f"{self._die_emoji(ctx, self.pending_value)}"
-            )
+        if at_max_bid:
+            pending_text = "**Max bid — Call Liar!**"
+        elif self.pending_quantity is not None and self.pending_value is not None:
+            valid, reason = self._validate_bid(self.pending_quantity, self.pending_value)
+            if valid:
+                pending_text = (
+                    f"**Pending bid:** {self.pending_quantity} × "
+                    f"{self._die_emoji(ctx, self.pending_value)}"
+                )
+            else:
+                pending_text = f"**Invalid bid:** {reason}"
         elif self.pending_quantity is not None or self.pending_value is not None:
             pending_text = "**Pending bid:** choose both quantity and value."
 
         if pending_text:
             add_body(container, pending_text)
 
-        row1 = ActionRow()
-        row1.add_select(
-            Select(
-                source="quantity_select",
-                placeholder="Choose quantity",
-                choices=quantity_choices,
+        if quantity_choices:
+            row1 = ActionRow()
+            row1.add_select(
+                Select(
+                    source="quantity_select",
+                    placeholder="Choose quantity",
+                    choices=quantity_choices,
+                    disabled=at_max_bid,
+                )
             )
-        )
-        container.add_action_row(row1)
+            container.add_action_row(row1)
 
-        row2 = ActionRow()
-        row2.add_select(
-            Select(
-                source="value_select",
-                placeholder="Choose die value",
-                choices=value_choices,
+        if value_choices:
+            row2 = ActionRow()
+            row2.add_select(
+                Select(
+                    source="value_select",
+                    placeholder="Choose die value",
+                    choices=value_choices,
+                    disabled=at_max_bid,
+                )
             )
-        )
-        container.add_action_row(row2)
+            container.add_action_row(row2)
 
+        can_submit = (
+            not at_max_bid
+            and self.pending_quantity is not None
+            and self.pending_value is not None
+            and self._validate_bid(self.pending_quantity, self.pending_value)[0]
+        )
         row3 = ActionRow()
         row3.add_button(
             Button(
                 source="bid",
                 label="Submit Bid",
                 style=ButtonStyle.PRIMARY,
-                disabled=at_max_bid,
+                disabled=not can_submit,
             )
         )
         row3.add_button(

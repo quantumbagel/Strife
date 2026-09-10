@@ -3,6 +3,7 @@ from __future__ import annotations
 import discord
 from discord import app_commands
 
+from strife.commands.autocomplete import catalog_game_choices
 from strife.matchmaking.service import LobbyService
 
 
@@ -14,11 +15,11 @@ def register_play(tree: app_commands.CommandTree, lobby: LobbyService, registry)
 
     @play.autocomplete("game")
     async def game_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-        choices = []
-        for meta in registry.all():
-            cfg = lobby.config.games.for_game(meta.key)
-            if not cfg.enabled:
-                continue
-            if current.lower() in meta.key.lower() or current.lower() in meta.name.lower():
-                choices.append(app_commands.Choice(name=meta.name, value=meta.key))
-        return choices[:25]
+        enabled = [
+            meta
+            for meta in registry.all()
+            if lobby.config.games.for_game(meta.key).enabled
+        ]
+        return catalog_game_choices(
+            enabled, current, lobby.text, empty_key="autocomplete.no_enabled_games"
+        )

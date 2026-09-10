@@ -95,6 +95,15 @@ class Coup(Game):
             f"{claim.title()} block or pass"
         )
 
+    def _reaction_hint(self) -> str:
+        if self.state_phase == "block_challenge_window":
+            return "Anyone except the blocker can Challenge or Pass."
+        if self.state_phase == "block_window":
+            return "Anyone except the actor can Block or Pass."
+        if self.current_action in ("assassinate", "steal"):
+            return "The target can Block. Anyone except the actor can Challenge or Pass."
+        return "Anyone except the actor can Challenge or Pass."
+
     def _pick_challenge(self, moves: dict[int, Move]) -> tuple[int | None, Move | None]:
         human = None
         bot = None
@@ -900,25 +909,33 @@ class Coup(Game):
             if needs_target:
                 target_choices = [
                     SelectChoice(
-                        label=p.display_name,
+                        label=f"{p.display_name} · {self.coins[p.seat]} coins · {len(self.hands.get(p.seat, []))} influence",
                         value=str(p.seat),
-                        default=(self.selected_target == p.seat)
+                        default=(str(self.selected_target) == str(p.seat)),
                     )
                     for p in self.players
                     if p.seat != actor and p.seat in self.alive
                 ]
-                row_targets = ActionRow()
-                row_targets.add_select(
-                    Select(
-                        source="target_select",
-                        placeholder="Select target player",
-                        choices=target_choices,
+                if len(target_choices) == 1 and self.selected_target in (None, "none"):
+                    target_choices[0].default = True
+                    self.selected_target = target_choices[0].value
+                if target_choices:
+                    row_targets = ActionRow()
+                    row_targets.add_select(
+                        Select(
+                            source="target_select",
+                            placeholder="Select target player",
+                            choices=target_choices,
+                        )
                     )
-                )
-                container.add_action_row(row_targets)
+                    container.add_action_row(row_targets)
+                else:
+                    add_body(container, "-# No valid targets remain.")
 
             # Submit action button
-            is_valid = not needs_target or (self.selected_target is not None)
+            is_valid = not needs_target or (
+                self.selected_target is not None and self.selected_target != "none"
+            )
             row_submit = ActionRow()
             row_submit.add_button(
                 Button(
@@ -931,6 +948,7 @@ class Coup(Game):
             container.add_action_row(row_submit)
 
         elif self.state_phase in ("challenge_window", "block_challenge_window"):
+            add_body(container, f"-# {self._reaction_hint()}")
             row = ActionRow()
             row.add_button(Button(source="challenge", label="Challenge Claim", style=ButtonStyle.DANGER))
             if self.state_phase == "challenge_window":
@@ -961,6 +979,7 @@ class Coup(Game):
             container.add_action_row(row)
 
         elif self.state_phase == "block_window":
+            add_body(container, f"-# {self._reaction_hint()}")
             row = ActionRow()
             if self.current_action == "steal":
                 row.add_button(Button(source="block_captain", label="Block: Captain", style=ButtonStyle.PRIMARY))

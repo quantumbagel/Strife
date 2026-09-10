@@ -1,4 +1,13 @@
 [[release]]
+version = "1.0.1"
+date = "2026-09-10"
+summary = "Illegal raises are no longer in the bid menus."
+changed = [
+  "Quantity and face selects only offer legal raises",
+  "Submit Bid stays off until the bid is valid, and illegal clicks explain why",
+]
+
+[[release]]
 version = "1.0.0"
 date = "2026-09-07"
 summary = "Bid, call bluffs, peek your dice."

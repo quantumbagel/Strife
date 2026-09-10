@@ -31,8 +31,8 @@ META = GameMetadata(
     player_order=PlayerOrder.RANDOM,
     bots=(
         BotSpec("easy", "Plays semi-randomly"),
-        BotSpec("medium", "Tracks claims and votes plausibly"),
-        BotSpec("hard", "Uses night results + voting history"),
+        BotSpec("medium", "Targets detectives and self-protects"),
+        BotSpec("hard", "Prioritizes detectives and doctors"),
     ),
     settings=(
         SettingOption("mafia_count", "Mafia Count", "Number of mafia", OptionType.INT, default=2, minimum=1, maximum=4, emoji="user"),

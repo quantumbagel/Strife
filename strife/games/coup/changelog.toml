@@ -1,4 +1,14 @@
 [[release]]
+version = "1.0.1"
+date = "2026-09-10"
+summary = "Bot difficulties actually differ. Reaction hints."
+changed = [
+  "Easy/medium/hard bots play differently",
+  "Target list shows coins and influence, and auto-selects a sole opponent",
+  "Challenge/block panels say who can act",
+]
+
+[[release]]
 version = "1.0.0"
 date = "2026-09-07"
 summary = "Peek your cards. No DMs."

@@ -63,3 +63,26 @@ def test_remove_bot_select_uses_plain_names() -> None:
         assert "**" not in choice.label
         assert "**" not in (choice.description or "")
         assert choice.emoji == "leave"
+
+
+def test_kick_empty_hint_when_only_creator_is_seated() -> None:
+    lobby = Lobby(
+        thread_id=1,
+        guild_id=2,
+        channel_id=3,
+        game_key="test",
+        creator_id=10,
+        private=False,
+        members=[],
+    )
+    meta = GameMetadata(key="test", name="Test", player_count=PlayerCount(fixed=2))
+    text = TextConfig({"lobby": {"kick_empty_hint": "-# No other seated players to kick."}})
+    view = build_settings_view(lobby, meta, _emoji(), text, tab="access")
+    from strife.presentation.components import TextDisplay
+
+    texts = []
+    for container in view.containers:
+        for child in container.children:
+            if isinstance(child, TextDisplay):
+                texts.append(child.markdown_content)
+    assert any("No other seated players to kick" in body for body in texts)

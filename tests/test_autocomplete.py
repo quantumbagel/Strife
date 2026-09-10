@@ -7,9 +7,13 @@ from pathlib import Path
 from strife.commands.autocomplete import (
     bot_add_difficulty_choices,
     bot_remove_name_choices,
+    catalog_game_choices,
+    named_id_choices,
     notice_choices,
+    open_lobby_creator_choices,
     option_key_choices,
     option_value_choices,
+    parse_user_id,
     replay_match_choices_or_notice,
 )
 from strife.config.text import TextConfig, load_text_config
@@ -38,6 +42,12 @@ def _text() -> TextConfig:
                 "choose_option_key_first": "Choose an option key first",
                 "unknown_option": "That option is not available in this lobby",
                 "no_completed_matches": "You have no completed matches to replay",
+                "no_enabled_games": "No games are enabled on this server",
+                "no_open_lobbies": "There are no open lobbies to join",
+                "no_one_to_kick": "There are no other seated players to kick",
+                "not_creator_kick": (
+                    "You are not in a lobby where you are the creator, so you cannot kick players"
+                ),
             }
         }
     )
@@ -181,6 +191,19 @@ def test_shipped_autocomplete_copy_fits_discord() -> None:
         "autocomplete.choose_option_key_first",
         "autocomplete.unknown_option",
         "autocomplete.no_completed_matches",
+        "autocomplete.no_enabled_games",
+        "autocomplete.no_games",
+        "autocomplete.no_open_lobbies",
+        "autocomplete.no_one_to_kick",
+        "autocomplete.no_pending_requests",
+        "autocomplete.no_blacklisted_users",
+        "autocomplete.no_preapproved_users",
+        "autocomplete.not_creator_kick",
+        "autocomplete.not_creator_approve",
+        "autocomplete.not_creator_deny",
+        "autocomplete.not_creator_revoke",
+        "autocomplete.not_creator_unblacklist",
+        "autocomplete.no_matching_options",
     ):
         choices = notice_choices(text.get(key))
         assert len(choices) == 1
@@ -204,3 +227,59 @@ def test_replay_filter_miss_stays_empty() -> None:
         text=_text(),
     )
     assert kept == existing
+
+
+def test_play_autocomplete_explains_when_no_games() -> None:
+    choices = catalog_game_choices([], "", _text(), empty_key="autocomplete.no_enabled_games")
+    assert len(choices) == 1
+    assert "enabled" in choices[0].name.lower()
+
+
+def test_play_autocomplete_lists_games() -> None:
+    choices = catalog_game_choices([COUP_META], "", _text(), empty_key="autocomplete.no_enabled_games")
+    assert [choice.value for choice in choices] == ["coup"]
+
+
+def test_parse_user_id_accepts_mentions() -> None:
+    assert parse_user_id("12345") == 12345
+    assert parse_user_id("<@12345>") == 12345
+    assert parse_user_id("<@!12345>") == 12345
+    assert parse_user_id("not-a-user") is None
+
+
+def test_kick_autocomplete_without_creator_explains() -> None:
+    choices = named_id_choices(
+        [],
+        "",
+        _text(),
+        lobby=None,
+        empty_key="autocomplete.no_one_to_kick",
+        not_creator_key="autocomplete.not_creator_kick",
+    )
+    assert len(choices) == 1
+    assert "kick" in choices[0].name.lower()
+
+
+def test_join_autocomplete_without_lobbies_explains() -> None:
+    choices = open_lobby_creator_choices(
+        [],
+        guild_id=2,
+        game_name=lambda key: key,
+        current="",
+        text=_text(),
+    )
+    assert len(choices) == 1
+    assert "open lobbies" in choices[0].name.lower()
+
+
+def test_join_autocomplete_lists_creators() -> None:
+    lobby = _lobby()
+    choices = open_lobby_creator_choices(
+        [lobby],
+        guild_id=2,
+        game_name=lambda key: "Coup",
+        current="",
+        text=_text(),
+    )
+    assert [choice.value for choice in choices] == ["10"]
+    assert "Coup" in choices[0].name

@@ -35,6 +35,7 @@ class ViewSurface:
         self._prefix = prefix
         self._resource_id = resource_id
         self._message: discord.Message | None = None
+        self._mirrors: list[discord.Message] = []
 
     @property
     def prefix(self) -> str:
@@ -82,6 +83,44 @@ class ViewSurface:
             self._message = await target.send(**kwargs)
         return self._message
 
+    async def edit_interaction(
+        self,
+        interaction: discord.Interaction,
+        view: LayoutView,
+    ) -> discord.Message:
+        compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
+        files = to_discord_files(view.files)
+        kwargs: dict = {"view": compiled}
+        if files:
+            kwargs["attachments"] = files
+        if not interaction.response.is_done():
+            await interaction.response.edit_message(**kwargs)
+            self._message = await interaction.original_response()
+        elif interaction.message is not None:
+            await interaction.message.edit(**kwargs)
+            self._message = interaction.message
+        else:
+            await interaction.edit_original_response(**kwargs)
+            self._message = await interaction.original_response()
+        return self._message
+
+    def add_mirror(self, message: discord.Message | None) -> None:
+        if message is None:
+            return
+        if self._message is not None and message.id == self._message.id:
+            return
+        if any(existing.id == message.id for existing in self._mirrors):
+            return
+        self._mirrors.append(message)
+
+    async def _edit_bound_message(self, message: discord.Message, view: LayoutView) -> None:
+        compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
+        files = to_discord_files(view.files)
+        kwargs: dict = {"content": None, "embeds": [], "view": compiled}
+        if files:
+            kwargs["attachments"] = files
+        await message.edit(**kwargs)
+
     async def send_to_thread(self, thread: discord.Thread, view: LayoutView) -> discord.Message:
         compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
         files = to_discord_files(view.files)
@@ -94,25 +133,31 @@ class ViewSurface:
     async def update(self, view: LayoutView) -> None:
         if self._message is None:
             raise RuntimeError("No message bound to surface")
-        compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
-        files = to_discord_files(view.files)
-        kwargs: dict = {"content": None, "embeds": [], "view": compiled}
-        if files:
-            kwargs["attachments"] = files
-        await self._message.edit(**kwargs)
+        await self._edit_bound_message(self._message, view)
+        remaining: list[discord.Message] = []
+        for mirror in self._mirrors:
+            try:
+                await self._edit_bound_message(mirror, view)
+            except discord.HTTPException:
+                continue
+            remaining.append(mirror)
+        self._mirrors = remaining
 
 
     async def replace(self, view: LayoutView) -> None:
         await self.update(view)
 
     async def disable_all(self) -> None:
-        if self._message is not None:
+        messages = [self._message, *self._mirrors]
+        for message in messages:
+            if message is None:
+                continue
             try:
-                view = discord.ui.LayoutView.from_message(self._message)
+                view = discord.ui.LayoutView.from_message(message)
                 for item in view.walk_children():
                     if hasattr(item, "disabled"):
                         item.disabled = True
-                await self._message.edit(view=view)
+                await message.edit(view=view)
             except discord.HTTPException:
                 pass
 
@@ -136,9 +181,13 @@ class ViewSurface:
                 await interaction.response.send_message(view=compiled, ephemeral=True)
 
     async def delete(self) -> None:
-        if self._message is not None:
+        messages = [self._message, *self._mirrors]
+        self._message = None
+        self._mirrors = []
+        for message in messages:
+            if message is None:
+                continue
             try:
-                await self._message.delete()
+                await message.delete()
             except discord.HTTPException:
                 pass
-            self._message = None

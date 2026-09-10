@@ -4,9 +4,16 @@
 [[release]]
 version = "1.0.2"
 date = "2026-09-10"
-summary = "Slash autocompletes explain empty lists."
+summary = "Slash autocompletes and empty lobby lists explain themselves."
 added = [
   "Slash autocompletes explain empty lists (not hosting a lobby, no bots, no replays)",
+  "Kick, approve, deny, join, and unblacklist autocompletes list the real candidates",
+  "Full-lobby join/approve hints, kick-empty and no-replay hints",
+]
+changed = [
+  "Lobby commands while you are in a match point to forfeit instead of catalog",
+  "Unknown bot/option submits error instead of guessing or claiming success",
+  "Catalog Play Now turns the catalog into the lobby instead of a posted-in-channel toast",
 ]
 
 [[release]]

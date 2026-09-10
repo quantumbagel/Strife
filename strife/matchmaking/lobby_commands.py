@@ -185,13 +185,13 @@ class LobbyCommandsMixin:
             meta = self._meta(lobby.game_key)
             option = next((o for o in meta.settings if o.key == key), None)
             if option is None:
-                await self._error(interaction, "common.error", lobby=lobby)
+                await self._error(interaction, "lobby.unknown_option", lobby=lobby)
                 return
             display_value: str
             if option.type == OptionType.BOOL:
                 normalized = value.strip().lower()
                 if normalized not in {"true", "false", "on", "off", "1", "0"}:
-                    await self._error(interaction, "common.error", lobby=lobby)
+                    await self._error(interaction, "lobby.invalid_option_value", lobby=lobby)
                     return
                 parsed = normalized in {"true", "on", "1"}
                 lobby.settings[key] = parsed
@@ -216,7 +216,7 @@ class LobbyCommandsMixin:
                 display_value = str(int_value)
             else:
                 if option.choices and value not in option.choices:
-                    await self._error(interaction, "common.error", lobby=lobby)
+                    await self._error(interaction, "lobby.invalid_option_value", lobby=lobby)
                     return
                 lobby.settings[key] = value
                 display_value = value.capitalize() if isinstance(value, str) else str(value)
@@ -366,10 +366,13 @@ class LobbyCommandsMixin:
             meta = self._meta(lobby.game_key)
             allowed = {spec.difficulty for spec in meta.bots or ()}
             if not allowed:
-                await self._error(interaction, "common.error", lobby=lobby)
+                await self._error(interaction, "lobby.game_has_no_bots", lobby=lobby)
                 return
-            if difficulty is None or difficulty not in allowed:
+            if difficulty is None:
                 difficulty = next(iter(allowed))
+            elif difficulty not in allowed:
+                await self._error(interaction, "lobby.unknown_bot_difficulty", lobby=lobby)
+                return
             added = 0
             for _ in range(number):
                 if lobby.is_full(meta):
@@ -397,7 +400,11 @@ class LobbyCommandsMixin:
             if self.registries.get_lobby(lobby.thread_id) is not lobby:
                 await self._error(interaction, "lobby.already_dead")
                 return
-            lobby.bots = [b for b in lobby.bots if b.name != name]
+            remaining = [b for b in lobby.bots if b.name != name]
+            if len(remaining) == len(lobby.bots):
+                await self._error(interaction, "lobby.bot_not_in_lobby", lobby=lobby)
+                return
+            lobby.bots = remaining
             meta = self._meta(lobby.game_key)
             view = self._build_lobby_view(lobby, meta)
             if lobby.surface:

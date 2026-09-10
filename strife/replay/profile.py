@@ -223,6 +223,13 @@ class ProfileService:
                     ),
                 )
             )
+        elif matches:
+            container.add_text(
+                TextDisplay(
+                    markdown_content=text.get("profile.no_completed_replays"),
+                    size_style=TextSize.BODY,
+                )
+            )
 
         nav = ActionRow()
         nav.add_button(

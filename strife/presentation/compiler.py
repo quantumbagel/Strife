@@ -152,12 +152,21 @@ class Compiler:
             )
             for choice in select.choices
         ]
+        if not options:
+            return ui.Select(
+                custom_id=custom_id,
+                placeholder=select.placeholder or "No options available",
+                min_values=select.min_values,
+                max_values=select.max_values,
+                options=[discord.SelectOption(label="No options available", value="_")],
+                disabled=True,
+            )
         return ui.Select(
             custom_id=custom_id,
             placeholder=select.placeholder,
             min_values=select.min_values,
             max_values=select.max_values,
-            options=options or [discord.SelectOption(label="—", value="_")],
+            options=options,
             disabled=select.disabled,
         )
 

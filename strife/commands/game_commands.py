@@ -6,6 +6,7 @@ from typing import Any
 import discord
 from discord import app_commands
 
+from strife.commands.autocomplete import notice_choices
 from strife.config.games import GamesConfig
 from strife.engine.errors import SessionError
 from strife.engine.metadata import ParamType, SlashMove
@@ -39,6 +40,9 @@ def create_slash_command(
         session = sessions.get_game(channel.id) if channel is not None else None
         if session is None:
             await user_errors.send(interaction, "errors.no_game_in_channel")
+            return
+        if session.game_key != game_key:
+            await user_errors.send(interaction, "errors.wrong_game_command")
             return
         args = {param.name: kwargs.get(param.name) for param in slash_move.params}
         try:
@@ -95,10 +99,15 @@ def create_slash_command(
                 interaction: discord.Interaction, current: str, p=param
             ):
                 try:
-                    choices = await p.autocomplete(current)
-                    return [discord.app_commands.Choice(name=c, value=c) for c in choices][:25]
+                    raw = await p.autocomplete(current)
+                    choices = [
+                        discord.app_commands.Choice(name=c[:100], value=c[:100]) for c in raw
+                    ][:25]
+                    if choices:
+                        return choices
                 except Exception:
-                    return []
+                    pass
+                return notice_choices(user_errors.text.get("autocomplete.no_matching_options"))
 
             cmd.autocomplete(param.name)(autocomplete_wrapper)
 

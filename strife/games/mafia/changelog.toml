@@ -1,4 +1,14 @@
 [[release]]
+version = "1.0.1"
+date = "2026-09-10"
+summary = "Hard bots hunt doctors. Empty night targets say so."
+changed = [
+  "Medium and hard bot blurbs match what they actually do",
+  "Hard mafia prefers doctors after detectives",
+  "Night action panels say when there is no valid target",
+]
+
+[[release]]
 version = "1.0.0"
 date = "2026-09-07"
 summary = "Nights, day votes, kick mid-game."

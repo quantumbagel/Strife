@@ -201,6 +201,13 @@ def _add_general_tab(
                     ),
                 )
             )
+        else:
+            container.add_text(
+                TextDisplay(
+                    markdown_content=text.get("lobby.no_bots_to_remove_hint"),
+                    size_style=TextSize.BODY,
+                )
+            )
 
     container.add_separator()
     admin = ActionRow()
@@ -249,6 +256,64 @@ def _add_access_tab(
 ) -> None:
     settings_tab_payload = {"settings_tab": "access"}
 
+    seated_lines = [
+        member_line(
+            emoji,
+            user_id=member.user_id,
+            display_name=member.display_name,
+            owner_ids=owner_ids,
+            creator_id=lobby.creator_id,
+            suffix=(
+                f"({text.get('lobby.ready')})"
+                if member.user_id in lobby.ready
+                else f"({text.get('lobby.not_ready')})"
+            ),
+        )
+        for member in lobby.members
+    ]
+    container.add_text(
+        TextDisplay(
+            markdown_content=(
+                f"{text.get('lobby.seated_players_title', user_emoji=emoji.get('user'))}\n"
+                + ("\n".join(seated_lines) if seated_lines else text.get("lobby.empty_roster"))
+            ),
+            size_style=TextSize.SUBHEADER,
+        )
+    )
+
+    kickable = [m for m in lobby.members if m.user_id != lobby.creator_id]
+    if kickable:
+        container.add_described_select(
+            DescribedSelect(
+                description=text.get("lobby.kick_player_select_desc"),
+                select=Select(
+                    source="kick",
+                    placeholder=text.get("lobby.kick_player_placeholder"),
+                    choices=[
+                        SelectChoice(
+                            label=member.display_name,
+                            value=str(member.user_id),
+                            description=text.get(
+                                "lobby.kick_player_desc", name=member.display_name
+                            ),
+                            emoji="leave",
+                        )
+                        for member in kickable
+                    ],
+                    route_prefix=P.LOBBY_KICK,
+                    resource_id=lobby.thread_id,
+                    payload=settings_tab_payload,
+                ),
+            )
+        )
+    else:
+        container.add_text(
+            TextDisplay(
+                markdown_content=text.get("lobby.kick_empty_hint"),
+                size_style=TextSize.BODY,
+            )
+        )
+
     if interaction and interaction.guild:
         guild = interaction.guild
 
@@ -279,57 +344,6 @@ def _add_access_tab(
                 )
             )
             container.add_separator()
-
-        seated_lines = [
-            member_line(
-                emoji,
-                user_id=member.user_id,
-                display_name=member.display_name,
-                owner_ids=owner_ids,
-                creator_id=lobby.creator_id,
-                suffix=(
-                    f"({text.get('lobby.ready')})"
-                    if member.user_id in lobby.ready
-                    else f"({text.get('lobby.not_ready')})"
-                ),
-            )
-            for member in lobby.members
-        ]
-        container.add_text(
-            TextDisplay(
-                markdown_content=(
-                    f"{text.get('lobby.seated_players_title', user_emoji=emoji.get('user'))}\n"
-                    + ("\n".join(seated_lines) if seated_lines else text.get("lobby.empty_roster"))
-                ),
-                size_style=TextSize.SUBHEADER,
-            )
-        )
-
-        kickable = [m for m in lobby.members if m.user_id != lobby.creator_id]
-        if kickable:
-            container.add_described_select(
-                DescribedSelect(
-                    description=text.get("lobby.kick_player_select_desc"),
-                    select=Select(
-                        source="kick",
-                        placeholder=text.get("lobby.kick_player_placeholder"),
-                        choices=[
-                            SelectChoice(
-                                label=member.display_name,
-                                value=str(member.user_id),
-                                description=text.get(
-                                    "lobby.kick_player_desc", name=member.display_name
-                                ),
-                                emoji="leave",
-                            )
-                            for member in kickable
-                        ],
-                        route_prefix=P.LOBBY_KICK,
-                        resource_id=lobby.thread_id,
-                        payload=settings_tab_payload,
-                    ),
-                )
-            )
 
         if lobby.private:
             seated_ids = {member.user_id for member in lobby.members}
