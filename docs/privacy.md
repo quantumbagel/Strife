@@ -9,13 +9,12 @@ Strife is a Discord bot. If you invite the public instance, this is what it stor
 - Finished matches: game, settings, seed, outcome, move log (for replay)
 - Per-user win / loss / draw / played counts by game
 
-Live lobbies and in-progress matches stay in memory. A restart drops them; nothing is written until the match ends.
+Live lobbies and in-progress matches stay in the memory of the program and are not themselve stored.
 
 ## Not stored
 
-- General chat
-- Email, IPs, billing
-- Hidden info beyond what replay needs (a recorded night outcome, not every peek)
+- Messages
+- Any Discord account information
 
 ## Why
 
