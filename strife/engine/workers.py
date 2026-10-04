@@ -42,9 +42,10 @@ async def run_cpu(fn: Callable[..., T], /, *args, **kwargs) -> T:
     return await loop.run_in_executor(executor, fn, *args)
 
 
-def shutdown_workers() -> None:
+def shutdown_workers(*, wait: bool = False) -> None:
+    """Stop the shared pool. ``wait=True`` lets in-flight work finish first."""
     global _executor
     if _executor is None:
         return
-    _executor.shutdown(wait=False, cancel_futures=True)
-    _executor = None
+    executor, _executor = _executor, None
+    executor.shutdown(wait=wait, cancel_futures=True)

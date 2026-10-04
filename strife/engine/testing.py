@@ -8,6 +8,7 @@ from typing import Literal
 from strife.engine.context import noop_turn_deadline
 from strife.engine.game import Game
 from strife.engine.inputs import (
+    apply_bot_form,
     check_timeout_consequence,
     make_bot_request,
     resolve_description,
@@ -15,10 +16,12 @@ from strife.engine.inputs import (
     validate_bot_move,
     validate_form_args,
 )
+from strife.engine.log import SYSTEM_SOURCES, LogEntryKind
 from strife.engine.match_log import MatchLog
 from strife.engine.players import Move
 from strife.engine.requests import SeatPrompt, TimeoutConsequence
-from strife.presentation.components import LayoutView, form_fields
+from strife.engine.seat_events import apply_seat_event, is_seat_event
+from strife.presentation.components import LayoutView, default_form_values, form_fields
 from strife.presentation.emoji import EmojiResolver
 
 
@@ -101,23 +104,69 @@ class MockContext:
         if form:
             validate_form_args(form, move.args)
 
+    def _script_row(self, index: int) -> tuple[int, str, dict, LogEntryKind] | None:
+        if index >= len(self._script):
+            return None
+        row = self._script[index]
+        seat = int(row[0])
+        source = str(row[1])
+        args = dict(row[2])
+        if len(row) >= 4:
+            kind = row[3]
+        elif source in SYSTEM_SOURCES:
+            kind = LogEntryKind.SYSTEM
+        else:
+            kind = LogEntryKind.GAME
+        return seat, source, args, kind
+
+    def _drain_metadata(self, waiting: set[int]) -> None:
+        while True:
+            row = self._script_row(self._script_index)
+            if row is None:
+                return
+            seat, source, args, kind = row
+            move = Move(
+                actor_seat=seat,
+                source=source,
+                args=dict(args),
+                kind=kind,
+            )
+            if kind != LogEntryKind.SYSTEM or not is_seat_event(move):
+                return
+            if source == "forfeit" and seat in waiting:
+                return
+            apply_seat_event(self._game, move)
+            logged = self.log.system(source, dict(args), actor_seat=seat)
+            if self._verbose:
+                print(f"[system] {logged.source} {logged.args} seat={seat}")
+            self._script_index += 1
+
     def _take_scripted(
         self, seat: int, allowed: set[str] | None, view: LayoutView
     ) -> Move | None:
-        if self._script_index >= len(self._script):
+        row = self._script_row(self._script_index)
+        if row is None:
             return None
-        script_seat, source, args = self._script[self._script_index]
-        self._script_index += 1
+        script_seat, source, args, kind = row
         if script_seat != seat:
-            raise ValueError(
-                f"Script entry expected seat {seat}, got {script_seat}"
-            )
-        if allowed is not None and source not in allowed:
-            raise ValueError(
-                f"Scripted source {source!r} not in allowed sources {allowed!r}"
-            )
-        move = Move(actor_seat=seat, source=source, args=dict(args))
-        self._check_form(view, move)
+            return None
+        self._script_index += 1
+        if kind == LogEntryKind.GAME:
+            args = {**default_form_values(form_fields(view)), **args}
+            if allowed is not None and source not in allowed:
+                raise ValueError(
+                    f"Scripted source {source!r} not in allowed sources {allowed!r}"
+                )
+        move = Move(
+            actor_seat=seat,
+            source=source,
+            args=dict(args),
+            kind=kind,
+        )
+        if kind == LogEntryKind.GAME:
+            self._check_form(view, move)
+        if is_seat_event(move):
+            apply_seat_event(self._game, move)
         if self._verbose:
             print(f"[input] seat {seat} -> {source} {args}")
         return move
@@ -172,7 +221,8 @@ class MockContext:
         allowed: set[str] | None,
         description: str | None,
     ) -> Move:
-        if self.is_bot(seat):
+        move = self._take_scripted(seat, allowed, view)
+        if move is None and self.is_bot(seat):
             request = make_bot_request(
                 self._game.players,
                 view,
@@ -181,16 +231,15 @@ class MockContext:
                 description=description,
             )
             move = await self._game.bot_move(request)
+            move = apply_bot_form(request, move)
             validate_bot_move(request, move)
-        else:
-            move = self._take_scripted(seat, allowed, view)
-            if move is None:
-                if self._interactive:
-                    move = self._prompt_interactive(seat, allowed, view)
-                else:
-                    raise ScriptExhausted(
-                        f"No scripted input for seat {seat} ({description or 'move'})"
-                    )
+        elif move is None:
+            if self._interactive:
+                move = self._prompt_interactive(seat, allowed, view)
+            else:
+                raise ScriptExhausted(
+                    f"No scripted input for seat {seat} ({description or 'move'})"
+                )
 
         self.log.record(move)
         return move
@@ -208,6 +257,7 @@ class MockContext:
         await self.update(view)
         allowed = resolve_sources(view, sources, seat=actor)
         check_timeout_consequence(timeout_consequence, allowed)
+        self._drain_metadata({actor})
         return await self._act(
             view,
             actor,
@@ -228,33 +278,28 @@ class MockContext:
         timeout_consequence: TimeoutConsequence | None = None,
     ) -> dict[int, Move]:
         await self.update(view)
-        humans = {seat for seat in actors if not self.is_bot(seat)}
-        bots = actors - humans
+        bots = {seat for seat in actors if self.is_bot(seat)}
 
         def _description(seat: int) -> str | None:
             return resolve_description(description, per_seat=per_seat, seat=seat)
 
         def _allowed(seat: int) -> set[str] | None:
-            return resolve_sources(
-                view, sources, per_seat=per_seat, seat=seat
-            )
+            return resolve_sources(view, sources, per_seat=per_seat, seat=seat)
 
-        for seat in actors:
-            check_timeout_consequence(timeout_consequence, _allowed(seat))
+        allowed_sets = [_allowed(seat) for seat in actors]
+        if allowed_sets:
+            check_timeout_consequence(
+                timeout_consequence, allowed_sets[0], *allowed_sets[1:]
+            )
+        else:
+            check_timeout_consequence(timeout_consequence, set())
+
+        self._drain_metadata(actors)
 
         if until == "any":
-            if not humans:
-                bot_seat = self._rng.choice(sorted(bots))
-                move = await self._act(
-                    view,
-                    bot_seat,
-                    allowed=_allowed(bot_seat),
-                    description=_description(bot_seat),
-                )
-                return {bot_seat: move}
-
-            if self._script_index < len(self._script):
-                script_seat, _, _ = self._script[self._script_index]
+            row = self._script_row(self._script_index)
+            if row is not None:
+                script_seat = row[0]
                 if script_seat in actors:
                     move = await self._act(
                         view,
@@ -263,6 +308,9 @@ class MockContext:
                         description=_description(script_seat),
                     )
                     return {script_seat: move}
+                raise ValueError(
+                    f"Script entry expected one of {sorted(actors)}, got {script_seat}"
+                )
 
             if bots:
                 bot_seat = self._rng.choice(sorted(bots))
@@ -289,34 +337,42 @@ class MockContext:
             raise ScriptExhausted("No input available for until='any' request")
 
         results: dict[int, Move] = {}
-        for seat in sorted(bots):
-            move = await self._act(
-                view,
-                seat,
-                allowed=_allowed(seat),
-                description=_description(seat),
-            )
-            results[seat] = move
+        remaining = set(actors)
+        while remaining:
+            self._drain_metadata(remaining)
+            row = self._script_row(self._script_index)
+            if row is not None and row[0] in remaining:
+                script_seat = row[0]
+                move = await self._act(
+                    view,
+                    script_seat,
+                    allowed=_allowed(script_seat),
+                    description=_description(script_seat),
+                )
+                results[script_seat] = move
+                remaining.discard(script_seat)
+                continue
 
-        remaining_humans = set(humans)
-        while remaining_humans:
-            if self._script_index < len(self._script):
-                script_seat, _, _ = self._script[self._script_index]
-                if script_seat in remaining_humans:
+            leftover_bots = sorted(seat for seat in remaining if self.is_bot(seat))
+            if leftover_bots:
+                for seat in leftover_bots:
                     move = await self._act(
                         view,
-                        script_seat,
-                        allowed=_allowed(script_seat),
-                        description=_description(script_seat),
+                        seat,
+                        allowed=_allowed(seat),
+                        description=_description(seat),
                     )
-                    results[script_seat] = move
-                    remaining_humans.remove(script_seat)
-                    continue
+                    results[seat] = move
+                    remaining.discard(seat)
+                continue
+
+            if not remaining:
+                break
 
             if self._interactive:
                 seat = self._prompt_choose_seat(
-                    f"Choose a human to act: {sorted(remaining_humans)}; enter seat: ",
-                    remaining_humans,
+                    f"Choose a human to act: {sorted(remaining)}; enter seat: ",
+                    remaining,
                 )
                 move = await self._act(
                     view,
@@ -325,16 +381,17 @@ class MockContext:
                     description=_description(seat),
                 )
                 results[seat] = move
-                remaining_humans.remove(seat)
+                remaining.discard(seat)
                 continue
 
             raise ScriptExhausted(
-                f"No scripted input for remaining human seats {sorted(remaining_humans)}"
+                f"No scripted input for remaining human seats {sorted(remaining)}"
             )
 
         return results
 
     async def record_event(self, source: str, arguments: dict) -> None:
+        self._drain_metadata(set())
         if self._verbose:
             print(f"[event] {source} {arguments}")
         self.log.event(source, arguments)

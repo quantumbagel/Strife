@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 
 from strife.engine.log import SYSTEM_SOURCES, LogEntryKind, reject_system_source
 from strife.engine.players import Move
+
+
+def _require_json_args(args: dict) -> None:
+    try:
+        json.dumps(args)
+    except TypeError as exc:
+        raise TypeError(f"record_event args must be JSON-serializable: {exc}") from exc
 
 
 class MatchLog:
@@ -69,6 +77,7 @@ class MatchLog:
         actor_seat: int | None = None,
     ) -> Move:
         reject_system_source(source)
+        _require_json_args(args)
         return self._append(
             actor_seat,
             source,

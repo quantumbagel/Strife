@@ -8,7 +8,12 @@ from typing import Any, Literal
 from strife.engine.context import ReplayFrame, noop_turn_deadline
 from strife.engine.game import Game
 from strife.engine.log import LogEntryKind
-from strife.engine.log_cursor import LogCursor, LogEnded, ReplayDivergence
+from strife.engine.log_cursor import (
+    LogCursor,
+    LogEnded,
+    ReplayDivergence,
+    log_ends_match,
+)
 from strife.engine.players import Move, Player
 from strife.engine.requests import SeatPrompt, TimeoutConsequence
 from strife.logging import get_logger
@@ -38,6 +43,8 @@ def system_replay_info(players: Sequence[Player], move: Move) -> dict | None:
     """Build replay UI metadata for ``kind: system`` log entries (read-only)."""
     if move.kind != LogEntryKind.SYSTEM:
         return None
+    if move.source == "timeout_strike":
+        return None
 
     if move.source == "bot_takeover":
         seat = move.args.get("seat")
@@ -54,7 +61,9 @@ def system_replay_info(players: Sequence[Player], move: Move) -> dict | None:
         return None
 
     if move.source == "forfeit":
-        actor = move.actor_seat if move.actor_seat is not None else move.args.get("seat")
+        actor = (
+            move.actor_seat if move.actor_seat is not None else move.args.get("seat")
+        )
         if actor is not None:
             for player in players:
                 if player.seat == actor:
@@ -245,15 +254,29 @@ async def run_replay(
     frames: list[ReplayFrame] = []
     ctx = ReplayContext(game, moves, emoji=emoji, started_at=started_at, frames=frames)
     outcome = None
+    play_returned = False
     try:
         outcome = await game.play(ctx)
-    except LogEnded:
-        pass
-    if ctx._log.position < ctx._log.total:
+        play_returned = True
+    except LogEnded as ended:
+        if not ended.match_ended and not log_ends_match(moves):
+            raise ReplayDivergence("log ends before the match does") from ended
+    leftover = ctx._log._moves[ctx._log.position :]
+    if play_returned:
+        unconsumed_game = [row for row in leftover if row.is_game]
+        if unconsumed_game:
+            raise ReplayDivergence("play() returned with unconsumed game row(s)")
+        if leftover:
+            log.warning(
+                "Replay for %s ended with %d log row(s) unconsumed",
+                type(game).__name__,
+                len(leftover),
+            )
+    elif leftover:
         log.warning(
             "Replay for %s ended with %d log row(s) unconsumed",
             type(game).__name__,
-            ctx._log.total - ctx._log.position,
+            len(leftover),
         )
     await ctx._finish(outcome)
     return frames

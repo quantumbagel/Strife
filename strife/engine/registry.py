@@ -25,7 +25,9 @@ def _validate_capabilities(game_cls: type[Game], metadata: GameMetadata) -> bool
             game_cls.__name__,
         )
         ok = False
-    if metadata.supports_player_removal and not _method_overridden(game_cls, "remove_player"):
+    if metadata.supports_player_removal and not _method_overridden(
+        game_cls, "remove_player"
+    ):
         log.error(
             "Game %s declares supports_player_removal but does not implement remove_player()",
             game_cls.__name__,
@@ -89,6 +91,17 @@ class GameRegistry:
                 return
             if not _validate_versions(metadata):
                 return
+            play_fn = getattr(game_cls, "play", None)
+            if (
+                play_fn is None
+                or getattr(play_fn, "__isabstractmethod__", False)
+                or not _method_overridden(game_cls, "play")
+            ):
+                log.error(
+                    "Game %s does not implement play()",
+                    game_cls.__name__,
+                )
+                return
             if not _validate_capabilities(game_cls, metadata):
                 return
             key = metadata.key
@@ -108,7 +121,9 @@ class GameRegistry:
                 metadata.platform_version,
             )
         except Exception as e:
-            log.exception("Unexpected error registering game class %s: %s", game_cls.__name__, e)
+            log.exception(
+                "Unexpected error registering game class %s: %s", game_cls.__name__, e
+            )
 
     def unregister(self, key: str) -> bool:
         return self._games.pop(key, None) is not None

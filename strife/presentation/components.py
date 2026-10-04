@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
-
 
 
 class TextSize(StrEnum):
@@ -98,6 +98,8 @@ class FormField:
     choices: tuple[str, ...]
     multi: bool
     default: str | tuple[str, ...] | None
+    min_values: int = 1
+    max_values: int = 1
 
 
 @dataclass
@@ -157,7 +159,9 @@ class DescribedSelect:
 
 @dataclass
 class ActionRow:
-    items: list[Button | Select | ChannelSelect | UserSelect] = field(default_factory=list)
+    items: list[Button | Select | ChannelSelect | UserSelect] = field(
+        default_factory=list
+    )
 
     def add_button(self, button: Button) -> ActionRow:
         self.items.append(button)
@@ -178,16 +182,18 @@ class ActionRow:
 
 @dataclass
 class Container:
-    children: list[TextDisplay | Separator | MediaGallery | ActionRow | Section | DescribedSelect] = field(
-        default_factory=list
-    )
+    children: list[
+        TextDisplay | Separator | MediaGallery | ActionRow | Section | DescribedSelect
+    ] = field(default_factory=list)
 
     def add_text(self, text: TextDisplay) -> Container:
         self.children.append(text)
         return self
 
     def add_separator(self, separator: Separator | None = None) -> Container:
-        self.children.append(separator if separator is not None else Separator(visible=False))
+        self.children.append(
+            separator if separator is not None else Separator(visible=False)
+        )
         return self
 
     def set_gallery(self, gallery: MediaGallery) -> Container:
@@ -218,11 +224,10 @@ class ViewFile:
 
 @dataclass
 class LayoutView:
-    children: list[Container | ActionRow | TextDisplay | Separator | MediaGallery | Section] = field(
-        default_factory=list
-    )
+    children: list[
+        Container | ActionRow | TextDisplay | Separator | MediaGallery | Section
+    ] = field(default_factory=list)
     files: list[ViewFile] = field(default_factory=list)
-
 
     def add_container(self, container: Container) -> LayoutView:
         self.children.append(container)
@@ -262,7 +267,9 @@ class LayoutView:
         return self
 
 
-def walk_interactive(view: LayoutView) -> list[Button | Select | ChannelSelect | UserSelect]:
+def walk_interactive(
+    view: LayoutView,
+) -> list[Button | Select | ChannelSelect | UserSelect]:
     items: list[Button | Select | ChannelSelect | UserSelect] = []
 
     def visit(node: object) -> None:
@@ -332,22 +339,30 @@ def form_fields(view: LayoutView) -> dict[str, FormField]:
             choices=tuple(choice.value for choice in item.choices),
             multi=multi,
             default=default,
+            min_values=item.min_values,
+            max_values=item.max_values,
         )
     return fields
 
 
-def default_form_values(fields: dict[str, FormField]) -> dict[str, Any]:
+def default_form_values(fields: Mapping[str, Any]) -> dict[str, Any]:
     values: dict[str, Any] = {}
     for name, field in fields.items():
         if field.default is None:
             continue
+        min_values = getattr(field, "min_values", 1)
         if field.multi:
-            values[name] = (
+            value = (
                 list(field.default)
                 if isinstance(field.default, tuple)
                 else [field.default]
             )
+            if len(value) < min_values:
+                continue
+            values[name] = value
         else:
+            if min_values > 1:
+                continue
             values[name] = field.default
     return values
 

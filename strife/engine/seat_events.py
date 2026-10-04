@@ -8,13 +8,15 @@ def is_seat_event(move: Move) -> bool:
     """True for host rows that change occupancy (takeover or mid-match removal)."""
     if not move.is_system:
         return False
-    if move.source == "bot_takeover":
+    if move.source in ("bot_takeover", "timeout_strike"):
         return True
     return move.source == "forfeit" and bool(move.args.get("removed"))
 
 
 def apply_seat_event(game: Game, move: Move) -> None:
     """Apply a seat event. The only engine/host call of ``remove_player``."""
+    if move.source == "timeout_strike":
+        return
     if move.source == "bot_takeover":
         seat = move.args.get("seat")
         if seat is None:

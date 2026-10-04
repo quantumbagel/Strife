@@ -35,8 +35,34 @@ class TurnBasedGame(Game):
         prefix_emoji: str | None = None,
     ) -> LayoutView: ...
 
+    def is_active(self, seat: int) -> bool:
+        """True if ``seat`` still takes turns. Default: ``seat`` in ``active_seats()``."""
+        return seat in self.active_seats()
+
+    def advance(self) -> None:
+        """Move ``current`` to the next seat in seat order, skipping inactive seats."""
+        order = [player.seat for player in self.players]
+        if not order:
+            return
+        try:
+            idx = order.index(self.current)
+        except ValueError:
+            idx = -1
+        n = len(order)
+        for step in range(1, n + 1):
+            seat = order[(idx + step) % n]
+            if self.is_active(seat):
+                self.current = seat
+                return
+
     def on_timeout(self, move: Move) -> None:
-        """Called by ``take_turn`` on ``Interrupt.TIMEOUT``. Default: no-op."""
+        """Called by ``take_turn`` on ``Interrupt.TIMEOUT``. Default: ``advance()``."""
+        self.advance()
+
+    def on_forfeit(self, move: Move) -> None:
+        """Called by ``take_turn`` on ``Interrupt.FORFEIT``. Default: ``advance()`` if current."""
+        if move.actor_seat == self.current:
+            self.advance()
 
     async def take_turn(
         self,
@@ -51,7 +77,8 @@ class TurnBasedGame(Game):
     ) -> Move:
         """Render, wait for the current seat, and ``apply_move`` the result.
 
-        Timeouts call ``on_timeout`` instead of ``apply_move``.
+        Timeouts call ``on_timeout`` instead of ``apply_move``. Forfeits call
+        ``on_forfeit``.
         """
         view = self.render(ctx, lead=lead, prefix_emoji=prefix_emoji)
         move = await ctx.request_input(
@@ -64,6 +91,8 @@ class TurnBasedGame(Game):
         )
         if move.interrupt is Interrupt.TIMEOUT:
             self.on_timeout(move)
+        elif move.interrupt is Interrupt.FORFEIT:
+            self.on_forfeit(move)
         elif move.is_game:
             self.apply_move(move)
         return move

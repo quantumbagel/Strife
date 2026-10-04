@@ -36,12 +36,16 @@ def log_ends_match(moves: Sequence[Move]) -> bool:
     return is_match_ending(moves[-1])
 
 
-def _norm_args(args: dict[str, Any]) -> str:
-    return json.dumps(args, sort_keys=True, default=str)
+def _canonical_json(value: Any) -> Any:
+    return json.loads(json.dumps(value, sort_keys=True))
 
 
 def args_equal(a: dict[str, Any], b: dict[str, Any]) -> bool:
-    return _norm_args(a) == _norm_args(b)
+    try:
+        return _canonical_json(a) == _canonical_json(b)
+    except (TypeError, ValueError):
+        # Non-JSON args can never match a stored row; report it as a divergence.
+        return False
 
 
 class LogCursor:
@@ -88,7 +92,7 @@ class LogCursor:
             raise LogEnded()
         move = self._moves[self._cursor]
         self._cursor += 1
-        if is_match_ending(move):
+        if move.is_system and move.source == "game_end":
             raise LogEnded(match_ended=True)
         return move
 
@@ -102,16 +106,26 @@ class LogCursor:
             and int(move.actor_seat) in waiting
         ):
             return False
+        self._apply_seat_event(move)
+        return True
+
+    def _apply_seat_event(self, move: Move) -> None:
         apply_seat_event(self._game, move)
         if self._on_metadata is not None:
             self._on_metadata(move)
-        return True
 
     def consume_metadata(self, waiting: set[int]) -> None:
         while not self.at_end():
             move = self.peek()
             assert move is not None
             if is_match_ending(move):
+                answers_waiting = (
+                    move.source == "forfeit"
+                    and move.actor_seat is not None
+                    and int(move.actor_seat) in waiting
+                )
+                if answers_waiting:
+                    break
                 self.consume()
                 raise LogEnded(match_ended=True)
             if self.apply_metadata(move, waiting):
@@ -129,7 +143,7 @@ class LogCursor:
     def consume_answer_row(self, seat: int) -> Move:
         move = self.consume()
         if is_seat_event(move):
-            apply_seat_event(self._game, move)
+            self._apply_seat_event(move)
         return move
 
     def take_input(self, actor: int) -> Move:

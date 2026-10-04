@@ -21,12 +21,14 @@ class Game(ABC):
     * ``remove_player`` — override to allow mid-match seat removal (inferred at registration).
     * ``final_view``, ``handle_query``, ``forfeit_end_outcome`` — optional.
     * Peek/help buttons: ``query=True`` and ``handle_query``. Not moves.
-    * Group inputs: ``request_inputs`` then one ``record_event`` — not one log row per player.
+    * Group inputs: one game row per seat answer, plus a ``record_event`` checkpoint.
     """
 
     metadata: ClassVar[GameMetadata]
 
-    def __init__(self, players: list[Player], settings: Mapping[str, Any], rng: random.Random):
+    def __init__(
+        self, players: list[Player], settings: Mapping[str, Any], rng: random.Random
+    ):
         self.players = players
         self.settings = settings
         self.rng = rng
@@ -57,7 +59,9 @@ class Game(ABC):
     def remove_player(self, seat: int) -> None:
         """Engine-called mid-match removal. Override to enable it; do not call it yourself."""
 
-    def forfeit_end_outcome(self, forfeiter_seat: int, reason: str = "forfeit") -> GameOutcome:
+    def forfeit_end_outcome(
+        self, forfeiter_seat: int, reason: str = "forfeit"
+    ) -> GameOutcome:
         """Outcome when the host ends the match because ``forfeiter_seat`` quit.
 
         Default: the forfeiter and anyone already out of play lose; remaining
@@ -73,10 +77,14 @@ class Game(ABC):
         assert outcome is not None
         return outcome
 
-    async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
+    async def final_view(
+        self, ctx: GameContext, outcome: GameOutcome
+    ) -> LayoutView | None:
         return None
 
-    def render_replay(self, ctx: GameContext, live_view: LayoutView | None) -> LayoutView | None:
+    def render_replay(
+        self, ctx: GameContext, live_view: LayoutView | None
+    ) -> LayoutView | None:
         """Replay frame for current state. Default: board play() last showed.
 
         Hidden-info games override to reveal secrets. Return None to skip frame."""
