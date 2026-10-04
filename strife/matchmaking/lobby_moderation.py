@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import discord
 
-from strife.matchmaking.lobby import Lobby, QueuedBot
+from strife.matchmaking.lobby import Lobby, QueuedBot, allocate_bot_name
 from strife.presentation.roster import bot_label
 from strife.routing.custom_id import Route
 
@@ -104,7 +104,7 @@ class LobbyModerationMixin:
                 return
             lobby.bots.append(
                 QueuedBot(
-                    name=f"Bot-{difficulty}-{len(lobby.bots) + 1}",
+                    name=allocate_bot_name(lobby.bots, difficulty),
                     difficulty=difficulty,
                 )
             )

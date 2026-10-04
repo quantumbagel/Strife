@@ -27,7 +27,6 @@ Invite with `applications.commands` and `bot`. Permissions:
 After starting the bot, upload application emoji with `strife/emoji`
 
 If you end up hosting the bot, **point the app’s privacy-policy URL** at [docs/privacy.md](docs/privacy.md) (or a similarly worded copy).
-As a reminder, the 
 
 ## Commands
 
@@ -44,7 +43,10 @@ I tried my best to make this as intuitive as possible. Suggestions are appreciat
 | `/strife server`                 | Default lobby channel (administrators)                                     |
 | `/strife about`                  | About, attributions, and Changes                                           |
 | `/strife lobby join/leave/ready` | Join by creator, leave, ready. Everything else is on the lobby message     |
+| `/strife bot add`                | Add bots to your lobby (`difficulty:`, `number:` optional)                 |
+| `/strife bot remove`             | Remove a bot from your lobby (`name:`)                                     |
 
+Games with slash moves also register a top-level group (e.g. `/chess move`).
 
 ## Games
 
@@ -74,7 +76,7 @@ Game extras (Chess: `chess`, `resvg-py`) live in each plugin’s `plugin.toml`, 
 
 Once the bot is online, in a server where you are in `STRIFE_OWNER_IDS`:
 
-- run `strife/sync` to register slash commands (`STRIFE_SYNC_ON_START=true` to sync every boot, probably not reccomended)
+- run `strife/sync` to register slash commands (`STRIFE_SYNC_ON_START=true` to sync every boot, probably not recommended)
 - run `strife/emoji` to upload `assets/emoji/` and each plugin’s `emoji/` folder into Discord's backend
 
 ## Owner (message) commands

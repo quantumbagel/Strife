@@ -3,7 +3,7 @@ from __future__ import annotations
 import discord
 
 from strife.engine.metadata import OptionType, int_setting_bounds
-from strife.matchmaking.lobby import Lobby, QueuedBot
+from strife.matchmaking.lobby import Lobby, QueuedBot, allocate_bot_name
 from strife.presentation.roster import bot_label
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route
@@ -75,7 +75,7 @@ class LobbyCommandsMixin:
             ok_start, _, _ = lobby.can_start(meta, self.text)
             if ok_start:
                 if not interaction.response.is_done():
-                    await interaction.response.defer()
+                    await interaction.response.defer(ephemeral=True)
                 lobby.starting = True
                 should_start = True
             else:
@@ -83,6 +83,12 @@ class LobbyCommandsMixin:
                 await self._success(interaction, "lobby.ready_on")
         if should_start:
             await self._start(lobby, route, interaction)
+            # The lobby message already links the thread; drop the deferred "thinking…".
+            if self.registries.get_lobby(lobby.thread_id) is None:
+                try:
+                    await interaction.delete_original_response()
+                except discord.HTTPException:
+                    pass
 
     async def kick_member(self, interaction: discord.Interaction, user_id: int) -> None:
         lobby = await self._require_caller_lobby(interaction, creator_only=True)
@@ -369,7 +375,7 @@ class LobbyCommandsMixin:
                 await self._error(interaction, "lobby.game_has_no_bots", lobby=lobby)
                 return
             if difficulty is None:
-                difficulty = next(iter(allowed))
+                difficulty = meta.bots[0].difficulty
             elif difficulty not in allowed:
                 await self._error(interaction, "lobby.unknown_bot_difficulty", lobby=lobby)
                 return
@@ -379,7 +385,7 @@ class LobbyCommandsMixin:
                     break
                 lobby.bots.append(
                     QueuedBot(
-                        name=f"Bot-{difficulty}-{len(lobby.bots) + 1}",
+                        name=allocate_bot_name(lobby.bots, difficulty),
                         difficulty=difficulty,
                     )
                 )

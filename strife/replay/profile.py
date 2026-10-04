@@ -283,6 +283,7 @@ class ProfileService:
             user.id, game, limit=self._page_size, offset=page * self._page_size
         )
         pages = max(1, math.ceil(total_matches / self._page_size)) if total_matches else 1
+        page = max(0, min(page, pages - 1))
         rate = round((stats.wins / stats.played) * 100) if stats.played else 0
         view = self._build_view(
             user,

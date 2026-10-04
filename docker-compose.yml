@@ -13,7 +13,7 @@ services:
       timeout: 5s
       retries: 5
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
   bot:
     build: .
@@ -29,6 +29,7 @@ services:
       - ./config:/app/config
       - ./plugins:/app/plugins
     restart: unless-stopped
+    stop_grace_period: 30s
 
 volumes:
   pgdata:

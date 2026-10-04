@@ -9,6 +9,7 @@ from typing import Literal
 from strife.plugins.errors import PluginError
 
 KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+RESERVED_KEYS = {"play", "strife"}
 Origin = Literal["builtin", "installed"]
 
 
@@ -53,6 +54,8 @@ def load_manifest(path: Path) -> PluginManifest:
         raise PluginError(
             f"{path}: 'key' must be a lowercase identifier (letter, then letters/digits/underscore, max 32)"
         )
+    if key in RESERVED_KEYS:
+        raise PluginError(f"{path}: 'key' '{key}' is reserved by the platform")
 
     raw_deps = data.get("dependencies") or ()
     if isinstance(raw_deps, str):

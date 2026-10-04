@@ -9,6 +9,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from strife.engine.platform import PLATFORM_VERSION
+from strife.plugins.manifest import KEY_RE, RESERVED_KEYS
+
 GAMES_DIR = ROOT / "strife" / "games"
 GAMES_YAML = ROOT / "config" / "games.yaml"
 
@@ -20,6 +25,23 @@ def slugify(name: str) -> str:
 
 def class_name(key: str) -> str:
     return "".join(part.capitalize() for part in key.split("_"))
+
+
+def validate_key(key: str) -> str | None:
+    if not KEY_RE.match(key):
+        return (
+            f"Invalid game key '{key}': must be a lowercase identifier "
+            "(letter, then letters/digits/underscore, max 32 chars)"
+        )
+    if key in RESERVED_KEYS:
+        return f"Game key '{key}' is reserved (play, strife)"
+    return None
+
+
+def validate_class_name(name: str) -> str | None:
+    if not name.isidentifier():
+        return f"Derived class name '{name}' is not a valid Python identifier"
+    return None
 
 
 GAME_PY = '''from __future__ import annotations
@@ -156,12 +178,20 @@ def main() -> int:
     module = f"strife.games.{key}"
     game_dir = GAMES_DIR / key
 
+    key_err = validate_key(key)
+    if key_err:
+        print(f"Error: {key_err}", file=sys.stderr)
+        return 1
+    cls_err = validate_class_name(cls)
+    if cls_err:
+        print(f"Error: {cls_err}", file=sys.stderr)
+        return 1
+
     if game_dir.exists():
         print(f"Error: {game_dir} already exists", file=sys.stderr)
         return 1
 
     game_dir.mkdir(parents=True)
-    from strife.engine.platform import PLATFORM_VERSION
 
     (game_dir / "game.py").write_text(
         GAME_PY.format(

@@ -30,6 +30,7 @@ def build_results_view(
     rematch_disabled: bool = False,
     rematch_expires_at: int | None = None,
     replay_disabled: bool = False,
+    match_status: str = "completed",
 ) -> LayoutView:
     view = LayoutView()
     container = Container()
@@ -46,16 +47,18 @@ def build_results_view(
     summary = outcome.summary or {}
     winner_seat = summary.get("winner")
     description = getattr(outcome, "description", None) or summary.get("description")
+    failed_match = match_status in {"abandoned", "cancelled", "errored"}
+    outcome_emoji = emoji.get("error") if failed_match else emoji.get("success")
     if description:
-        body_text = f"{emoji.get('success')} **{description}**"
+        body_text = f"{outcome_emoji} **{description}**"
     elif winner_seat is not None and isinstance(winner_seat, int) and 0 <= winner_seat < len(players):
         winner = players[winner_seat]
         winner_label = winner.mention_for(emoji)
         body = text.get("match.winner", winner=winner_label)
-        body_text = f"{emoji.get('success')} **{body}**"
+        body_text = f"{outcome_emoji} **{body}**"
     elif "winning_faction" in summary:
         body = text.get("match.winner", winner=summary["winning_faction"])
-        body_text = f"{emoji.get('success')} **{body}**"
+        body_text = f"{outcome_emoji} **{body}**"
     else:
         body = text.get("match.draw")
         body_text = f"{emoji.get('hmm')} **{body}**"

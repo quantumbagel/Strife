@@ -196,6 +196,7 @@ class SessionLifecycleMixin:
                     emoji=self.surface.compiler.emoji,
                     rematch_disabled=not persist_ok,
                     replay_disabled=not persist_ok,
+                    match_status=status,
                 )
                 if hasattr(self, "lobby_surface") and self.lobby_surface is not None:
                     await self.lobby_surface.update(results_view)

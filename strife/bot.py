@@ -5,6 +5,7 @@ import hashlib
 
 import asyncpg
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from strife import __platform_version__, __version__
@@ -109,6 +110,19 @@ class StrifeBot(commands.AutoShardedBot):
         self.sessions = SessionRegistries()
         user_errors = UserErrorPresenter(compiler, self.emoji, self.config.text, self.sessions)
         user_success = UserSuccessPresenter(compiler, self.emoji, self.config.text)
+
+        @self.tree.error
+        async def on_app_command_error(
+            interaction: discord.Interaction, error: app_commands.AppCommandError
+        ) -> None:
+            original = error.original if isinstance(error, app_commands.CommandInvokeError) else error
+            log.exception("Application command error", exc_info=original)
+            try:
+                await user_errors.send(interaction, "common.error")
+            except discord.HTTPException:
+                pass
+            except Exception:
+                log.exception("Failed to send application command error feedback")
 
         matches = MatchRepository(self.pool)
         moves = MoveRepository(self.pool)

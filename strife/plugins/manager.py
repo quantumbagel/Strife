@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -444,31 +445,41 @@ def _swap_dir(dest: Path, new_src: Path) -> None:
     shutil.rmtree(backup)
 
 
-def _run_git(cmd: list[str], *, cwd: Path | None = None) -> None:
+def _run_git(cmd: list[str], *, cwd: Path | None = None, step: str = "command") -> None:
     try:
-        result = subprocess.run(cmd, cwd=cwd, check=False, capture_output=True, text=True)
+        result = subprocess.run(
+            cmd,
+            cwd=cwd,
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            timeout=120,
+        )
     except FileNotFoundError as exc:
         raise PluginError("git is not installed or not on PATH") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise PluginError(f"git {step} timed out after 120s") from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()
-        raise PluginError(f"git clone failed: {detail[-800:]}")
+        raise PluginError(f"git {step} failed: {detail[-800:]}")
 
 
 def _git_clone(url: str, dest: Path, ref: str | None) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     if ref and _COMMIT_RE.fullmatch(ref):
         dest.mkdir(parents=True)
-        steps = [
-            ["git", "init"],
-            ["git", "remote", "add", "origin", url],
-            ["git", "fetch", "--depth", "1", "origin", ref],
-            ["git", "checkout", "FETCH_HEAD"],
+        steps: list[tuple[str, list[str]]] = [
+            ("init", ["git", "init"]),
+            ("remote add", ["git", "remote", "add", "origin", url]),
+            ("fetch", ["git", "fetch", "--depth", "1", "origin", ref]),
+            ("checkout", ["git", "checkout", "FETCH_HEAD"]),
         ]
-        for cmd in steps:
-            _run_git(cmd, cwd=dest)
+        for step, cmd in steps:
+            _run_git(cmd, cwd=dest, step=step)
         return
     cmd = ["git", "clone", "--depth", "1"]
     if ref:
         cmd.extend(["--branch", ref])
     cmd.extend([url, str(dest)])
-    _run_git(cmd)
+    _run_git(cmd, step="clone")

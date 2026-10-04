@@ -134,15 +134,18 @@ class SessionIOMixin:
         player = self.players[seat]
         if player.user_id is None or self._bot is None:
             return
-        user = self._bot.get_user(player.user_id) or await self._bot.fetch_user(player.user_id)
         compiled_surface = ViewSurface(
             self.surface.compiler, prefix=self.surface.prefix, resource_id=self.surface.resource_id
         )
         try:
+            user = self._bot.get_user(player.user_id) or await self._bot.fetch_user(player.user_id)
             dm = user.dm_channel or await user.create_dm()
             await compiled_surface.send(dm, view)
         except discord.HTTPException:
             log.warning("Failed to DM player %s (seat %s)", player.display_name, seat)
+            if player.user_id in self._dm_failure_notified:
+                return
+            self._dm_failure_notified.add(player.user_id)
             thread = self._bot.get_channel(self.thread_id)
             if thread is None:
                 try:

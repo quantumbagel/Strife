@@ -80,3 +80,17 @@ class Lobby:
         return True, None, None
 
 
+def allocate_bot_name(bots: list[QueuedBot], difficulty: str) -> str:
+    prefix = f"Bot-{difficulty}-"
+    used: set[int] = set()
+    for bot in bots:
+        if not bot.name.startswith(prefix):
+            continue
+        suffix = bot.name[len(prefix) :]
+        if suffix.isdigit():
+            used.add(int(suffix))
+    n = 1
+    while n in used:
+        n += 1
+    return f"{prefix}{n}"
+

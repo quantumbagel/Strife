@@ -104,6 +104,7 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
         self.lobby_surface = None
         self.lobby_private = False
         self.lobby_creator_id: int | None = None
+        self._dm_failure_notified: set[int] = set()
 
     @property
     def started_at(self) -> datetime:

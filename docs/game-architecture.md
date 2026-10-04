@@ -53,7 +53,7 @@ games:
     enabled: false
 ```
 
-Unknown keys are `enabled: false`. A newly scaffolded game registers but won’t appear until you add a row.
+Unknown keys are `enabled: false`. `scripts/scaffold_game.py` adds an `enabled: true` row to `games.yaml` when it creates a builtin game.
 
 | Field | Effect |
 |-------|--------|

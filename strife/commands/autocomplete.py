@@ -195,6 +195,8 @@ def open_lobby_creator_choices(
     current: str,
     text: TextConfig,
 ) -> list[app_commands.Choice[str]]:
+    if guild_id is None:
+        return notice_choices(text.get("autocomplete.no_open_lobbies"))
     choices: list[app_commands.Choice[str]] = []
     seen: set[int] = set()
     for lobby in lobbies:

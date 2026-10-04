@@ -73,6 +73,9 @@ class LobbyFlowMixin:
         if self._is_forum_channel(channel):
             await self._error(interaction, "errors.need_text_channel")
             return
+        if isinstance(channel, discord.Thread):
+            await self._error(interaction, "errors.need_text_channel")
+            return
 
         lobby_id = secrets.randbits(63)
         if not await self.registries.reserve_user(

@@ -50,7 +50,16 @@ class AdminCommands(commands.Cog):
             return
         if not message.content.startswith("strife/"):
             return
-        cmd, *args = shlex.split(message.content.removeprefix("strife/"))
+        try:
+            parts = shlex.split(message.content.removeprefix("strife/"))
+            if not parts:
+                return
+            cmd, *args = parts
+        except ValueError:
+            await message.reply(
+                "Invalid command quoting. Usage: strife/<command> [args...]"
+            )
+            return
         await self._dispatch(cmd, args, message)
 
     async def _add_reaction_with_fallback(
@@ -133,7 +142,15 @@ class AdminCommands(commands.Cog):
             synced = await self.bot.tree.sync(guild=message.guild)
             await message.reply(f"Synced {len(synced)} commands to this guild.")
             return
-        guild = discord.Object(id=int(target))
+        try:
+            guild_id = int(target)
+        except ValueError:
+            await message.reply(
+                "Invalid sync target. Omit args for global sync, use `local` "
+                "for this guild, or pass a numeric guild id."
+            )
+            return
+        guild = discord.Object(id=guild_id)
         self.bot.tree.copy_global_to(guild=guild)
         synced = await self.bot.tree.sync(guild=guild)
         await message.reply(f"Synced {len(synced)} commands to guild {target}.")

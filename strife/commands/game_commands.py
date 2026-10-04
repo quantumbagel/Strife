@@ -49,6 +49,7 @@ def create_slash_command(
             if not interaction.response.is_done():
                 await interaction.response.defer(ephemeral=True)
             await session.handle_slash_command(interaction.user.id, slash_move.name, args)
+            await user_success.send(interaction, "game.move_submitted")
         except SessionError as exc:
             code = _SLASH_ERRORS.get(exc.code, "common.error")
             await user_errors.send(interaction, code)

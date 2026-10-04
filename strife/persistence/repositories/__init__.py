@@ -257,6 +257,8 @@ class MatchRepository:
                 row = await conn.fetchrow("SELECT * FROM matches WHERE id = $1", ref)
             else:
                 token = str(ref).strip().upper()
+                if token.startswith("#"):
+                    token = token[1:]
                 if len(token) == 6 and all(ch in _ALPHABET for ch in token):
                     row = await conn.fetchrow("SELECT * FROM matches WHERE code = $1", token)
                 elif token.isdigit():

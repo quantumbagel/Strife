@@ -115,6 +115,8 @@ def register_strife_group(
             )
             return
         if loc.kind == "game":
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True)
             try:
                 await lifecycle.forfeit(loc.thread_id, interaction.user.id)
                 await lobby.user_success.send(interaction, "match.forfeited")
@@ -144,7 +146,7 @@ def register_strife_group(
             if match.status != "completed":
                 continue
             has_completed = True
-            game_name = registry.metadata(match.game_key).name
+            game_name = _game_name(match.game_key)
 
             result = getattr(match, "result", None)
             result_str = result.capitalize() if result else ""

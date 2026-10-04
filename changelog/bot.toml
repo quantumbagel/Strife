@@ -2,6 +2,32 @@
 # Newest first. Game API versions go in platform.toml.
 
 [[release]]
+version = "1.0.4"
+date = "2026-10-03"
+summary = "Clearer replies, lobby fixes, and safer self-hosting."
+fixed = [
+  "/chess move and other game slash moves confirm the move instead of hanging",
+  "/play in a thread explains to use a text channel instead of making a dead lobby",
+  "Adding and removing bots can't create two bots with the same name",
+  "/strife bot add without a difficulty always picks the game's first difficulty",
+  "Starting a game with /strife lobby ready no longer leaves a public \"thinking…\"",
+  "/strife forfeit answers before the match finishes saving",
+  "Match codes pasted with # are found",
+  "/strife profile page numbers past the end show the last page",
+  "Short challenge/vote windows no longer ping everyone with a timeout warning",
+  "Abandoned or errored matches show an error icon instead of a check",
+  "The closed-DMs notice posts once per player and isn't Mafia-specific",
+  "Unexpected slash command errors show a message instead of timing out",
+  "STRIFE_OWNER_IDS accepts comma-separated IDs",
+]
+changed = [
+  "Docker Compose binds Postgres to localhost and gives the bot 30s to shut down",
+  "Plugin keys play and strife are reserved",
+  "strife/install fails fast on bad git URLs and names the git step that failed",
+  "Lobby join autocomplete in DMs no longer lists other servers' lobbies",
+]
+
+[[release]]
 version = "1.0.3"
 date = "2026-10-03"
 summary = "Forfeits, occupancy, rematch, and mixed-bot tables."

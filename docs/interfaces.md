@@ -132,12 +132,13 @@ Hide a game without deleting history: `config/games.yaml` `enabled: false`.
 
 | File / env | Role |
 |------------|------|
-| `config/games.yaml` | Exposure and timeouts. Unknown key → **`enabled: false`**. Fields: `enabled`, `turn_timeout_seconds`, `turn_timeout_warning_seconds`, `turn_timeout_max_strikes`, `turn_timeout_consequence` (`abandon` \| `skip` \| `auto_pass` \| `game_ends` \| `strike`), `play_hang_seconds`, `settings_overrides` |
+| `config/games.yaml` | Exposure and timeouts. Unknown key → **`enabled: false`**. Fields: `enabled`, `turn_timeout_seconds`, `turn_warning_seconds`, `turn_timeout_max_strikes`, `turn_timeout_consequence` (`abandon` \| `skip` \| `auto_pass` \| `game_ends` \| `strike`), `play_hang_seconds`, `settings_overrides` |
 | `config/plugins.yaml` | `removed` builtins, `installed` git plugins |
 | `config/emoji.yaml` | Emoji **id cache**, written by `strife/emoji` |
 | `config/text.toml` | Player-facing copy |
 | `changelog/bot.toml`, `changelog/platform.toml` | Host changelogs in `/strife about` → Changes |
-| `STRIFE_DISCORD_TOKEN`, `STRIFE_OWNER_IDS` | Required |
+| `STRIFE_DISCORD_TOKEN`, `STRIFE_DATABASE_URL` | Required |
+| `STRIFE_OWNER_IDS` | Optional (default empty); comma-separated Discord user IDs for `strife/*` commands |
 | Other env | Optional; see `.env.example` |
 
 Connect Four’s key is `connect_four` (folder `connectfour/`). Yaml, metadata, and `/play` all use the key.

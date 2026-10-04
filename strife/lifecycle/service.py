@@ -105,6 +105,7 @@ class LifecycleService:
                 if (
                     warning
                     and warning > 0
+                    and timeout > 2 * warning
                     and remaining <= warning
                     and remaining > 0
                     and session._timeout_warned.get(seat) != pending.timeout_generation
