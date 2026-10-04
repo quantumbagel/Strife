@@ -228,7 +228,8 @@ class SessionIOMixin:
 
     async def _send_private(self, seat: int, view: LayoutView) -> None:
         player = self.players[seat]
-        if player.user_id is None or self._bot is None:
+        # A taken-over seat keeps its user id, but that person has left the match.
+        if player.user_id is None or player.is_bot or self._bot is None:
             return
         compiled_surface = ViewSurface(
             self.surface.compiler, prefix=self.surface.prefix, resource_id=self.surface.resource_id

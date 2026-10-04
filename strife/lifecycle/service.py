@@ -489,12 +489,17 @@ class LifecycleService:
                 await session.force_move(seat, move)
             except Exception as e:
                 log.exception(
-                    "Error executing bot takeover for session %s (seat %s). Ending game.",
+                    "Bot takeover move failed for session %s (seat %s); skipping the turn",
                     session.id,
                     seat,
                     exc_info=e,
                 )
-                await self._cancel_session(session, "timeout", forfeiter_seat=seat)
+                # Same as any failed bot move: a system timeout for that turn, play goes on.
+                try:
+                    await session.force_move(seat, _system_timeout_move(seat))
+                except Exception:
+                    log.exception("Couldn't skip the turn after a failed takeover; ending game")
+                    await self._cancel_session(session, "timeout", forfeiter_seat=seat)
 
         elif consequence == ResolvedTimeoutConsequence.REMOVED:
             try:

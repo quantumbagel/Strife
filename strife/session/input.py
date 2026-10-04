@@ -173,7 +173,7 @@ class SessionInputMixin:
 
     async def handle_query(self, source: str, interaction: discord.Interaction) -> bool:
         seat = self._seat_for_user(interaction.user.id)
-        if seat is None:
+        if seat is None or seat in self._removed_seats:
             raise SessionError("not_a_player")
         if self.ctx._catching_up:
             # play() is still rebuilding the game; its state isn't safe to show yet.
