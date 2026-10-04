@@ -1,4 +1,17 @@
 [[release]]
+version = "1.0.2"
+date = "2026-10-04"
+summary = "The reveal stays on screen. Leaving keeps the table going."
+changed = [
+  "The last challenge's dice stay visible as Last round, in replays, and on the final screen",
+  "A player who leaves is out; the match continues until one player remains",
+]
+fixed = [
+  "With skip or auto-pass timeouts, a timed-out turn calls liar or opens the bidding instead of waiting forever",
+  "History lists the liar call before who lost a die",
+]
+
+[[release]]
 version = "1.0.1"
 date = "2026-09-10"
 summary = "Illegal raises are no longer in the bid menus."

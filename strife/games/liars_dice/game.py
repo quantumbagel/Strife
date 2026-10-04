@@ -35,6 +35,7 @@ class LiarsDice(Game):
         self.pending_quantity: int | None = None
         self.pending_value: int | None = None
         self._notice: str | None = None
+        self.last_reveal: dict | None = None
 
     def active_seats(self) -> set[int]:
         return set(self.alive)
@@ -99,11 +100,185 @@ class LiarsDice(Game):
         )
 
     def _next_player(self, current: int) -> int:
+        if not self.alive:
+            return current
         n = len(self.players)
         seat = (current + 1) % n
         while seat not in self.alive:
             seat = (seat + 1) % n
         return seat
+
+    def _can_challenge(self) -> bool:
+        return (
+            self.current_bid is not None
+            and self.last_bidder is not None
+            and self.last_bidder in self.alive
+        )
+
+    def _minimum_opening_bid(self) -> tuple[int, int]:
+        return (1, self._legal_face_values()[0])
+
+    def remove_player(self, seat: int) -> None:
+        if seat not in self.alive:
+            return
+        self.alive.discard(seat)
+        self.hands.pop(seat, None)
+        self.history.append(f"{self.players[seat].mention} left the game.")
+
+    def _reveal_text(
+        self,
+        ctx: GameContext,
+        *,
+        hands: dict[int, list[int]],
+        bid: tuple[int, int],
+        actual_count: int,
+    ) -> str:
+        bid_q, bid_v = bid
+        bullet = ctx.emoji.get("bullet", base=True)
+        lines = [
+            f"**Bid:** {bid_q} × {self._die_emoji(ctx, bid_v)}",
+            f"**Actual count:** {actual_count} × {self._die_emoji(ctx, bid_v)}",
+            "",
+            "**All dice revealed**",
+        ]
+        for reveal_seat in sorted(hands):
+            lines.append(
+                f"{bullet} {self.players[reveal_seat].mention}: "
+                f"{self._format_hand(ctx, hands[reveal_seat])}"
+            )
+        return "\n".join(lines)
+
+    def _add_last_round(self, container: Container, ctx: GameContext) -> None:
+        if not self.last_reveal:
+            return
+        bid = self.last_reveal["bid"]
+        add_section(
+            container,
+            "Last round",
+            self._reveal_text(
+                ctx,
+                hands=self.last_reveal["hands"],
+                bid=(int(bid[0]), int(bid[1])),
+                actual_count=int(self.last_reveal["actual_count"]),
+            ),
+        )
+
+    async def _apply_bid(
+        self,
+        ctx: GameContext,
+        seat: int,
+        quantity: int,
+        value: int,
+    ) -> None:
+        self.current_bid = (quantity, value)
+        self.last_bidder = seat
+        self.current = self._next_player(seat)
+        self.pending_quantity = None
+        self.pending_value = None
+        await ctx.record_event("bid", {
+            "player": seat,
+            "quantity": quantity,
+            "value": value,
+        })
+
+    async def _resolve_challenge(self, ctx: GameContext, challenger: int) -> None:
+        if not self._can_challenge():
+            return
+        assert self.current_bid is not None and self.last_bidder is not None
+        bidder = self.last_bidder
+        bid_q, bid_v = self.current_bid
+        captured_hands = {
+            reveal_seat: list(self.hands[reveal_seat])
+            for reveal_seat in sorted(self.alive)
+            if reveal_seat in self.hands
+        }
+        actual_count = self._count_matching_dice(bid_v)
+        is_liar = actual_count < bid_q
+        loser = bidder if is_liar else challenger
+        winner = challenger if is_liar else bidder
+
+        challenger_name = self.players[challenger].mention
+        bidder_name = self.players[bidder].mention
+        loser_name = self.players[loser].mention
+        winner_name = self.players[winner].mention
+
+        self.history.append(
+            f"{challenger_name} called liar on {bidder_name}'s bid of "
+            f"{bid_q}x{bid_v}. Actual: {actual_count}."
+        )
+
+        self.dice_counts[loser] -= 1
+        verdict = f"{winner_name} was correct. {loser_name} loses 1 die."
+        if self.dice_counts[loser] == 0:
+            self.alive.discard(loser)
+            self.hands.pop(loser, None)
+            verdict += f" {loser_name} is eliminated."
+            self.history.append(f"{loser_name} was eliminated.")
+        else:
+            self.history.append(
+                f"{loser_name} lost 1 die (remaining: {self.dice_counts[loser]})."
+            )
+
+        self.last_reveal = {
+            "verdict": is_liar,
+            "hands": captured_hands,
+            "bid": (bid_q, bid_v),
+            "actual_count": actual_count,
+        }
+
+        await ctx.record_event("challenge_resolve", {
+            "challenger": challenger,
+            "bidder": bidder,
+            "bid": [bid_q, bid_v],
+            "actual_count": actual_count,
+            "loser": loser,
+            "verdict": verdict,
+            "is_liar": is_liar,
+            "hands": {seat: list(hand) for seat, hand in captured_hands.items()},
+            "history": list(self.history),
+        })
+
+        outcome_view = LayoutView()
+        outcome_container = Container()
+        message_lead(
+            outcome_container,
+            verdict,
+            emoji=ctx.emoji,
+            prefix_emoji="success" if loser == bidder else "error",
+        )
+        add_body(
+            outcome_container,
+            self._reveal_text(
+                ctx,
+                hands=captured_hands,
+                bid=(bid_q, bid_v),
+                actual_count=actual_count,
+            ),
+        )
+        outcome_view.add_container(outcome_container)
+        await ctx.update(outcome_view)
+
+        self.current = loser if loser in self.alive else self._next_player(loser)
+        self.current_bid = None
+        self.last_bidder = None
+        self.pending_quantity = None
+        self.pending_value = None
+
+    async def _timeout_or_pass(self, ctx: GameContext, seat: int, source: str) -> bool:
+        """Apply a host-injected timeout/pass. True means the bidding round is over."""
+        name = self.players[seat].mention
+        reason = "timed out" if source == "timeout" else "auto-passed"
+        if self.last_bidder is not None and self.last_bidder not in self.alive:
+            self.current = self._next_player(self.last_bidder)
+            return True
+        if self._can_challenge():
+            self.history.append(f"{name} {reason}.")
+            await self._resolve_challenge(ctx, challenger=seat)
+            return True
+        quantity, value = self._minimum_opening_bid()
+        self.history.append(f"{name} {reason} and bid {quantity}x{value}.")
+        await self._apply_bid(ctx, seat, quantity, value)
+        return False
 
     def _die_emoji(self, ctx: GameContext, val: int) -> str:
         fallback = {1: "⚀", 2: "⚁", 3: "⚂", 4: "⚃", 5: "⚄", 6: "⚅"}.get(val, "?")
@@ -119,12 +294,14 @@ class LiarsDice(Game):
     async def play(self, ctx: GameContext) -> GameOutcome:
         while len(self.alive) > 1:
             # 1. Roll dice for all alive players
-            for seat in self.alive:
-                self.hands[seat] = sorted(self.rng.randint(1, 6) for _ in range(self.dice_counts[seat]))
+            self.hands = {
+                seat: sorted(self.rng.randint(1, 6) for _ in range(self.dice_counts[seat]))
+                for seat in self.alive
+            }
 
             await ctx.record_event("round_start", {
                 "hands": {seat: list(hand) for seat, hand in self.hands.items()},
-                "dice_counts": dict(self.dice_counts),
+                "dice_counts": {seat: self.dice_counts[seat] for seat in self.alive},
             })
 
             # Send private hands
@@ -143,9 +320,20 @@ class LiarsDice(Game):
             self.last_bidder = None
             self.pending_quantity = None
             self.pending_value = None
+            if self.current not in self.alive:
+                self.current = self._next_player(self.current)
 
             # 2. Bidding loop
             while True:
+                if len(self.alive) <= 1:
+                    break
+                if self.last_bidder is not None and self.last_bidder not in self.alive:
+                    self.current = self._next_player(self.last_bidder)
+                    break
+                if self.current not in self.alive:
+                    self.current = self._next_player(self.current)
+                    continue
+
                 seat = self.current
                 lead = self._notice or self._action_status(ctx, seat)
                 prefix = "error" if self._notice else "loading"
@@ -158,6 +346,27 @@ class LiarsDice(Game):
 
                 sources = {"quantity_select", "value_select", "bid", "challenge"}
                 move = await ctx.request_input(view, actor=seat, sources=sources, record=False)
+
+                if move.source == "forfeit":
+                    forfeiter = move.actor_seat if move.actor_seat is not None else seat
+                    was_last_bidder = self.last_bidder == forfeiter
+                    if forfeiter in self.alive:
+                        self.remove_player(forfeiter)
+                    if len(self.alive) <= 1:
+                        break
+                    if was_last_bidder or (
+                        self.last_bidder is not None and self.last_bidder not in self.alive
+                    ):
+                        self.current = self._next_player(forfeiter)
+                        break
+                    if seat not in self.alive:
+                        self.current = self._next_player(forfeiter)
+                    continue
+
+                if move.source in ("timeout", "pass"):
+                    if await self._timeout_or_pass(ctx, seat, move.source):
+                        break
+                    continue
 
                 if move.source == "quantity_select":
                     val = move.args.get("value")
@@ -177,79 +386,9 @@ class LiarsDice(Game):
                     continue
 
                 if move.source == "challenge":
-                    # Challenge the last bid!
-                    if self.last_bidder is None or self.current_bid is None:
-                        continue  # Safety check
-
-                    challenger = seat
-                    bidder = self.last_bidder
-                    bid_q, bid_v = self.current_bid
-
-                    actual_count = self._count_matching_dice(bid_v)
-
-                    # Determine loser
-                    is_liar = actual_count < bid_q
-                    loser = bidder if is_liar else challenger
-                    winner = challenger if is_liar else bidder
-
-                    self.dice_counts[loser] -= 1
-                    loser_name = self.players[loser].mention
-                    winner_name = self.players[winner].mention
-                    challenger_name = self.players[challenger].mention
-                    bidder_name = self.players[bidder].mention
-
-                    bullet = ctx.emoji.get("bullet", base=True)
-                    reveal_lines = [
-                        f"**Bid:** {bid_q} × {self._die_emoji(ctx, bid_v)}",
-                        f"**Actual count:** {actual_count} × {self._die_emoji(ctx, bid_v)}",
-                        "",
-                        "**All dice revealed**",
-                    ]
-                    for s in sorted(self.alive):
-                        reveal_lines.append(
-                            f"{bullet} {self.players[s].mention}: {self._format_hand(ctx, self.hands[s])}"
-                        )
-                    reveal_text = "\n".join(reveal_lines)
-
-                    verdict = f"{winner_name} was correct. {loser_name} loses 1 die."
-                    if self.dice_counts[loser] == 0:
-                        self.alive.remove(loser)
-                        self.hands.pop(loser, None)
-                        verdict += f" {loser_name} is eliminated."
-                        self.history.append(f"{loser_name} was eliminated.")
-                    else:
-                        self.history.append(f"{loser_name} lost 1 die (remaining: {self.dice_counts[loser]}).")
-
-                    self.history.append(
-                        f"{challenger_name} called liar on {bidder_name}'s bid of "
-                        f"{bid_q}x{bid_v}. Actual: {actual_count}."
-                    )
-
-                    await ctx.record_event("challenge_resolve", {
-                        "challenger": challenger,
-                        "bidder": bidder,
-                        "bid": [bid_q, bid_v],
-                        "actual_count": actual_count,
-                        "loser": loser,
-                        "verdict": verdict,
-                        "history": list(self.history),
-                    })
-
-                    # Show challenge outcome screen
-                    outcome_view = LayoutView()
-                    outcome_container = Container()
-                    message_lead(
-                        outcome_container,
-                        verdict,
-                        emoji=ctx.emoji,
-                        prefix_emoji="success" if loser == bidder else "error",
-                    )
-                    add_body(outcome_container, reveal_text)
-                    outcome_view.add_container(outcome_container)
-                    await ctx.update(outcome_view)
-
-                    # Loser starts the next round if they are still alive, otherwise next alive
-                    self.current = loser if loser in self.alive else self._next_player(loser)
+                    if not self._can_challenge():
+                        continue
+                    await self._resolve_challenge(ctx, challenger=seat)
                     break
 
                 elif move.source == "bid":
@@ -274,16 +413,7 @@ class LiarsDice(Game):
                         self._notice = reason or "That bid is not higher than the current bid."
                         continue
 
-                    self.current_bid = (quantity, value)
-                    self.last_bidder = seat
-                    self.current = self._next_player(seat)
-                    self.pending_quantity = None
-                    self.pending_value = None
-                    await ctx.record_event("bid", {
-                        "player": seat,
-                        "quantity": quantity,
-                        "value": value,
-                    })
+                    await self._apply_bid(ctx, seat, quantity, value)
 
         # Game over, final player wins
         final_winner = next(iter(self.alive))
@@ -339,6 +469,8 @@ class LiarsDice(Game):
             )
         else:
             add_body(container, f"{pointing} **Current bid:** none — opening bid")
+
+        self._add_last_round(container, ctx)
 
         view.add_container(container)
         return view
@@ -462,6 +594,8 @@ class LiarsDice(Game):
             prefix_emoji="success",
         )
 
+        self._add_last_round(container, ctx)
+
         block = history_block(self.history, ctx.emoji, limit=10)
         if block:
             add_body(container, block)
@@ -474,12 +608,18 @@ class LiarsDice(Game):
         self.alive = {p.seat for p in self.players}
         self.current_bid = None
         self.last_bidder = None
+        self.history = []
+        self.last_reveal = None
         builder = ReplayBuilder(ctx)
         for step in iter_replay(moves, self.players):
             move = step.move
             args = move.args
+            if move.source == "forfeit" and move.actor_seat is not None and args.get("removed"):
+                self.remove_player(int(move.actor_seat))
+            if not step.frame:
+                continue
             if move.source == "round_start":
-                self.hands = {int(k): v for k, v in args["hands"].items()}
+                self.hands = {int(k): list(v) for k, v in args["hands"].items()}
                 self.dice_counts = {int(k): v for k, v in args["dice_counts"].items()}
                 self.current_bid = None
                 self.last_bidder = None
@@ -504,14 +644,42 @@ class LiarsDice(Game):
                     label="Bid",
                 )
             elif move.source == "challenge_resolve":
-                self.history = args.get("history", [])
+                bid_raw = args["bid"]
+                bid = (int(bid_raw[0]), int(bid_raw[1]))
+                actual_count = int(args["actual_count"])
+                if "hands" in args:
+                    captured_hands = {int(k): list(v) for k, v in args["hands"].items()}
+                else:
+                    captured_hands = {
+                        reveal_seat: list(hand)
+                        for reveal_seat, hand in self.hands.items()
+                        if reveal_seat in self.alive
+                    }
+                is_liar = bool(args.get("is_liar", actual_count < bid[0]))
+                self.last_reveal = {
+                    "verdict": is_liar,
+                    "hands": captured_hands,
+                    "bid": bid,
+                    "actual_count": actual_count,
+                }
+                self.history = list(args.get("history", []))
                 loser = args["loser"]
                 self.dice_counts[loser] -= 1
                 if self.dice_counts[loser] == 0:
                     self.alive.discard(loser)
+                    self.hands.pop(loser, None)
                 view = LayoutView()
                 container = Container()
                 message_lead(container, args["verdict"], emoji=ctx.emoji)
+                add_body(
+                    container,
+                    self._reveal_text(
+                        ctx,
+                        hands=captured_hands,
+                        bid=bid,
+                        actual_count=actual_count,
+                    ),
+                )
                 view.add_container(container)
                 builder.add(step, view, label="Challenge")
         return builder.build()
