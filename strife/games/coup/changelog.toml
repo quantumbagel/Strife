@@ -1,4 +1,21 @@
 [[release]]
+version = "1.0.3"
+date = "2026-10-04"
+summary = "Leaving keeps the table going. Bots block. Replays match."
+changed = [
+  "A player who leaves is out; the match continues until one player remains",
+  "Block buttons only appear in the block window",
+  "Your turn has one 30-second clock, even if you change your selection",
+]
+fixed = [
+  "Bots block assassinations and steals",
+  "A steal still pays when the target is knocked out by a failed block",
+  "A refunded assassination no longer pays a player who is already out",
+  "Leaving during an exchange no longer crashes the match",
+  "Replays show replacement cards, refunds, history, and the right coins after timeouts",
+]
+
+[[release]]
 version = "1.0.2"
 date = "2026-10-03"
 summary = "Forced coups, sequential blocks, skipped turns in replay."

@@ -107,6 +107,17 @@ def _reaction(game: Coup, level: int, seat: int, my_cards: list[str]) -> Move:
     targeted = target == seat
 
     if game.state_phase == "challenge_window":
+        challenge_p = (0.04, 0.12, 0.28)[level]
+        if targeted:
+            challenge_p += (0.0, 0.08, 0.15)[level]
+        if game.rng.random() < challenge_p and game.current_actor != seat:
+            return Move(actor_seat=seat, source="challenge", args={})
+        return Move(actor_seat=seat, source="pass", args={})
+
+    if game.state_phase == "block_window":
+        if action_type == "foreign_aid" and seat != game.current_actor:
+            if "duke" in my_cards or game.rng.random() < (0.05, 0.2, 0.45)[level]:
+                return Move(actor_seat=seat, source="block_duke", args={})
         if action_type == "assassinate" and targeted:
             if "contessa" in my_cards or game.rng.random() < (0.15, 0.7, 0.85)[level]:
                 return Move(actor_seat=seat, source="block_contessa", args={})
@@ -119,17 +130,6 @@ def _reaction(game: Coup, level: int, seat: int, my_cards: list[str]) -> Move:
                 else:
                     claim = game.rng.choice(["captain", "ambassador"])
                 return Move(actor_seat=seat, source=f"block_{claim}", args={})
-        challenge_p = (0.04, 0.12, 0.28)[level]
-        if targeted:
-            challenge_p += (0.0, 0.08, 0.15)[level]
-        if game.rng.random() < challenge_p and game.current_actor != seat:
-            return Move(actor_seat=seat, source="challenge", args={})
-        return Move(actor_seat=seat, source="pass", args={})
-
-    if game.state_phase == "block_window":
-        if action_type == "foreign_aid" and seat != game.current_actor:
-            if "duke" in my_cards or game.rng.random() < (0.05, 0.2, 0.45)[level]:
-                return Move(actor_seat=seat, source="block_duke", args={})
         return Move(actor_seat=seat, source="pass", args={})
 
     if game.state_phase == "block_challenge_window":
