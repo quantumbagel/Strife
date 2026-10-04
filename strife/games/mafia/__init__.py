@@ -35,14 +35,14 @@ META = GameMetadata(
         BotSpec("hard", "Prioritizes detectives and doctors"),
     ),
     settings=(
-        SettingOption("mafia_count", "Mafia Count", "Number of mafia", OptionType.INT, default=2, minimum=1, maximum=4, emoji="user"),
+        SettingOption("mafia_count", "Mafia Count", "Number of mafia (capped so town outnumbers them after night 1)", OptionType.INT, default=2, minimum=1, maximum=4, emoji="user"),
         SettingOption("enable_doctor", "Doctor", "Include a Doctor", OptionType.BOOL, default=True, emoji="ready"),
         SettingOption("enable_detective", "Detective", "Include a Detective", OptionType.BOOL, default=True, emoji="hmm"),
     ),
     slash_moves=(),
     roles=(
         RoleSpec("villager", "Villager", "No night action. Find and lynch the mafia."),
-        RoleSpec("mafia", "Mafia", "Each night, agree on one victim to eliminate."),
+        RoleSpec("mafia", "Mafia", "Each night, pick a victim. Most mafia picks wins; ties are random."),
         RoleSpec("doctor", "Doctor", "Each night, protect one player from elimination."),
         RoleSpec("detective", "Detective", "Each night, learn one player's alignment."),
     ),

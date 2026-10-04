@@ -48,6 +48,7 @@ class Mafia(Game):
         for player in players:
             player.role_key = self.role[player.seat]
         self.alive: set[int] = {p.seat for p in players}
+        self.forfeited: set[int] = set()
         self.day = 0
         self.history: list[str] = []
         self._phase = "night"
@@ -105,6 +106,10 @@ class Mafia(Game):
             )
             lines.append(f"{ctx.emoji.get('bullet', base=True)} {name} {forward} {role_emoji} **{role.title()}**")
         container.add_text(TextDisplay(markdown_content="\n".join(lines)))
+        recent_history = self._history_block(ctx)
+        if recent_history:
+            container.add_separator()
+            container.add_text(TextDisplay(markdown_content=recent_history))
         view.add_container(container)
         return view
 
@@ -241,29 +246,37 @@ class Mafia(Game):
         for move in moves.values():
             self._normalize_target(move)
 
-        kills = [
-            seat_target
-            for seat, m in moves.items()
-            if self.role[seat] == "mafia"
-            for seat_target in [self._parse_alive_target(self._normalize_target(m))]
-            if seat_target is not None
-        ]
-        protects = [
-            seat_target
-            for seat, m in moves.items()
-            if self.role[seat] == "doctor"
-            for seat_target in [self._parse_alive_target(self._normalize_target(m))]
-            if seat_target is not None
-        ]
         victim = None
-        if kills and len(set(kills)) == 1:
-            victim = kills[0]
-            if protects and victim in protects:
-                victim = None
-        if victim is not None and victim in self.alive:
-            self.remove_player(victim)
-            self.death_reason[victim] = "night"
-            self.history.append(f"Night {self.day}: {self._name(victim)} was eliminated.")
+        if self._winner() is None:
+            kills = [
+                seat_target
+                for seat, m in moves.items()
+                if self.role[seat] == "mafia"
+                for seat_target in [self._parse_alive_target(self._normalize_target(m))]
+                if seat_target is not None
+            ]
+            protects = [
+                seat_target
+                for seat, m in moves.items()
+                if self.role[seat] == "doctor"
+                for seat_target in [self._parse_alive_target(self._normalize_target(m))]
+                if seat_target is not None
+            ]
+            if kills:
+                tally = Counter(kills)
+                top = tally.most_common()
+                if len(top) == 1 or top[0][1] > top[1][1]:
+                    victim = top[0][0]
+                else:
+                    tied_votes = top[0][1]
+                    tied = [seat for seat, count in top if count == tied_votes]
+                    victim = self.rng.choice(tied)
+                if protects and victim in protects:
+                    victim = None
+            if victim is not None and victim in self.alive:
+                self._eliminate_player(victim)
+                self.death_reason[victim] = "night"
+                self.history.append(f"Night {self.day}: {self._name(victim)} was eliminated.")
         await ctx.record_event("night_outcome", {
             "victim": victim,
             "history": list(self.history)
@@ -302,11 +315,11 @@ class Mafia(Game):
             if seat_target is not None:
                 tally[seat_target] += 1
         lynched = None
-        if tally:
+        if self._winner() is None and tally:
             top = tally.most_common()
             if len(top) == 1 or top[0][1] > top[1][1]:
                 lynched = top[0][0]
-                self.remove_player(lynched)
+                self._eliminate_player(lynched)
                 self.death_reason[lynched] = "day"
                 self.history.append(f"Day {self.day}: {self._name(lynched)} was lynched.")
         await ctx.record_event("day_outcome", {
@@ -599,6 +612,10 @@ class Mafia(Game):
                         desc = "Eliminated"
             player_descriptions[player.seat] = desc
 
+        for seat in self.forfeited:
+            results[seat] = "loss"
+            player_descriptions[seat] = "Forfeited"
+
         return GameOutcome(
             results=results,
             summary={
@@ -612,11 +629,18 @@ class Mafia(Game):
     def active_seats(self) -> set[int]:
         return set(self.alive)
 
+    def _eliminate_player(self, seat: int) -> None:
+        self.alive.discard(seat)
+
     def remove_player(self, seat: int) -> None:
+        if seat in self.alive:
+            self.history.append(f"{self._name(seat)} left the game.")
+            self.forfeited.add(seat)
         self.alive.discard(seat)
 
     def forfeit_end_outcome(self, forfeiter_seat: int, reason: str = "forfeit") -> GameOutcome:
         self.alive.discard(forfeiter_seat)
+        self.forfeited.add(forfeiter_seat)
         self.death_reason.setdefault(forfeiter_seat, "forfeit")
         winner = self._winner()
         if winner:

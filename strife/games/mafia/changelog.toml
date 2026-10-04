@@ -1,4 +1,18 @@
 [[release]]
+version = "1.0.3"
+date = "2026-10-04"
+summary = "Fairer small tables. Split mafia votes still kill."
+changed = [
+  "Mafia count is capped so town outnumbers mafia after the first night (5 players get 1 mafia)",
+  "The mafia victim is the most-picked target; ties are random",
+  "The final board shows the last deaths, and leaving is noted in history",
+]
+fixed = [
+  "A win reached by a forfeit mid-phase is no longer undone by that phase's kill or lynch",
+  "A player who leaves always takes a loss, even if their side wins",
+]
+
+[[release]]
 version = "1.0.2"
 date = "2026-10-03"
 summary = "Forfeits follow factions. Games can continue with three."
