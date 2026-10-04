@@ -1,4 +1,12 @@
 [[release]]
+version = "1.0.1"
+date = "2026-10-04"
+summary = "Skipped turns pass to your opponent."
+fixed = [
+  "With skip-on-timeout, a timed-out turn passes to the opponent instead of waiting forever",
+]
+
+[[release]]
 version = "1.0.0"
 date = "2026-09-07"
 summary = "3×3. Bots. Replay."

@@ -122,6 +122,9 @@ class TicTacToe(TurnBasedGame):
                 if self.board[self._idx(c, r)] is None
             }
             move = await self.take_turn(ctx, empties)
+            if move.source == "timeout":
+                self.current = 1 - seat
+                continue
             if not move.source.startswith("tile_"):
                 continue
             line = self._winning_line(seat)
