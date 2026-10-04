@@ -51,10 +51,14 @@ class RematchOffer:
     removed_seats: frozenset[int] = frozenset()
     taken_over_seats: frozenset[int] = frozenset()
     role_keys: dict[int, str | None] = field(default_factory=dict)
+    blacklist: set[int] = field(default_factory=set)
+    denied: set[int] = field(default_factory=set)
 
 
 class RematchManager:
-    def __init__(self, registries: SessionRegistries, lobby_service, text: TextConfig) -> None:
+    def __init__(
+        self, registries: SessionRegistries, lobby_service, text: TextConfig
+    ) -> None:
         self.registries = registries
         self.lobby = lobby_service
         self.text = text
@@ -84,10 +88,14 @@ class RematchManager:
         )
         if creator_id and not any(m.user_id == creator_id for m in members) and members:
             creator_id = members[0].user_id
-        thread = getattr(self.lobby, "bot", None)
-        channel_id = 0
-        if thread is not None:
-            channel = thread.get_channel(thread_id) if hasattr(thread, "get_channel") else None
+        channel_id = int(getattr(session, "lobby_channel_id", 0) or 0)
+        if not channel_id:
+            bot = getattr(self.lobby, "bot", None)
+            channel = (
+                bot.get_channel(thread_id)
+                if bot is not None and hasattr(bot, "get_channel")
+                else None
+            )
             if channel is not None and getattr(channel, "parent", None) is not None:
                 channel_id = channel.parent.id
             elif channel is not None:
@@ -114,6 +122,8 @@ class RematchManager:
             role_keys={
                 p.seat: session.game.players[p.seat].role_key for p in session.players
             },
+            blacklist=set(getattr(session, "lobby_blacklist", ()) or ()),
+            denied=set(getattr(session, "lobby_denied", ()) or ()),
         )
 
     async def expire_stale(self) -> None:
@@ -232,7 +242,10 @@ class RematchManager:
                             self._progress_view(thread_id, launch_offer)
                         )
                     except Exception:
-                        log.exception("Failed to re-enable rematch button for thread %s", thread_id)
+                        log.exception(
+                            "Failed to re-enable rematch button for thread %s",
+                            thread_id,
+                        )
                 raise
             return
         if progress_view is not None and progress_surface is not None:
@@ -243,9 +256,99 @@ class RematchManager:
             return SessionError("already_in_session")
         return RematchMemberBusy(member.user_id, member.display_name)
 
+    def _closing(self) -> bool:
+        return bool(getattr(self.lobby, "_closing", False))
+
+    async def _resolve_parent_channel(
+        self, thread_id: int, offer: RematchOffer
+    ) -> discord.abc.GuildChannel | discord.Thread | None:
+        bot = self.lobby.bot
+        if offer.channel_id:
+            channel = bot.get_channel(offer.channel_id)
+            if channel is None:
+                try:
+                    channel = await bot.fetch_channel(offer.channel_id)
+                except discord.NotFound, discord.HTTPException:
+                    channel = None
+            if channel is not None:
+                return channel
+        thread = bot.get_channel(thread_id)
+        if thread is None:
+            try:
+                thread = await bot.fetch_channel(thread_id)
+            except discord.NotFound, discord.HTTPException:
+                thread = None
+        if isinstance(thread, discord.Thread):
+            parent = thread.parent
+            parent_id = getattr(thread, "parent_id", None)
+            if parent is None and parent_id:
+                parent = bot.get_channel(parent_id)
+                if parent is None:
+                    try:
+                        parent = await bot.fetch_channel(parent_id)
+                    except discord.NotFound, discord.HTTPException:
+                        parent = None
+            return parent
+        return thread
+
+    async def _members_still_in_guild(
+        self, offer: RematchOffer, members: list[LobbyMember]
+    ) -> list[LobbyMember]:
+        bot = self.lobby.bot
+        guild = bot.get_guild(offer.guild_id)
+        if guild is None:
+            try:
+                guild = await bot.fetch_guild(offer.guild_id)
+            except discord.NotFound, discord.HTTPException:
+                return []
+        kept: list[LobbyMember] = []
+        for member in members:
+            found = guild.get_member(member.user_id)
+            if found is None:
+                try:
+                    found = await guild.fetch_member(member.user_id)
+                except discord.NotFound:
+                    continue
+                except discord.HTTPException:
+                    raise SessionError("rematch_unavailable") from None
+            kept.append(member)
+        return kept
+
+    async def _members_who_can_view_channel(
+        self,
+        offer: RematchOffer,
+        members: list[LobbyMember],
+        channel,
+    ) -> list[LobbyMember]:
+        """Keep members who can see ``channel`` (same check as lobby joins)."""
+        if not isinstance(channel, (discord.abc.GuildChannel, discord.Thread)):
+            return []
+        bot = self.lobby.bot
+        guild = bot.get_guild(offer.guild_id)
+        if guild is None:
+            try:
+                guild = await bot.fetch_guild(offer.guild_id)
+            except discord.NotFound, discord.HTTPException:
+                return []
+        kept: list[LobbyMember] = []
+        for member in members:
+            found = guild.get_member(member.user_id)
+            if found is None:
+                try:
+                    found = await guild.fetch_member(member.user_id)
+                except discord.NotFound:
+                    continue
+                except discord.HTTPException:
+                    raise SessionError("rematch_unavailable") from None
+            if channel.permissions_for(found).view_channel:
+                kept.append(member)
+        return kept
+
     async def _reset_to_lobby(
         self, thread_id: int, offer: RematchOffer, *, voter_id: int = 0
     ) -> None:
+        if self._closing():
+            raise SessionError("rematch_unavailable")
         members = list(offer.members)
         if not members:
             raise SessionError("rematch_unavailable")
@@ -253,25 +356,32 @@ class RematchManager:
         wait = getattr(self.lobby.bot, "wait_until_live_resumed", None)
         if wait is not None:
             await wait()
+        if self._closing():
+            raise SessionError("rematch_unavailable")
+
+        members = await self._members_still_in_guild(offer, members)
+        meta = self.lobby.registry.metadata(offer.game_key)
+        if not members or not meta.player_count.is_valid(len(members) + len(offer.bots)):
+            raise SessionError("rematch_unavailable")
+
+        target_channel = await self._resolve_parent_channel(thread_id, offer)
+        if target_channel is None:
+            raise SessionError("rematch_unavailable")
+        members = await self._members_who_can_view_channel(
+            offer, members, target_channel
+        )
+        if not members or not meta.player_count.is_valid(len(members) + len(offer.bots)):
+            raise SessionError("rematch_unavailable")
 
         busy = [
-            m
-            for m in members
-            if self.registries.location_of(m.user_id) is not None
+            m for m in members if self.registries.location_of(m.user_id) is not None
         ]
         if busy:
             # Prefer reporting the clicker's own lobby/game: they can fix it.
             mine = next((m for m in busy if m.user_id == voter_id), busy[0])
             raise self._busy_error(mine, voter_id)
 
-        thread = self.lobby.bot.get_channel(thread_id)
-        parent_channel = None
-        if isinstance(thread, discord.Thread):
-            parent_channel = thread.parent
-        target_channel = parent_channel or thread
-        if target_channel is None and offer.channel_id:
-            target_channel = self.lobby.bot.get_channel(offer.channel_id)
-        if target_channel is None:
+        if self._closing():
             raise SessionError("rematch_unavailable")
 
         # Checks passed: disable the button so a second click can't launch twice.
@@ -295,12 +405,19 @@ class RematchManager:
                 )
                 await offer.lobby_surface.update(results_view)
             except Exception:
-                log.exception("Failed to disable rematch button after success for thread %s", thread_id)
+                log.exception(
+                    "Failed to disable rematch button after success for thread %s",
+                    thread_id,
+                )
+
+        if self._closing():
+            raise SessionError("rematch_unavailable")
 
         lobby_id = secrets.randbits(63)
         creator_id = offer.creator_id
         if not any(m.user_id == creator_id for m in members):
             creator_id = members[0].user_id
+        approved = {m.user_id for m in members} if offer.private else set()
         lobby = Lobby(
             thread_id=lobby_id,
             guild_id=offer.guild_id,
@@ -311,13 +428,22 @@ class RematchManager:
             members=[],
             bots=list(offer.bots),
             settings=dict(offer.settings),
+            approved=approved,
+            denied=set(offer.denied),
+            blacklist=set(offer.blacklist),
         )
-        surface = ViewSurface(self.lobby.compiler, prefix=P.LOBBY_JOIN, resource_id=lobby_id)
+        surface = ViewSurface(
+            self.lobby.compiler, prefix=P.LOBBY_JOIN, resource_id=lobby_id
+        )
         lobby.surface = surface
+        if self._closing():
+            raise SessionError("rematch_unavailable")
         self.registries.add_lobby(lobby)
 
         reserved: list[int] = []
         try:
+            if self._closing():
+                raise SessionError("rematch_unavailable")
             for member in members:
                 if not await self.registries.reserve_user(
                     member.user_id, UserLocation("lobby", lobby_id, offer.guild_id)
@@ -325,13 +451,18 @@ class RematchManager:
                     raise self._busy_error(member, voter_id)
                 reserved.append(member.user_id)
                 lobby.members.append(member)
+            if offer.private:
+                seated_ids = {m.user_id for m in lobby.members}
+                lobby.approved.update(seated_ids)
+                lobby.denied.difference_update(seated_ids)
+            if self._closing():
+                raise SessionError("rematch_unavailable")
         except SessionError:
             for user_id in reserved:
                 await self.registries.release_user(user_id)
             self.registries.remove_lobby(lobby_id)
             raise
 
-        meta = self.lobby.registry.metadata(offer.game_key)
         view = build_lobby_view(
             lobby,
             meta,

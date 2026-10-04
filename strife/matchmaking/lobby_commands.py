@@ -4,7 +4,13 @@ import discord
 
 from strife.engine.metadata import OptionType
 from strife.presentation.settings import int_setting_bounds
-from strife.matchmaking.lobby import Lobby, LobbyGone, QueuedBot, allocate_bot_name, lobby_action
+from strife.matchmaking.lobby import (
+    Lobby,
+    LobbyGone,
+    QueuedBot,
+    allocate_bot_name,
+    lobby_action,
+)
 from strife.presentation.roster import bot_label
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route
@@ -19,10 +25,14 @@ class LobbyCommandsMixin:
         if lobby is None:
             await self._error(interaction, "errors.creator_not_hosting")
             return
+        if not await self._check_lobby_channel_access(interaction, lobby):
+            return
         async with lobby.lock:
             if not await self._lobby_still_open(lobby, interaction):
                 return
-            await self._join_user(lobby, interaction, announce_join=True)
+            await self._join_user(
+                lobby, interaction, announce_join=True, check_channel_access=False
+            )
 
     @lobby_action
     async def leave_current(self, interaction: discord.Interaction) -> None:
@@ -47,9 +57,13 @@ class LobbyCommandsMixin:
                 await self._success(interaction, "lobby.left")
                 should_start = self._claim_autostart(lobby)
         if should_start:
-            await self._start(lobby, Route(P.LOBBY_LEAVE, lobby.thread_id, "leave", {}), interaction)
+            await self._start(
+                lobby, Route(P.LOBBY_LEAVE, lobby.thread_id, "leave", {}), interaction
+            )
 
-    async def _withdraw_pending_requests(self, interaction: discord.Interaction) -> bool:
+    async def _withdraw_pending_requests(
+        self, interaction: discord.Interaction
+    ) -> bool:
         """Withdraw the caller's join requests in this server; True if any were pending."""
         lobby_ids = self.registries.guild_lobbies.get(interaction.guild_id or 0, set())
         candidates = [
@@ -132,7 +146,9 @@ class LobbyCommandsMixin:
                 return
             member = next((m for m in lobby.members if m.user_id == user_id), None)
             if member is None:
-                await self._error(interaction, "errors.kick_target_not_seated", lobby=lobby)
+                await self._error(
+                    interaction, "errors.kick_target_not_seated", lobby=lobby
+                )
                 return
             kicked_name = member.display_name
             lobby.approved.discard(user_id)
@@ -145,7 +161,9 @@ class LobbyCommandsMixin:
             await self._success(interaction, "lobby.player_kicked", name=kicked_name)
             should_start = self._claim_autostart(lobby)
         if should_start:
-            await self._start(lobby, Route(P.LOBBY_KICK, lobby.thread_id, "kick", {}), interaction)
+            await self._start(
+                lobby, Route(P.LOBBY_KICK, lobby.thread_id, "kick", {}), interaction
+            )
 
     @lobby_action
     async def end_lobby(self, interaction: discord.Interaction) -> None:
@@ -170,7 +188,9 @@ class LobbyCommandsMixin:
             await self._success(interaction, "lobby.ready_cleared")
 
     @lobby_action
-    async def set_privacy(self, interaction: discord.Interaction, private: bool) -> None:
+    async def set_privacy(
+        self, interaction: discord.Interaction, private: bool
+    ) -> None:
         lobby = await self._require_caller_lobby(interaction, creator_only=True)
         if lobby is None:
             return
@@ -179,7 +199,9 @@ class LobbyCommandsMixin:
                 return
             lobby.private = private
             await self._refresh(lobby, interaction)
-            mode = self.text.get("lobby.private_label" if private else "lobby.public_label")
+            mode = self.text.get(
+                "lobby.private_label" if private else "lobby.public_label"
+            )
             await self._success(interaction, "lobby.privacy_updated", mode=mode)
 
     @lobby_action
@@ -233,7 +255,9 @@ class LobbyCommandsMixin:
             if option.type == OptionType.BOOL:
                 normalized = value.strip().lower()
                 if normalized not in {"true", "false", "on", "off", "1", "0"}:
-                    await self._error(interaction, "lobby.invalid_option_value", lobby=lobby)
+                    await self._error(
+                        interaction, "lobby.invalid_option_value", lobby=lobby
+                    )
                     return
                 parsed = normalized in {"true", "on", "1"}
                 lobby.settings[key] = parsed
@@ -244,7 +268,9 @@ class LobbyCommandsMixin:
                 try:
                     int_value = int(value.strip())
                 except ValueError:
-                    await self._error(interaction, "lobby.invalid_int_option", lobby=lobby)
+                    await self._error(
+                        interaction, "lobby.invalid_int_option", lobby=lobby
+                    )
                     return
                 if not self._apply_int_setting(lobby, option, int_value):
                     minimum, maximum = int_setting_bounds(option)
@@ -258,10 +284,14 @@ class LobbyCommandsMixin:
                 display_value = str(int_value)
             else:
                 if option.choices and value not in option.choices:
-                    await self._error(interaction, "lobby.invalid_option_value", lobby=lobby)
+                    await self._error(
+                        interaction, "lobby.invalid_option_value", lobby=lobby
+                    )
                     return
                 lobby.settings[key] = value
-                display_value = value.capitalize() if isinstance(value, str) else str(value)
+                display_value = (
+                    value.capitalize() if isinstance(value, str) else str(value)
+                )
             if lobby.settings != before:
                 lobby.reset_ready()
             await self._refresh(lobby, interaction)
@@ -273,9 +303,15 @@ class LobbyCommandsMixin:
             )
 
     @lobby_action
-    async def approve_request(self, interaction: discord.Interaction, user_id: int) -> None:
+    async def approve_request(
+        self, interaction: discord.Interaction, user_id: int
+    ) -> None:
         lobby = await self._require_caller_lobby(interaction, creator_only=True)
         if lobby is None:
+            return
+        if not await self._check_lobby_channel_access(
+            interaction, lobby, user_id=user_id
+        ):
             return
         async with lobby.lock:
             if not await self._lobby_still_open(lobby, interaction):
@@ -290,18 +326,15 @@ class LobbyCommandsMixin:
             if lobby.is_full(meta):
                 await self._error(interaction, "errors.lobby_full_creator", lobby=lobby)
                 return
-            if not await self._check_lobby_channel_access(
-                interaction, lobby, user_id=user_id
-            ):
-                return
-            # Re-read: the request can be withdrawn or pruned during the await above.
             display_name = lobby.pending_requests.get(user_id)
             if display_name is None:
                 await self._error(interaction, "errors.no_pending_request", lobby=lobby)
                 await self._refresh(lobby, interaction)
                 return
             if not self._is_lobby_member(lobby, user_id):
-                if not await self._seat_member(lobby, user_id, display_name, interaction):
+                if not await self._seat_member(
+                    lobby, user_id, display_name, interaction
+                ):
                     await self._refresh(lobby, interaction)
                     return
             lobby.pending_requests.pop(user_id, None)
@@ -311,7 +344,9 @@ class LobbyCommandsMixin:
             await self._success(interaction, "lobby.player_approved", name=display_name)
 
     @lobby_action
-    async def deny_request(self, interaction: discord.Interaction, user_id: int) -> None:
+    async def deny_request(
+        self, interaction: discord.Interaction, user_id: int
+    ) -> None:
         lobby = await self._require_caller_lobby(interaction, creator_only=True)
         if lobby is None:
             return
@@ -321,13 +356,20 @@ class LobbyCommandsMixin:
             if user_id not in lobby.pending_requests:
                 await self._error(interaction, "errors.no_pending_request", lobby=lobby)
                 return
+            if self._is_lobby_member(lobby, user_id):
+                lobby.pending_requests.pop(user_id, None)
+                await self._error(interaction, "errors.no_pending_request", lobby=lobby)
+                await self._refresh(lobby, interaction)
+                return
             display_name = lobby.pending_requests.pop(user_id, f"User {user_id}")
             lobby.denied.add(user_id)
             await self._refresh(lobby, interaction)
             await self._success(interaction, "lobby.player_denied", name=display_name)
 
     @lobby_action
-    async def preapprove_user(self, interaction: discord.Interaction, user_id: int) -> None:
+    async def preapprove_user(
+        self, interaction: discord.Interaction, user_id: int
+    ) -> None:
         lobby = await self._require_caller_lobby(interaction, creator_only=True)
         if lobby is None:
             return
@@ -348,10 +390,14 @@ class LobbyCommandsMixin:
             lobby.pending_requests.pop(user_id, None)
             approved_name = await self._display_name(interaction.guild, user_id)
             await self._refresh(lobby, interaction)
-            await self._success(interaction, "lobby.player_preapproved", name=approved_name)
+            await self._success(
+                interaction, "lobby.player_preapproved", name=approved_name
+            )
 
     @lobby_action
-    async def revoke_approval(self, interaction: discord.Interaction, user_id: int) -> None:
+    async def revoke_approval(
+        self, interaction: discord.Interaction, user_id: int
+    ) -> None:
         lobby = await self._require_caller_lobby(interaction, creator_only=True)
         if lobby is None:
             return
@@ -365,10 +411,14 @@ class LobbyCommandsMixin:
             lobby.approved.discard(user_id)
             revoked_name = await self._display_name(interaction.guild, user_id)
             await self._refresh(lobby, interaction)
-            await self._success(interaction, "lobby.approval_revoked", name=revoked_name)
+            await self._success(
+                interaction, "lobby.approval_revoked", name=revoked_name
+            )
 
     @lobby_action
-    async def blacklist_add(self, interaction: discord.Interaction, user_id: int) -> None:
+    async def blacklist_add(
+        self, interaction: discord.Interaction, user_id: int
+    ) -> None:
         lobby = await self._require_caller_lobby(interaction, creator_only=True)
         if lobby is None:
             return
@@ -377,7 +427,9 @@ class LobbyCommandsMixin:
             if not await self._lobby_still_open(lobby, interaction):
                 return
             if user_id == lobby.creator_id:
-                await self._error(interaction, "errors.cannot_blacklist_self", lobby=lobby)
+                await self._error(
+                    interaction, "errors.cannot_blacklist_self", lobby=lobby
+                )
                 return
             lobby.blacklist.add(user_id)
             lobby.approved.discard(user_id)
@@ -392,11 +444,15 @@ class LobbyCommandsMixin:
             should_start = self._claim_autostart(lobby)
         if should_start:
             await self._start(
-                lobby, Route(P.LOBBY_ADD_BLACKLIST, lobby.thread_id, "blacklist", {}), interaction
+                lobby,
+                Route(P.LOBBY_ADD_BLACKLIST, lobby.thread_id, "blacklist", {}),
+                interaction,
             )
 
     @lobby_action
-    async def blacklist_remove(self, interaction: discord.Interaction, user_id: int) -> None:
+    async def blacklist_remove(
+        self, interaction: discord.Interaction, user_id: int
+    ) -> None:
         lobby = await self._require_caller_lobby(interaction, creator_only=True)
         if lobby is None:
             return
@@ -428,7 +484,9 @@ class LobbyCommandsMixin:
             if difficulty is None:
                 difficulty = meta.bots[0].difficulty
             elif difficulty not in allowed:
-                await self._error(interaction, "lobby.unknown_bot_difficulty", lobby=lobby)
+                await self._error(
+                    interaction, "lobby.unknown_bot_difficulty", lobby=lobby
+                )
                 return
             added = 0
             for _ in range(number):
@@ -464,7 +522,9 @@ class LobbyCommandsMixin:
             lobby.bots = remaining
             lobby.reset_ready()
             await self._refresh(lobby, interaction)
-            await self._success(interaction, "lobby.bot_removed", name=bot_label(self.emoji, name))
+            await self._success(
+                interaction, "lobby.bot_removed", name=bot_label(self.emoji, name)
+            )
 
     @lobby_action
     async def open_settings(self, interaction: discord.Interaction) -> None:
@@ -475,6 +535,7 @@ class LobbyCommandsMixin:
             if not await self._lobby_still_open(lobby, interaction):
                 return
             await self._settings(
-                lobby, Route(P.LOBBY_SETTINGS, lobby.thread_id, "settings", {}), interaction
+                lobby,
+                Route(P.LOBBY_SETTINGS, lobby.thread_id, "settings", {}),
+                interaction,
             )
-

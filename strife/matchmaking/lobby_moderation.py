@@ -29,18 +29,11 @@ class LobbyModerationMixin:
             if target_id in lobby.blacklist:
                 await self._error(interaction, "errors.blacklisted", lobby=lobby)
                 return
-            if not await self._check_lobby_channel_access(
-                interaction, lobby, user_id=target_id
-            ):
-                return
-            # Re-read: the request can be withdrawn or pruned during the await above.
-            display_name = lobby.pending_requests.get(target_id)
-            if display_name is None:
-                await self._error(interaction, "errors.no_pending_request", lobby=lobby)
-                await self._refresh(lobby, interaction)
-                return
+            display_name = lobby.pending_requests[target_id]
             if not self._is_lobby_member(lobby, target_id):
-                if not await self._seat_member(lobby, target_id, display_name, interaction):
+                if not await self._seat_member(
+                    lobby, target_id, display_name, interaction
+                ):
                     await self._refresh(lobby, interaction)
                     return
             lobby.pending_requests.pop(target_id, None)
@@ -57,6 +50,15 @@ class LobbyModerationMixin:
         values = interaction.data.get("values") if interaction.data else []
         if values:
             target_id = int(values[0])
+            if target_id not in lobby.pending_requests:
+                await self._error(interaction, "errors.no_pending_request", lobby=lobby)
+                await self._refresh(lobby, interaction)
+                return
+            if self._is_lobby_member(lobby, target_id):
+                lobby.pending_requests.pop(target_id, None)
+                await self._error(interaction, "errors.no_pending_request", lobby=lobby)
+                await self._refresh(lobby, interaction)
+                return
             lobby.pending_requests.pop(target_id, None)
             lobby.denied.add(target_id)
         await self._sync_lobby_after_creator_edit(lobby, interaction, route)
@@ -71,7 +73,9 @@ class LobbyModerationMixin:
         if values:
             target_id = int(values[0])
             if target_id == lobby.creator_id:
-                await self._error(interaction, "errors.cannot_blacklist_self", lobby=lobby)
+                await self._error(
+                    interaction, "errors.cannot_blacklist_self", lobby=lobby
+                )
                 return
             lobby.blacklist.add(target_id)
             lobby.approved.discard(target_id)
@@ -159,7 +163,9 @@ class LobbyModerationMixin:
                 return
             member = next((m for m in lobby.members if m.user_id == target_id), None)
             if member is None:
-                await self._error(interaction, "errors.kick_target_not_seated", lobby=lobby)
+                await self._error(
+                    interaction, "errors.kick_target_not_seated", lobby=lobby
+                )
                 return
             kicked_name = member.display_name
             lobby.approved.discard(target_id)
@@ -214,7 +220,9 @@ class LobbyModerationMixin:
         await self._send_settings(lobby, interaction, tab="access", edit=True)
         await self._refresh(lobby, interaction)
         if approved_name:
-            await self._success(interaction, "lobby.player_preapproved", name=approved_name)
+            await self._success(
+                interaction, "lobby.player_preapproved", name=approved_name
+            )
 
     async def _revoke_approval(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
@@ -235,5 +243,6 @@ class LobbyModerationMixin:
         await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="access", edit=True)
         if revoked_name:
-            await self._success(interaction, "lobby.approval_revoked", name=revoked_name)
-
+            await self._success(
+                interaction, "lobby.approval_revoked", name=revoked_name
+            )

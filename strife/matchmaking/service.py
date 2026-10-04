@@ -6,8 +6,9 @@ import discord
 
 from strife.config import AppConfig
 from strife.session.errors import SessionError
-from strife.engine.metadata import GameMetadata
+from strife.engine.metadata import GameMetadata, OptionType
 from strife.engine.registry import GameRegistry
+from strife.presentation.settings import int_setting_bounds
 from strife.logging import get_logger
 from strife.matchmaking.finalizer import SessionFinalizer
 from strife.matchmaking.lobby import Lobby
@@ -55,11 +56,15 @@ class LobbyService(
         self.text = config.text
         self.finalizer = finalizer
         self.lifecycle = lifecycle
-        self.user_errors = user_errors or UserErrorPresenter(compiler, emoji, config.text, registries)
-        self.user_success = user_success or UserSuccessPresenter(compiler, emoji, config.text)
+        self.user_errors = user_errors or UserErrorPresenter(
+            compiler, emoji, config.text, registries
+        )
+        self.user_success = user_success or UserSuccessPresenter(
+            compiler, emoji, config.text
+        )
         self._background_tasks: set[asyncio.Task] = set()
+        self._closing = False
         registries.on_requests_pruned = self._on_requests_pruned
-
 
     def _error_ctx(
         self,
@@ -80,7 +85,6 @@ class LobbyService(
             reason_key=reason_key,
             reason_kwargs=reason_kwargs,
         )
-
 
     async def _error(
         self,
@@ -104,7 +108,6 @@ class LobbyService(
             ),
         )
 
-
     async def _display_name(self, guild: discord.Guild | None, user_id: int) -> str:
         if guild is None:
             return f"User {user_id}"
@@ -113,10 +116,9 @@ class LobbyService(
             return member.display_name
         try:
             fetched = await guild.fetch_member(user_id)
-        except (discord.NotFound, discord.HTTPException):
+        except discord.NotFound, discord.HTTPException:
             return f"User {user_id}"
         return fetched.display_name
-
 
     def _meta(self, game_key: str) -> GameMetadata:
         try:
@@ -124,18 +126,64 @@ class LobbyService(
         except KeyError:
             raise SessionError("unknown_game") from None
 
+    def _validated_override(self, option, raw: object) -> object | None:
+        """Return a UI-valid value, or None to keep the game default."""
+        if option.type == OptionType.BOOL:
+            if isinstance(raw, bool):
+                return raw
+            if isinstance(raw, str):
+                normalized = raw.strip().lower()
+                if normalized in {"true", "on", "1"}:
+                    return True
+                if normalized in {"false", "off", "0"}:
+                    return False
+            return None
+        if option.type == OptionType.INT:
+            if isinstance(raw, bool):
+                return None
+            if isinstance(raw, int):
+                value = raw
+            elif isinstance(raw, str):
+                try:
+                    value = int(raw.strip())
+                except ValueError:
+                    return None
+            else:
+                return None
+            minimum, maximum = int_setting_bounds(option)
+            if value < minimum or value > maximum:
+                return None
+            return value
+        if option.type == OptionType.CHOICE:
+            value = raw if isinstance(raw, str) else str(raw)
+            if option.choices and value not in option.choices:
+                return None
+            return value
+        return raw
 
     def _default_settings(self, meta: GameMetadata) -> dict:
         settings = {}
         yaml_overrides = self.config.games.for_game(meta.key).settings_overrides
         for option in meta.settings:
-            settings[option.key] = yaml_overrides.get(option.key, option.default)
+            if option.key not in yaml_overrides:
+                settings[option.key] = option.default
+                continue
+            raw = yaml_overrides[option.key]
+            validated = self._validated_override(option, raw)
+            if validated is None:
+                log.warning(
+                    "Ignoring invalid settings override %s.%s=%r",
+                    meta.key,
+                    option.key,
+                    raw,
+                )
+                settings[option.key] = option.default
+            else:
+                settings[option.key] = validated
         return settings
-
 
     def _is_lobby_member(self, lobby: Lobby, user_id: int) -> bool:
         return any(member.user_id == user_id for member in lobby.members)
-
 
     def owner_ids(self) -> frozenset[int]:
         settings = getattr(self.bot, "settings", None)
@@ -152,15 +200,15 @@ class LobbyService(
             owner_ids=self.owner_ids(),
         )
 
-
     async def _eject_member(self, lobby: Lobby, user_id: int) -> bool:
         if not any(member.user_id == user_id for member in lobby.members):
             return False
-        lobby.members = [member for member in lobby.members if member.user_id != user_id]
+        lobby.members = [
+            member for member in lobby.members if member.user_id != user_id
+        ]
         lobby.ready.discard(user_id)
         await self.registries.release_user(user_id)
         return True
-
 
     async def _success(
         self,
@@ -173,7 +221,6 @@ class LobbyService(
             code,
             format_kwargs=format_kwargs or None,
         )
-
 
     async def _disable_and_report_closed(
         self, interaction: discord.Interaction, message_key: str
@@ -198,5 +245,3 @@ class LobbyService(
                 )
 
         await self._error(interaction, message_key)
-
-
