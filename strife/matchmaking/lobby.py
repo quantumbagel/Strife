@@ -1,11 +1,37 @@
 from __future__ import annotations
 
 import asyncio
+import functools
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+
+import discord
 
 from strife.config.text import TextConfig
 from strife.engine.metadata import GameMetadata
 from strife.presentation.message import ViewSurface
+
+
+class LobbyGone(Exception):
+    """The lobby message was deleted, so the lobby has been discarded."""
+
+
+def lobby_action(fn: Callable[..., Awaitable[None]]) -> Callable[..., Awaitable[None]]:
+    """Report ``LobbyGone`` from a lobby entry point instead of failing the interaction."""
+
+    @functools.wraps(fn)
+    async def wrapper(self, *args, **kwargs) -> None:
+        try:
+            await fn(self, *args, **kwargs)
+        except LobbyGone:
+            interaction = next(
+                (a for a in (*args, *kwargs.values()) if isinstance(a, discord.Interaction)),
+                None,
+            )
+            if interaction is not None:
+                await self._error(interaction, "lobby.already_dead")
+
+    return wrapper
 
 
 @dataclass

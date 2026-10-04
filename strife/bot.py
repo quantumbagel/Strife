@@ -12,6 +12,7 @@ from strife import __platform_version__, __version__
 from strife.changelog import ChangelogCatalog
 from strife.commands.about import AboutService
 from strife.commands.admin import AdminCommands
+from strife.commands.autocomplete import submitted_notice
 from strife.commands.catalog import CatalogService
 from strife.commands.play import register_play
 from strife.commands.server_settings import ServerSettingsService
@@ -41,6 +42,17 @@ from strife.settings import Settings
 log = get_logger("bot")
 
 
+class StrifeCommandTree(app_commands.CommandTree):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # Autocomplete notices ("There are no open lobbies…") are selectable in
+        # Discord; answer with the notice instead of running the command.
+        notice = submitted_notice(interaction)
+        if notice is None:
+            return True
+        await interaction.response.send_message(notice, ephemeral=True)
+        return False
+
+
 class StrifeBot(commands.AutoShardedBot):
     def __init__(self, settings: Settings):
         intents = discord.Intents.default()
@@ -53,6 +65,7 @@ class StrifeBot(commands.AutoShardedBot):
             chunk_guilds_at_startup=False,
             member_cache_flags=discord.MemberCacheFlags.none(),
             max_messages=None,
+            tree_cls=StrifeCommandTree,
         )
         self.settings = settings
         self.pool: asyncpg.Pool | None = None
@@ -63,6 +76,7 @@ class StrifeBot(commands.AutoShardedBot):
         self.emoji: EmojiResolver | None = None
         self.config = None
         self.lifecycle: LifecycleService | None = None
+        self.lobby: LobbyService | None = None
         self.changelogs: ChangelogCatalog | None = None
         self.about: AboutService | None = None
         self._background_tasks: list[asyncio.Task] = []
@@ -115,6 +129,8 @@ class StrifeBot(commands.AutoShardedBot):
         async def on_app_command_error(
             interaction: discord.Interaction, error: app_commands.AppCommandError
         ) -> None:
+            if isinstance(error, app_commands.CheckFailure) and interaction.response.is_done():
+                return
             original = error.original if isinstance(error, app_commands.CommandInvokeError) else error
             log.exception("Application command error", exc_info=original)
             try:
@@ -234,6 +250,10 @@ class StrifeBot(commands.AutoShardedBot):
     async def on_interaction(self, interaction: discord.Interaction) -> None:
         if interaction.type is discord.InteractionType.component and self.router:
             await self.router.dispatch(interaction)
+
+    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
+        if self.lobby:
+            await self.lobby.handle_message_deleted(payload.message_id)
 
     async def close(self) -> None:
         if self.lifecycle:

@@ -2,6 +2,25 @@
 # Newest first. Game API versions go in platform.toml.
 
 [[release]]
+version = "1.0.5"
+date = "2026-10-03"
+summary = "Lobbies don't get stuck, AFK and rematch fixes, working page jumps."
+fixed = [
+  "Kicking or losing the last unready player starts the game instead of stalling",
+  "Deleting a lobby message closes the lobby and frees everyone in it",
+  "A bot taking over your AFK seat frees you to play again",
+  "A bot's result on your AFK seat counts as your loss, not its win",
+  "Matches with no active humans left end instead of bots finishing alone",
+  "Players who quit or went AFK don't block a rematch or come back as bots",
+  "Page jump in the catalog, profile, and replays updates the page",
+  "Picking an autocomplete explanation shows it instead of a confusing error",
+  "Setting a number rule after the lobby started or closed no longer rewrites it",
+]
+added = [
+  "Simultaneous choices (votes, night actions) confirm privately and update the header",
+]
+
+[[release]]
 version = "1.0.4"
 date = "2026-10-03"
 summary = "Clearer replies, lobby fixes, and safer self-hosting."

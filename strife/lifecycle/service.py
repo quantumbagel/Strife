@@ -41,12 +41,7 @@ class LifecycleService:
         self._task: asyncio.Task | None = None
 
     def register_session_end(self, thread_id: int, match_id: int, outcome, players) -> None:
-        humans = [
-            p.user_id
-            for p in players
-            if p.user_id and not p.is_bot and not p.taken_over
-        ]
-        self.rematch.start_offer(thread_id, set(humans), match_id, outcome)
+        self.rematch.start_offer(thread_id, match_id, outcome)
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop())
@@ -187,9 +182,9 @@ class LifecycleService:
             player = session.players[seat]
             pending = session.pending.get(seat)
 
-        # Occupancy stays "game" through bot takeover and until persist
-        # finishes on GAME_ENDS. Release immediately only when the seat
-        # actually leaves a still-running match.
+        # Occupancy stays "game" until persist finishes on GAME_ENDS. Release
+        # immediately when the seat leaves a still-running match (removed here,
+        # or handed to a bot below) so the player can start something else.
         if consequence == TimeoutConsequence.REMOVED and player.user_id:
             await self.registries.release_user(
                 player.user_id, thread_id=session.thread_id
@@ -256,6 +251,18 @@ class LifecycleService:
                 player.taken_over = True
                 player.is_bot = True
                 player.bot_difficulty = difficulty
+                active = session.game.active_seats()
+                humans_left = any(
+                    not p.is_bot and p.seat in active for p in session.players
+                )
+            if player.user_id:
+                await self.registries.release_user(
+                    player.user_id, thread_id=session.thread_id
+                )
+            if not humans_left:
+                # Nobody is left to play against; don't let bots finish it alone.
+                await session.cancel(reason, forfeiter_seat=seat)
+                return
             session._record_system(
                 "bot_takeover",
                 {
@@ -281,6 +288,7 @@ class LifecycleService:
         elif consequence == TimeoutConsequence.REMOVED:
             try:
                 session.game.remove_player(seat)
+                session._removed_seats.add(seat)
                 args = {"reason": "timeout"} if reason == "timeout" else {}
                 await session.force_move(
                     seat,

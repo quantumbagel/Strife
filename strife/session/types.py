@@ -41,3 +41,4 @@ class PendingInput:
     timeout_consequence: str | None = None
     deadline_at: float | None = None
     timeout_generation: int = 0
+    until: str = "all"

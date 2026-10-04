@@ -16,6 +16,17 @@ from strife.presentation.roster import member_line
 from strife.routing import prefixes as P
 
 
+def rematch_eligible(
+    players: list[Player], removed_seats: set[int] | frozenset[int] = frozenset()
+) -> list[Player]:
+    """Humans who finished the match: not removed mid-game and not taken over by a bot."""
+    return [
+        p
+        for p in players
+        if p.user_id and not p.is_bot and not p.taken_over and p.seat not in removed_seats
+    ]
+
+
 def build_results_view(
     *,
     game_name: str,
@@ -31,6 +42,7 @@ def build_results_view(
     rematch_expires_at: int | None = None,
     replay_disabled: bool = False,
     match_status: str = "completed",
+    removed_seats: set[int] | frozenset[int] = frozenset(),
 ) -> LayoutView:
     view = LayoutView()
     container = Container()
@@ -98,10 +110,7 @@ def build_results_view(
 
     container.add_text(TextDisplay(markdown_content="\n".join(lines)))
 
-    eligible_humans = [
-        p for p in players if p.user_id and not p.is_bot and not p.taken_over
-    ]
-    total = len(eligible_humans)
+    total = len(rematch_eligible(players, removed_seats))
     if total > 0:
         if rematch_expires_at is not None:
             rematch_label = text.get(

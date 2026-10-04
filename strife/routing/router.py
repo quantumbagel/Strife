@@ -160,7 +160,7 @@ class InteractionRouter:
             if len(values) == 1:
                 args["value"] = values[0]
         await self._defer(interaction)
-        await session.submit(
+        waiting_on_others = await session.submit(
             InteractionInput(
                 actor=interaction.user,
                 source=route.source,
@@ -169,6 +169,8 @@ class InteractionRouter:
                 values=values,
             )
         )
+        if waiting_on_others and self.lobby is not None:
+            await self.lobby.user_success.send(interaction, "game.action_received")
 
     async def _handle_replay(self, route, interaction: discord.Interaction) -> None:
         if self.replay is None:

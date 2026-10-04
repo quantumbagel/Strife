@@ -194,7 +194,6 @@ class ReplayService:
         interaction: discord.Interaction,
         *,
         owner_id: int,
-        parent: discord.Message | None = None,
     ) -> None:
         try:
             entry = await self._load_entry(match_id)
@@ -232,11 +231,9 @@ class ReplayService:
         from strife.presentation.message import to_discord_files
 
         files = to_discord_files(getattr(view, "files", []))
-        target = parent or interaction.message
-        if not interaction.response.is_done() and parent is None:
+        # Edit through the interaction: Message.edit can't reach ephemeral messages.
+        if not interaction.response.is_done():
             await interaction.response.edit_message(view=compiled, attachments=files)
-        elif target is not None:
-            await target.edit(view=compiled, attachments=files)
         else:
             await interaction.edit_original_response(view=compiled, attachments=files)
 
@@ -250,14 +247,12 @@ class ReplayService:
         frame: int = 0,
     ) -> None:
         async def on_submit(modal_interaction: discord.Interaction, new_frame: int) -> None:
-            parent = modal_interaction.message
             await modal_interaction.response.defer()
             await self.render_frame(
                 match_id,
                 new_frame,
                 modal_interaction,
                 owner_id=owner_id,
-                parent=parent,
             )
 
         modal = PageJumpModal(

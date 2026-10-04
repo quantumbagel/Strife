@@ -135,7 +135,12 @@ class SessionLifecycleMixin:
                         bot_difficulty=p.bot_difficulty,
                         display_name=p.display_name,
                         role_key=p.role_key,
-                        result=outcome.results.get(p.seat),
+                        # A bot finished an AFK player's seat; its result isn't theirs.
+                        result=(
+                            "loss"
+                            if p.taken_over and outcome.results.get(p.seat)
+                            else outcome.results.get(p.seat)
+                        ),
                     )
                     for p in self.players
                 ],
@@ -197,6 +202,7 @@ class SessionLifecycleMixin:
                     rematch_disabled=not persist_ok,
                     replay_disabled=not persist_ok,
                     match_status=status,
+                    removed_seats=frozenset(getattr(self, "_removed_seats", ())),
                 )
                 if hasattr(self, "lobby_surface") and self.lobby_surface is not None:
                     await self.lobby_surface.update(results_view)

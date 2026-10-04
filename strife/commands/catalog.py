@@ -164,8 +164,6 @@ class CatalogService:
         self,
         interaction: discord.Interaction,
         page: int,
-        *,
-        parent: discord.Message | None = None,
     ) -> None:
         page = int(page)
         games = self._enabled_games()
@@ -173,19 +171,16 @@ class CatalogService:
         page = max(0, min(page, pages - 1))
         view = self._build_catalog_view(games, page, pages)
         compiled = self.compiler.compile(view, resource_id=interaction.user.id, prefix=P.CAT_NAV)
-        target = parent or interaction.message
-        if not interaction.response.is_done() and parent is None:
+        # Edit through the interaction: Message.edit can't reach ephemeral messages.
+        if not interaction.response.is_done():
             await interaction.response.edit_message(view=compiled)
-        elif target is not None:
-            await target.edit(view=compiled)
         else:
             await interaction.edit_original_response(view=compiled)
 
     async def open_jump_modal(self, interaction: discord.Interaction, *, pages: int, page: int = 0) -> None:
         async def on_submit(modal_interaction: discord.Interaction, new_page: int) -> None:
-            parent = modal_interaction.message
-            await modal_interaction.response.defer(ephemeral=True)
-            await self.navigate(modal_interaction, new_page, parent=parent)
+            await modal_interaction.response.defer()
+            await self.navigate(modal_interaction, new_page)
 
         modal = PageJumpModal(
             title=self.text.get("catalog.title"),

@@ -3,7 +3,7 @@ from __future__ import annotations
 import discord
 
 from strife.engine.metadata import OptionType, int_setting_bounds
-from strife.matchmaking.lobby import Lobby
+from strife.matchmaking.lobby import Lobby, LobbyGone
 from strife.matchmaking.settings_view import build_settings_view, normalize_settings_tab
 from strife.presentation.compiler import LayoutError
 from strife.presentation.modals import IntRangeModal
@@ -167,10 +167,26 @@ class LobbyControlsMixin:
         current = int(lobby.settings.get(option.key, option.default))
 
         async def on_submit(modal_interaction: discord.Interaction, value: int) -> None:
-            self._apply_int_setting(lobby, option, value)
-            await modal_interaction.response.defer(ephemeral=True)
-            await self._send_settings(lobby, modal_interaction, tab="rules", edit=True)
-            await self._refresh(lobby, modal_interaction)
+            try:
+                await apply(modal_interaction, value)
+            except LobbyGone:
+                await self._error(modal_interaction, "lobby.already_dead")
+
+        async def apply(modal_interaction: discord.Interaction, value: int) -> None:
+            # The modal can sit open while the lobby starts, ends, or changes hands.
+            async with lobby.lock:
+                if self.registries.get_lobby(lobby.thread_id) is not lobby:
+                    await self._error(modal_interaction, "lobby.already_dead")
+                    return
+                if modal_interaction.user.id != lobby.creator_id:
+                    await self._error(modal_interaction, "lobby.creator_only", lobby=lobby)
+                    return
+                if await self._reject_frozen_lobby(lobby, modal_interaction):
+                    return
+                self._apply_int_setting(lobby, option, value)
+                await modal_interaction.response.defer(ephemeral=True)
+                await self._send_settings(lobby, modal_interaction, tab="rules", edit=True)
+                await self._refresh(lobby, modal_interaction)
 
         modal = IntRangeModal(
             title=self.text.get("lobby.int_option_modal_title", title=option.title),

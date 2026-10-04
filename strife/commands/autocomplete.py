@@ -1,13 +1,16 @@
 """Slash autocomplete helpers for live lobby/match state.
 
 Discord shows nothing if a handler returns ``[]``. Dynamic dropdowns return one
-explanatory choice instead, so the user can see why the list is empty.
+explanatory choice instead, so the user can see why the list is empty. Its value
+carries ``NOTICE_PREFIX`` so a submitted notice is answered with the notice
+itself instead of reaching the command as a bogus name or key.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
 
+import discord
 from discord import app_commands
 
 from strife.config.text import TextConfig
@@ -15,13 +18,27 @@ from strife.engine.metadata import GameMetadata, OptionType, int_setting_bounds
 from strife.matchmaking.lobby import Lobby
 
 CHOICE_NAME_MAX = 100
+CHOICE_VALUE_MAX = 100
+NOTICE_PREFIX = "notice:"
 
 
 def notice_choices(message: str) -> list[app_commands.Choice[str]]:
     label = " ".join(message.split())[:CHOICE_NAME_MAX]
     if not label:
         return []
-    return [app_commands.Choice(name=label, value=label)]
+    return [app_commands.Choice(name=label, value=f"{NOTICE_PREFIX}{label}"[:CHOICE_VALUE_MAX])]
+
+
+def submitted_notice(interaction: discord.Interaction) -> str | None:
+    """Return the notice text if the user submitted an autocomplete notice as a value."""
+    stack = list((interaction.data or {}).get("options", []))
+    while stack:
+        option = stack.pop()
+        stack.extend(option.get("options", []))
+        value = option.get("value")
+        if isinstance(value, str) and value.startswith(NOTICE_PREFIX):
+            return value.removeprefix(NOTICE_PREFIX)
+    return None
 
 
 def parse_user_id(raw: str) -> int | None:

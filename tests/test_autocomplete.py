@@ -72,7 +72,7 @@ def test_notice_choices_are_one_message() -> None:
     choices = notice_choices(message)
     assert len(choices) == 1
     assert choices[0].name == message
-    assert choices[0].value == message
+    assert choices[0].value == f"notice:{message}"
     assert len(choices[0].name) <= 100
 
 

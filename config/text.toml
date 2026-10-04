@@ -316,9 +316,11 @@ invalid_choice = "That is not a valid choice"
 
 [game]
 move_submitted = "Move submitted."
+action_received = "Choice locked in."
 
 [game_success]
 move_submitted = "The board will update when the game accepts your move."
+action_received = "Waiting on the other players. The board updates once everyone has chosen."
 
 [match]
 result_title = "{game_name} {forward} Result"

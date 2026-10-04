@@ -9,7 +9,7 @@ import discord
 
 from strife.config.text import TextConfig
 from strife.engine.errors import SessionError
-from strife.lifecycle.results import build_results_view
+from strife.lifecycle.results import build_results_view, rematch_eligible
 from strife.logging import get_logger
 from strife.matchmaking.lobby import Lobby, LobbyMember, QueuedBot
 from strife.matchmaking.lobby_view import build_lobby_view
@@ -39,6 +39,7 @@ class RematchOffer:
     lobby_surface: object | None = None
     emoji: object | None = None
     result_players: list = field(default_factory=list)
+    removed_seats: frozenset[int] = frozenset()
 
 
 class RematchManager:
@@ -49,20 +50,23 @@ class RematchManager:
         self._offers: dict[int, RematchOffer] = {}
         self._lock = asyncio.Lock()
 
-    def start_offer(self, thread_id: int, eligible: set[int], match_id: int, outcome: object) -> None:
+    def start_offer(self, thread_id: int, match_id: int, outcome: object) -> None:
         session = self.registries.get_game(thread_id)
         if session is None:
             return
+        # Players who quit (removed) or went AFK (taken over) don't get a vote
+        # or a seat; their seats aren't carried over as bots either.
+        removed = frozenset(getattr(session, "_removed_seats", ()))
         members = [
             LobbyMember(user_id=p.user_id, display_name=p.display_name)
-            for p in session.players
-            if p.user_id and not p.is_bot and not p.taken_over
+            for p in rematch_eligible(session.players, removed)
         ]
         bots = [
             QueuedBot(name=p.display_name, difficulty=p.bot_difficulty or "medium")
             for p in session.players
-            if p.is_bot
+            if p.is_bot and not p.taken_over
         ]
+        eligible = {m.user_id for m in members}
         creator_id = getattr(session, "lobby_creator_id", None) or (
             members[0].user_id if members else 0
         )
@@ -93,6 +97,7 @@ class RematchManager:
             lobby_surface=getattr(session, "lobby_surface", None),
             emoji=session.surface.compiler.emoji,
             result_players=list(session.players),
+            removed_seats=removed,
         )
 
     async def expire_stale(self) -> None:
@@ -118,6 +123,7 @@ class RematchManager:
                 game_key=offer.game_key,
                 outcome=offer.outcome,
                 players=offer.result_players,
+                removed_seats=offer.removed_seats,
                 thread_id=thread_id,
                 match_id=offer.match_id,
                 text=self.text,
@@ -158,6 +164,7 @@ class RematchManager:
                         game_key=offer.game_key,
                         outcome=offer.outcome,
                         players=offer.result_players,
+                        removed_seats=offer.removed_seats,
                         thread_id=thread_id,
                         match_id=offer.match_id,
                         text=self.text,
@@ -189,6 +196,7 @@ class RematchManager:
                     game_key=offer.game_key,
                     outcome=offer.outcome,
                     players=offer.result_players,
+                    removed_seats=offer.removed_seats,
                     thread_id=thread_id,
                     match_id=offer.match_id,
                     text=self.text,

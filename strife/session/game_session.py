@@ -105,6 +105,8 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
         self.lobby_private = False
         self.lobby_creator_id: int | None = None
         self._dm_failure_notified: set[int] = set()
+        # Seats that forfeited or timed out of a still-running match.
+        self._removed_seats: set[int] = set()
 
     @property
     def started_at(self) -> datetime:

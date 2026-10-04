@@ -37,7 +37,8 @@ class SessionInputMixin:
         return allowed - queries if allowed else allowed
 
 
-    async def submit(self, inp: InteractionInput) -> None:
+    async def submit(self, inp: InteractionInput) -> bool:
+        """Record a click. Returns True when other humans still have to act."""
         async with self.lock:
             seat = self._seat_for_user(inp.actor.id)
             if seat is None:
@@ -56,6 +57,14 @@ class SessionInputMixin:
             if not pending.future.done():
                 pending.future.set_result(move)
             self.pending.pop(seat, None)
+            # until="any" resolves on this click, so only "all" phases keep waiting.
+            waiting_on_others = pending.until == "all" and any(
+                not self.players[other].is_bot for other in self.pending
+            )
+        if waiting_on_others:
+            # Simultaneous phase: show this seat as done instead of waiting for everyone.
+            await self.refresh_header()
+        return waiting_on_others
 
 
     async def handle_slash_command(self, user_id: int, command_name: str, args: dict[str, Any]) -> None:
@@ -223,6 +232,7 @@ class SessionInputMixin:
                     timeout_consequence=timeout_consequence,
                     deadline_at=deadline,
                     timeout_generation=generation,
+                    until=until,
                 )
                 self._timeout_inflight.discard(seat)
             self.last_move_at = now

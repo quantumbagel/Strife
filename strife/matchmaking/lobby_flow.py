@@ -9,7 +9,7 @@ from strife.engine.players import Player
 from strife.engine.roles import order_players
 from strife.session import GameSession
 from strife.logging import get_logger
-from strife.matchmaking.lobby import Lobby, LobbyMember, QueuedBot
+from strife.matchmaking.lobby import Lobby, LobbyGone, LobbyMember, QueuedBot, lobby_action
 from strife.matchmaking.registries import UserLocation
 from strife.persistence.repositories import generate_match_code
 from strife.presentation.compiler import LayoutError
@@ -30,6 +30,14 @@ _LOBBY_MEMBER_PREFIXES = frozenset({
     P.LOBBY_LEAVE,
     P.LOBBY_READY,
     P.LOBBY_SETTINGS,
+})
+
+# Actions that can leave every remaining member ready without anyone pressing Ready.
+_ROSTER_CHANGE_PREFIXES = frozenset({
+    P.LOBBY_LEAVE,
+    P.LOBBY_KICK,
+    P.LOBBY_ADD_BLACKLIST,
+    P.LOBBY_BOT_ADD,
 })
 
 
@@ -133,6 +141,7 @@ class LobbyFlowMixin:
                 log.exception("Failed to report lobby creation error to user")
             return
 
+    @lobby_action
     async def handle(self, route: Route, interaction: discord.Interaction) -> None:
         lobby = self.registries.get_lobby(route.resource_id)
         if lobby is None:
@@ -184,6 +193,8 @@ class LobbyFlowMixin:
                 should_start = await self._ready(lobby, route, interaction)
             else:
                 await handler(lobby, route, interaction)
+                if route.prefix in _ROSTER_CHANGE_PREFIXES:
+                    should_start = self._claim_autostart(lobby)
         if should_start:
             await self._start(lobby, route, interaction)
 
@@ -203,6 +214,10 @@ class LobbyFlowMixin:
         if lobby.surface:
             try:
                 await lobby.surface.update(view)
+            except discord.NotFound:
+                # Someone deleted the lobby message; nobody can see or click it anymore.
+                await self._discard_lobby(lobby)
+                raise LobbyGone from None
             except Exception as exc:
                 from strife.presentation.compiler import LayoutError
 
@@ -463,6 +478,20 @@ class LobbyFlowMixin:
         await self._refresh(lobby, interaction)
         return False
 
+    def _claim_autostart(self, lobby: Lobby) -> bool:
+        """Start when a roster change leaves everyone ready; no Ready click is coming.
+
+        Call with ``lobby.lock`` held, then ``_start`` after releasing it.
+        """
+        if lobby.starting or lobby.launching:
+            return False
+        if self.registries.get_lobby(lobby.thread_id) is not lobby:
+            return False
+        ok, _, _ = lobby.can_start(self._meta(lobby.game_key), self.text)
+        if ok:
+            lobby.starting = True
+        return ok
+
     def _is_forum_channel(self, channel) -> bool:
         if isinstance(channel, discord.ForumChannel):
             return True
@@ -617,7 +646,10 @@ class LobbyFlowMixin:
                 )
             )
             ended_view.add_container(container)
-            await lobby.surface.update(ended_view)
+            try:
+                await lobby.surface.update(ended_view)
+            except discord.NotFound:
+                log.warning("Lobby message for %s was deleted; starting anyway", lobby.thread_id)
             marshal_replaced = True
 
             game_compiler = self.compiler.for_game(lobby.game_key)
@@ -686,13 +718,36 @@ class LobbyFlowMixin:
             await self._error(interaction, "common.error", lobby=lobby)
             return
 
-    async def _teardown(self, lobby: Lobby, interaction: discord.Interaction) -> None:
+    async def handle_message_deleted(self, message_id: int) -> None:
+        """Close a lobby whose message was deleted so its members aren't stuck in it."""
+        lobby = next(
+            (l for l in self.registries.lobbies.values() if l.message_id == message_id),
+            None,
+        )
+        if lobby is None:
+            return
+        async with lobby.lock:
+            # A lobby already starting goes ahead; _start tolerates the missing message.
+            if (
+                self.registries.get_lobby(lobby.thread_id) is not lobby
+                or lobby.starting
+                or lobby.launching
+            ):
+                return
+            await self._discard_lobby(lobby)
+            if lobby.surface:
+                await lobby.surface.delete()
+
+    async def _discard_lobby(self, lobby: Lobby) -> None:
         for member in lobby.members:
             await self.registries.release_user(member.user_id)
         self.registries.remove_lobby(lobby.thread_id)
         encoder = getattr(self.compiler, "encoder", None)
         if encoder is not None:
             encoder.invalidate_resource(lobby.thread_id)
+
+    async def _teardown(self, lobby: Lobby, interaction: discord.Interaction) -> None:
+        await self._discard_lobby(lobby)
         await self._success(interaction, "lobby.closed")
 
         if lobby.surface:
