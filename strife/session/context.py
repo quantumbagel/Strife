@@ -46,6 +46,7 @@ class LiveContext:
         self._applied = 0
         self._turn_deadlines: list[float | None | _UnarmedDeadline] = []
         self._catching_up = False
+        self._first_live_prompt = False
         self._log: LogCursor | None = None
         self._deferred_board: LayoutView | None = None
         self._deferred_dms: dict[int, LayoutView] = {}
@@ -86,7 +87,6 @@ class LiveContext:
         self._catching_up = False
         self._log = None
         self._host()._resuming = False
-        self._arm_turn_deadlines()
         host = self._host()
         if flush_view and self._deferred_board is not None:
             await host._update_surface(self._deferred_board)
@@ -94,6 +94,8 @@ class LiveContext:
         await host.refresh_header()
         if waiting is not None:
             await self._flush_deferred_dms(waiting)
+        self._arm_turn_deadlines()
+        self._first_live_prompt = True
 
     async def _flush_deferred_dms(self, waiting: set[int]) -> None:
         """Re-send DMs skipped during catch-up to the seats a live request now waits on.

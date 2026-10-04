@@ -153,20 +153,20 @@ class SessionIOMixin:
         if self._header_refreshing:
             return
         self._header_refreshing = True
-        try:
-            while True:
-                self._header_dirty = False
-                if self.header_surface is None or self._finalized:
-                    break
+        while True:
+            self._header_dirty = False
+            if self.header_surface is None or self._finalized:
+                self._header_refreshing = False
+                return
+            try:
                 await self._refresh_header_once()
-                if not self._header_dirty:
-                    self._header_refreshing = False
-                    if self._header_dirty:
-                        self._header_refreshing = True
-                        continue
-                    return
-        finally:
-            self._header_refreshing = False
+            except BaseException:
+                # This caller owns the loop; don't leave the flag stuck on cancellation.
+                self._header_refreshing = False
+                raise
+            if not self._header_dirty:
+                self._header_refreshing = False
+                return
 
     async def _refresh_header_once(self) -> None:
         if self.header_surface is None or self._finalized:

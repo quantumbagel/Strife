@@ -198,7 +198,7 @@ class SessionInputMixin:
             self._accept_move(seat, move)
         await self.refresh_header()
 
-    async def force_forfeit(self, seat: int, reason: str) -> None:
+    async def force_forfeit(self, seat: int, reason: str) -> bool:
         """Hand a removed seat's pending input a ``forfeit`` and log the removal.
 
         If the seat was still waiting, the system row is that seat's answer.
@@ -207,8 +207,8 @@ class SessionInputMixin:
         """
         args = {"reason": reason, "removed": True}
         async with self.lock:
-            if self._finalized or self._ending:
-                return
+            if self._finalized or self._ending or self._pausing:
+                return False
             pending = self.pending.get(seat)
             if pending is not None and not pending.future.done():
                 recorded = self.log.system("forfeit", dict(args), actor_seat=seat)
@@ -219,8 +219,11 @@ class SessionInputMixin:
             else:
                 self.log.system("forfeit", dict(args), actor_seat=seat)
         await self.refresh_header()
+        return True
 
-    async def expire_phase(self, seat: int) -> bool:
+    async def expire_phase(
+        self, seat: int, phase_timeout: asyncio.Future[None] | None
+    ) -> bool:
         """Close an ``until="any"`` window whose shared deadline passed.
 
         Nobody is blamed: ``request_inputs`` returns ``{}`` and logs one system
@@ -231,11 +234,22 @@ class SessionInputMixin:
             if (
                 pending is None
                 or pending.phase_timeout is None
+                or pending.phase_timeout is not phase_timeout
                 or pending.phase_timeout.done()
             ):
                 return False
             self._close_until_any_window(pending.phase_timeout, as_timeout=True)
         return True
+
+    def _arm_pending_deadline(self, seconds: float | None, now: float) -> float | None:
+        first_live = self.ctx._first_live_prompt
+        if first_live:
+            self.ctx._first_live_prompt = False
+        if seconds is None:
+            return None
+        if seconds <= 0 and first_live:
+            seconds = 5.0
+        return now + seconds
 
     async def _request_input(
         self,
@@ -279,7 +293,7 @@ class SessionInputMixin:
             if timeout_seconds is not None
             else self.turn_timeout_seconds
         )
-        deadline = now + seconds if seconds is not None else None
+        deadline = self._arm_pending_deadline(seconds, now)
         async with self.lock:
             self.pending[actor] = PendingInput(
                 {actor},
@@ -366,7 +380,10 @@ class SessionInputMixin:
             if timeout_seconds is not None
             else self.turn_timeout_seconds
         )
-        deadline = now + seconds if seconds is not None else None
+        if humans:
+            deadline = self._arm_pending_deadline(seconds, now)
+        else:
+            deadline = now + seconds if seconds is not None else None
         # One shared "window closed" signal for first-to-act phases.
         phase_timeout: asyncio.Future[None] | None = (
             loop.create_future() if until == "any" else None

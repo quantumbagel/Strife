@@ -39,6 +39,9 @@ class SessionFinalizer:
     async def set_board_message(self, match_id: int, message_id: int) -> None:
         await self.matches.set_board_message(match_id, message_id)
 
+    async def set_header_message(self, match_id: int, message_id: int) -> None:
+        await self.matches.set_header_message(match_id, message_id)
+
     def notify_match_end(self, thread_id: int, match_id: int, outcome, players) -> None:
         if self.lifecycle is not None:
             self.lifecycle.register_session_end(thread_id, match_id, outcome, players)

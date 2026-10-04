@@ -200,7 +200,12 @@ class LifecycleService:
                             continue
                         session._timeout_inflight.add(seat)
                     try:
-                        await self._resolve_timeout(session, seat)
+                        await self._resolve_timeout(
+                            session,
+                            seat,
+                            pending.timeout_generation,
+                            pending.phase_timeout,
+                        )
                     except Exception as e:
                         log.exception(
                             "Error resolving timeout for session %s (seat %s)",
@@ -240,9 +245,22 @@ class LifecycleService:
         except Exception:
             log.exception("Failed to send turn warning for session %s", session.id)
 
-    async def _resolve_timeout(self, session, seat: int) -> None:
+    async def _resolve_timeout(
+        self,
+        session,
+        seat: int,
+        timeout_generation: int,
+        phase_timeout: asyncio.Future[None] | None = None,
+    ) -> None:
         consequence = determine_consequence(session, seat, reason="timeout")
-        await self._execute_consequence(session, seat, consequence, reason="timeout")
+        await self._execute_consequence(
+            session,
+            seat,
+            consequence,
+            reason="timeout",
+            timeout_generation=timeout_generation,
+            phase_timeout=phase_timeout,
+        )
 
     async def forfeit(self, thread_id: int, user_id: int) -> None:
         """Forfeit ``user_id``'s seat.
@@ -268,7 +286,13 @@ class LifecycleService:
             raise SessionError("game_ending")
 
     async def _execute_consequence(
-        self, session, seat: int, consequence: ResolvedTimeoutConsequence, reason: str
+        self,
+        session,
+        seat: int,
+        consequence: ResolvedTimeoutConsequence,
+        reason: str,
+        timeout_generation: int | None = None,
+        phase_timeout: asyncio.Future[None] | None = None,
     ) -> bool:
         """Apply ``consequence``. Returns False when the match was already ending."""
         async with session.lock:
@@ -280,9 +304,10 @@ class LifecycleService:
                     current is None
                     or current.future.done()
                     or session.players[seat].is_bot
+                    or current.timeout_generation != timeout_generation
                 ):
                     return False
-                generation = current.timeout_generation
+                generation = timeout_generation
                 # Recompute under the lock so until=any vs skip is current.
                 consequence = determine_consequence(session, seat, reason=reason)
             else:
@@ -298,7 +323,7 @@ class LifecycleService:
             allowed_sources = pending.allowed_sources if pending else None
 
         if consequence == ResolvedTimeoutConsequence.PHASE_ENDS:
-            return await session.expire_phase(seat)
+            return await session.expire_phase(seat, phase_timeout)
 
         if consequence == ResolvedTimeoutConsequence.SKIP:
             async with session.lock:
@@ -483,6 +508,8 @@ class LifecycleService:
                             session, seat, generation
                         ):
                             return False
+                        if seat in session._removed_seats:
+                            return False
                         if will_removal_end_game(session, seat):
                             end_instead = True
                         else:
@@ -494,11 +521,13 @@ class LifecycleService:
                     return await self._cancel_session(
                         session, reason, forfeiter_seat=seat
                     )
+                applied = await session.force_forfeit(seat, reason)
+                if not applied:
+                    return False
                 if player.user_id:
                     await self.registries.release_user(
                         player.user_id, thread_id=session.thread_id
                     )
-                await session.force_forfeit(seat, reason)
             except Exception as e:
                 log.exception(
                     "Error removing player for session %s (seat %s). Ending game.",

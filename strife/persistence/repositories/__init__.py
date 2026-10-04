@@ -463,6 +463,17 @@ class MatchRepository:
                 board_message_id,
             )
 
+    async def set_header_message(self, match_id: int, header_message_id: int) -> None:
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE matches SET header_message_id = $2
+                WHERE id = $1 AND status = 'live'
+                """,
+                match_id,
+                header_message_id,
+            )
+
     async def finish(self, record: FinishedMatch) -> tuple[int, str]:
         match_id = record.match_id
         if match_id is None:

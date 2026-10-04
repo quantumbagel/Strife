@@ -13,6 +13,7 @@ from strife.logging import get_logger
 from strife.persistence.repositories import FinishedMatch, MatchDetail
 from strife.presentation.message import ViewSurface
 from strife.routing import prefixes as P
+from strife.session.header import build_game_thread_header_view
 from strife.session import GameSession
 
 log = get_logger("session.resume")
@@ -258,6 +259,28 @@ async def _resume_one(bot, live: MatchDetail, matches, moves_repo, registry) -> 
     header_surface = ViewSurface(compiler, prefix=P.REPLAY_NOOP, resource_id=thread.id)
     if header_message is not None:
         header_surface.bind(header_message)
+    else:
+        starting_view = build_game_thread_header_view(
+            players=session_players,
+            text=bot.config.text,
+            emoji=bot.lobby.emoji,
+            owner_ids=bot.lobby.owner_ids(),
+        )
+        try:
+            await header_surface.send_to_thread(thread, starting_view)
+        except Exception:
+            log.exception(
+                "Failed to recreate header message for live match %s", live.id
+            )
+        if header_surface.message_id is not None:
+            try:
+                await bot.lobby.finalizer.set_header_message(
+                    live.id, header_surface.message_id
+                )
+            except Exception:
+                log.exception(
+                    "Failed to persist header message for live match %s", live.id
+                )
     game_surface = ViewSurface(compiler, prefix=P.G_MOVE, resource_id=thread.id)
     if board_message is not None:
         game_surface.bind(board_message)
@@ -286,7 +309,7 @@ async def _resume_one(bot, live: MatchDetail, matches, moves_repo, registry) -> 
         text=bot.config.text,
         finalizer=bot.lobby.finalizer,
         game_key=live.game_key,
-        header_surface=header_surface if header_message is not None else None,
+        header_surface=header_surface,
         turn_timeout_seconds=live.turn_timeout_seconds or 90,
         turn_timeout_max_strikes=live.turn_timeout_max_strikes or 3,
         turn_timeout_consequence=_timeout_consequence(live.turn_timeout_consequence),

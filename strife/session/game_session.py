@@ -11,7 +11,7 @@ from strife.engine.game import Game
 from strife.engine.requests import TimeoutConsequence
 from strife.engine.match_log import MatchLog
 from strife.engine.players import GameOutcome, Move, Player
-from strife.persistence.repositories import FinishedMatch, LiveMatchStart
+from strife.persistence.repositories import FinishedMatch, LiveMatchStart, MoveConflict
 from strife.presentation.message import ViewSurface
 from strife.session.context import LiveContext
 from strife.session.input import SessionInputMixin
@@ -45,6 +45,8 @@ class MatchFinalizer(Protocol):
     async def append_moves(self, match_id: int, moves: list[Move]) -> None: ...
 
     async def set_board_message(self, match_id: int, message_id: int) -> None: ...
+
+    async def set_header_message(self, match_id: int, message_id: int) -> None: ...
 
     def notify_match_end(
         self,
@@ -108,6 +110,7 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
         self._finalized = False
         self._ending = False
         self._pausing = False
+        self._writer_failed = False
         self._resuming = False
         self._timeout_warned: dict[int, float] = {}
         self._timeout_inflight: set[int] = set()
@@ -168,15 +171,23 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
             self._match_id,
             exc,
         )
+        if isinstance(exc, MoveConflict):
+            log.error(
+                "Stored log diverged for live match %s at turn %s",
+                self._match_id,
+                exc.turn_index,
+            )
         self._move_writer = None
         async with self.lock:
-            if self._finalized or self._ending:
+            if self._finalized or self._ending or self._writer_failed:
                 return
+            self._writer_failed = True
             self._ending = True
         task = self.task
         current = asyncio.current_task()
         if task is not None and not task.done() and task is not current:
             task.cancel()
+            await asyncio.wait({task}, timeout=10.0)
         await self._notify_thread(self.text.get("match.interrupted"))
         try:
             await self._finalizer.session_complete(self)

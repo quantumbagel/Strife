@@ -59,10 +59,7 @@ class MoveWriter:
             return
         leftover = max(0.01, deadline - loop.time())
         self._task.cancel()
-        try:
-            await asyncio.wait_for(self._task, timeout=leftover)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
-            pass
+        await asyncio.wait({self._task}, timeout=leftover)
         self._task = None
 
     async def _fail(self, exc: BaseException) -> None:

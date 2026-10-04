@@ -21,10 +21,7 @@ class SessionLifecycleMixin:
         task = self.task
         if task is not None and not task.done() and task is not asyncio.current_task():
             task.cancel()
-            try:
-                await asyncio.wait_for(task, timeout=10.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                pass
+            await asyncio.wait({task}, timeout=10.0)
         async with self.lock:
             self.log.system("game_end", {"reason": reason, "cancelled": True})
         if forfeiter_seat is not None:
@@ -59,10 +56,7 @@ class SessionLifecycleMixin:
         task = self.task
         if task is not None and not task.done() and task is not asyncio.current_task():
             task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await asyncio.wait({task})
         await self._stop_writer()
         match_id = self._match_id
         if match_id is not None:
@@ -81,7 +75,7 @@ class SessionLifecycleMixin:
 
     async def _finalize(self, outcome: GameOutcome, *, status: str) -> None:
         async with self.lock:
-            if self._finalized:
+            if self._finalized or self._writer_failed:
                 return
             self._ending = True
             self._finalized = True
