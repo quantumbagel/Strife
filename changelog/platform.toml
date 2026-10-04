@@ -2,6 +2,27 @@
 # Bump when GameContext or types games import change.
 
 [[release]]
+version = "3.1.0"
+date = "2026-10-04"
+summary = "Form specs for bots, turn-based advance, stricter bot and event rows."
+added = [
+  "FormSpec and BotRequest.form_fields — legal values plus cardinality; the host merges a bot's omitted form defaults like a human submit",
+  "TurnBasedGame.advance() and is_active(seat); on_timeout and on_forfeit default to advance()",
+  "check_timeout_consequence accepts several seats' resolved sources; AUTO_PASS is valid if any one includes pass",
+]
+changed = [
+  "BotRequest.sources is the resolved set (frozenset, possibly empty), never \"any\"",
+  "Bots must return kind GAME moves and never system sources; a crash or invalid move is a system timeout for that turn",
+  "record_event args must be JSON-serializable (TypeError otherwise)",
+  "A game without play() is skipped; a replay whose log ends before the match does is unavailable",
+  "timeout_strike is a host system row; a non-removed forfeit can be a pending seat's answer",
+]
+fixed = [
+  "until=any windows accept only one winner; inputs are logged when accepted",
+  "Turn-deadline clocks survive restart catch-up and do not reset on re-asks even after expiry",
+]
+
+[[release]]
 version = "3.0.0"
 date = "2026-10-04"
 summary = "Live matches survive restarts; forms, turn deadlines, typed results."

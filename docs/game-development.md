@@ -17,6 +17,8 @@ For unit tests or quick loops without Discord, use the same host helpers as the 
 
 ```python
 import random
+from pathlib import Path
+from strife.config.emoji import load_emoji_config
 from strife.engine.testing import MockContext
 from strife.presentation.emoji import EmojiResolver
 from my_game.game import MyGame
@@ -25,7 +27,7 @@ players = [...]  # list[Player]
 game = MyGame(players, settings={}, rng=random.Random(1))
 ctx = MockContext(
     game,
-    emoji=EmojiResolver({}),
+    emoji=EmojiResolver(load_emoji_config(Path("config/emoji.yaml"))),
     script=[(0, "tile_00", {}), (1, "tile_11", {})],
 )
 outcome = await game.play(ctx)
@@ -39,7 +41,15 @@ Use `interactive=True` to prompt on stdin when the script runs out; `verbose=Tru
 Subclass `TurnBasedGame`. See [`strife/games/tictactoe/`](../strife/games/tictactoe/).
 
 ```python
-from strife.engine import TurnBasedGame, game_metadata_from, PlayerCount, PlayerOrder, Move
+from strife.engine import (
+    TurnBasedGame,
+    game_metadata_from,
+    PlayerCount,
+    PlayerOrder,
+    BotRequest,
+    Move,
+)
+
 
 @game_metadata_from(
     key="my_game",
@@ -49,12 +59,17 @@ from strife.engine import TurnBasedGame, game_metadata_from, PlayerCount, Player
     player_order=PlayerOrder.RANDOM,
 )
 class MyGame(TurnBasedGame):
+    def __init__(self, players, settings, rng):
+        super().__init__(players, settings, rng)
+        self.current = 0
+
     def apply_move(self, move: Move) -> None: ...
     def render(self, ctx, *, lead=None, prefix_emoji=None) -> LayoutView: ...
     async def play(self, ctx) -> GameOutcome:
         move = await self.take_turn(ctx, {"tile_00"})
         ...
-    async def bot_move(self, difficulty, seat) -> Move: ...
+
+    async def bot_move(self, request: BotRequest) -> Move: ...
 ```
 
 `take_turn` renders, waits, and calls `apply_move` — live play and replay share that path. Wrap live buttons in `add_controls(container, ctx, row)` so they disappear in replay.
@@ -65,7 +80,7 @@ Override `render_replay(ctx, live_view)` to reveal hidden information in replays
 
 Attach metadata with `@game_metadata_from(...)` or `@game_metadata(META)`.
 
-In `plugin.toml`: `version` is this game’s semver; `platform_version` is the API it targets (now `3.0.0`). The host copies both onto metadata and skips the game if the platform doesn’t match. See [game-api.md](game-api.md#versions).
+In `plugin.toml`: `version` is this game’s semver; `platform_version` is the API it targets (this host is `3.1.0`; a `3.0.0` game still loads). The host copies both onto metadata and skips the game if the platform doesn’t match. See [game-api.md](game-api.md#versions).
 
 `changelog.toml` sits next to `plugin.toml`. Newest `[[release]]` first. Bump it when you bump `version`. Players see it in `/strife about` → Changes.
 
@@ -116,7 +131,9 @@ Capabilities:
 
 ```python
 row.add_button(Button(source="vote_guilty", label="Guilty", style=ButtonStyle.DANGER))
-move = await ctx.request_input(view, actor=seat, sources={"vote_guilty", "vote_innocent"})
+move = await ctx.request_input(
+    view, actor=seat, sources={"vote_guilty", "vote_innocent"}
+)
 ```
 
 **Forms** (`Select(..., form=True)`) store a pick on that seat. They are not moves and are not logged. The value is attached to the next move as `args[select.source]`. Bots return that submit move with the form args already filled.
@@ -139,9 +156,12 @@ row.add_button(Button(source="pass", label="Pass"))
 row.add_button(Button(source="peek", label="Peek", emoji="peek", query=True))
 move = await ctx.request_input(view, actor=seat, sources={"pass"})
 
+
 async def handle_query(self, seat, source, ctx) -> bool:
     if source == "peek":
-        view = query_panel(ctx, title=f"Your role: {self.role[seat]}", prefix_emoji="user")
+        view = query_panel(
+            ctx, title=f"Your role: {self.role[seat]}", prefix_emoji="user"
+        )
         await ctx.respond_query(view)
         return True
     return False
@@ -152,7 +172,11 @@ Return `True` if you handled it. Use `query_panel` for peeks and query errors �
 **Links** open a URL. No `source`:
 
 ```python
-Button(label="How to Play", style=ButtonStyle.LINK, url="https://en.wikipedia.org/wiki/Example")
+Button(
+    label="How to Play",
+    style=ButtonStyle.LINK,
+    url="https://en.wikipedia.org/wiki/Example",
+)
 ```
 
 **Ephemeral then act** (Coup): a query button opens a private panel; the control *inside* that panel is the real move (`sources={"exchange_select"}`). Form selects on that panel attach `keep` to the submit. See [`strife/games/coup/`](../strife/games/coup/).
@@ -171,20 +195,23 @@ Several players acting at once: `request_inputs` logs each answer, then emit one
 
 ```python
 votes = await ctx.request_inputs(
-    day_view, actors=set(self.alive), sources={"vote"}, until="all",
+    day_view,
+    actors=set(self.alive),
+    sources={"vote"},
+    until="all",
 )
 await ctx.record_event("day_outcome", {"lynched": lynched, "votes": {...}})
 ```
 
 Replays re-run `play()` via `run_replay` (same seed, log-driven context). `render_replay(ctx, live_view)` defaults to the live board; override to show secrets. Matches stored with `log_format < 3` cannot be replayed.
 
-Don’t record peeks. Don’t emit `forfeit` / `game_end` / `bot_takeover` / `timeout` — the host does that.
+Don’t record peeks. Don’t emit `forfeit` / `game_end` / `bot_takeover` / `timeout` / `timeout_strike` — the host does that. `record_event` args must be JSON-serializable.
 
 Test with `python scripts/run_game.py <key> --replay`.
 
 ## Bots
 
-`async def bot_move(self, request: BotRequest) -> Move` — use `request.seat`, `request.difficulty`, optionally `request.sources` (resolved allowed move sources), and `request.form` (field source → legal values). Same `source` strings as your buttons. Form-select games: return one submit move with `args[field]`. The host caps the call at 10s and validates the returned move against the request.
+`async def bot_move(self, request: BotRequest) -> Move` — use `request.seat`, `request.difficulty`, `request.sources` (resolved allowed move sources, a frozenset that may be empty), `request.form` (field source → legal values), and `request.form_fields` (`FormSpec` with cardinality and default). Same `source` strings as your buttons. Form-select games: return one submit move with `args[field]`; the host fills omitted defaults like a human submit. Return a `kind` GAME move, never a system source. The host caps the call at 10s and validates the returned move against the request. A crash or invalid move is a system timeout for that turn, not a match end.
 
 `self.rng` is **rules-only** and seeded from the match seed (replays stay deterministic). Bot heuristics use `self.bot_rng` (unseeded). The live host uses its own RNG for “which bot acts” in `until="any"` windows — never `self.rng`.
 
@@ -213,7 +240,7 @@ Helpers in [`game_ui.py`](../strife/presentation/game_ui.py): `action_status`, `
 
 ## Forfeits
 
-The host injects `forfeit` and `game_end`. Use `forfeit_outcome()` from [`outcomes.py`](../strife/engine/outcomes.py). When you override `remove_player(seat)`, the host may remove forfeiting seats mid-match. Faction games should override `forfeit_end_outcome(seat, reason)` so a timeout doesn't award every other seat.
+The host injects `forfeit` and `game_end`. Use `forfeit_outcome()` from [`outcomes.py`](../strife/engine/outcomes.py). When you override `remove_player(seat)`, the host may remove forfeiting seats mid-match. Faction games should override `forfeit_end_outcome(forfeiter_seat, reason)` so a timeout doesn't award every other seat. `TurnBasedGame` defaults `on_timeout` and `on_forfeit` to `advance()` (next active seat).
 
 `player.mention` / `str(player)` is the display name by default. Discord mention markup is installed by the host.
 

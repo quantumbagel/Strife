@@ -71,7 +71,8 @@ Needs **Python 3.14** and PostgreSQL.
 
 ```bash
 cp .env.example .env
-# set STRIFE_DISCORD_TOKEN and STRIFE_OWNER_IDS
+# Required: STRIFE_DISCORD_TOKEN. Compose sets STRIFE_DATABASE_URL.
+# STRIFE_OWNER_IDS is optional. See .env.example for the rest.
 
 docker compose up --build
 ```
@@ -104,7 +105,7 @@ Type `strife/…` at the **start** of a message. You **must** be in `STRIFE_OWNE
 | `strife/plugins` | List builtin and installed games and whether each is loaded |
 | `strife/install <git-url> [ref]` | Install a game from git (`https://` optional; `ref` = branch, tag, or commit). Rolled back if it fails to load |
 | `strife/install <key>` | Restore an uninstalled builtin |
-| `strife/update <key> [ref]` | Replace a git plugin’s files; keep match history. Reuses the recorded ref unless you pass one; restores the old files if the new code fails to load |
+| `strife/update <key> [ref]` | Replace a git plugin’s files; keep match history. Refused while that game has live matches. Reuses the recorded ref unless you pass one; restores the old files if the new code fails to load |
 | `strife/uninstall <key> confirm` | Remove a game and delete its match history |
 
 If a command errors, the bot replies with the error and logs the traceback.

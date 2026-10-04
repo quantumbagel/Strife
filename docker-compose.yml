@@ -30,6 +30,7 @@ services:
       - ./config:/app/config
       - ./plugins:/app/plugins
     restart: unless-stopped
+    init: true
     # Shutdown waits up to ~30s (offers 5 + lobbies 5 + games 15 + offers 5), then closes the pool.
     stop_grace_period: 45s
 

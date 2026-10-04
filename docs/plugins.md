@@ -10,7 +10,7 @@ Every game is a plugin: builtins in `strife/games/`, third-party clones in `plug
 
 ```toml
 key = "chess"
-version = "1.1.1"
+version = "1.2.1"
 platform_version = "3.0.0"
 dependencies = [
   "chess>=1.11.2",
@@ -18,9 +18,11 @@ dependencies = [
 ]
 ```
 
-`dependencies` are PEP 508 extras for that game only — not the Strife `pyproject.toml`. Boot / `python -m strife.plugins sync-deps` installs them; `check_dependencies` only skips the plugin if they’re missing.
+`dependencies` are PEP 508 extras for that game only — not the Strife `pyproject.toml`. Boot / `python -m strife.plugins sync-deps` installs them. Plugins with missing extras are skipped at load (`missing_dependencies`).
 
-`key` must match `GameMetadata.key`. `version` and `platform_version` are stamped from this file. `platform_version` is required and must match this host (same major, host ≥ target).
+`key` must match `GameMetadata.key`. `version` and `platform_version` are required, must be versions (`major.minor.patch`, minor/patch optional), and are stamped from this file. `platform_version` must match this host (same major, host ≥ target). Duplicate keys are rejected.
+
+Requirements cannot name host packages (`discord.py` / `discord-py`, `asyncpg`, `msgpack`, `PyYAML`, `pydantic`, `pydantic-settings`, `packaging`, `pip`, `setuptools`, `wheel`, `strife`, plus their recursive requires — see `host_protected_distributions` in [`strife/plugins/deps.py`](../strife/plugins/deps.py)) or be URL, VCS, or path specs.
 
 `changelog.toml` is optional to load. Newest `[[release]]` first; latest `version` should match `plugin.toml`. Shown in `/strife about` → Changes.
 
@@ -39,16 +41,18 @@ Empty arrays may be omitted.
 | Command | What it does |
 |---------|----------------|
 | `strife/plugins` | List builtins and git plugins, with loaded / NOT loaded / hidden status |
-| `strife/install <git-url> [ref]` | Clone, register, create a `games.yaml` row if the key is new (`enabled: true`). `github.com/you/repo` (no scheme) gets `https://`. If the plugin fails to load, the folder and both rows are rolled back and the error is shown. Missing extras load on next boot |
+| `strife/install <git-url> [ref]` | Clone, register, create a `games.yaml` row if the key is new (`enabled: true`), sync slash commands. `github.com/you/repo` (no scheme) gets `https://`. If the plugin fails to load, the folder and both rows are rolled back and the error is shown. Missing extras load on next boot |
 | `strife/install <key>` | Restore an uninstalled builtin. Does not un-hide `enabled: false` |
-| `strife/update <key> [ref]` | Replace git files; keep history. Refused while that game has a live match or lobby. If the new code fails to load, the old files and ref are restored. With no `ref`, reuses the ref recorded at install/last update (the reply says which) |
-| `strife/uninstall <key> confirm` | Stop live games, remove files, **then** delete matches/stats. If the plugin is already gone, wipes leftover history |
+| `strife/update <key> [ref]` | Replace git files; keep history. Refused while that game has a live match (in memory or stored) or lobby. If the new code fails to load for any reason (including missing extras), the old files and ref are restored. With no `ref`, reuses the ref recorded at install/last update (the reply says which). Syncs slash commands |
+| `strife/uninstall <key> confirm` | Stop live games, remove files, **then** delete matches/stats, sync slash commands. If the plugin is already gone, wipes leftover history |
 
 `ref` may be a branch, tag, or commit SHA (7–40 hex). A short SHA clones full history to resolve it and is recorded as the full SHA. A pinned commit stays pinned: `strife/update <key> main` moves it onto a branch.
 
 You can’t install a git plugin whose key collides with a shipped game — restore the builtin instead. To refresh an installed git plugin, `strife/update`, not uninstall+install.
 
-After a git install/update: `strife/emoji` if it had `emoji/`, `strife/sync` if it declared `slash_moves`. Plugin emoji stay in the package (`emoji/duke.webp` in Coup → `coup_duke`). They never copy into `assets/emoji/`.
+After a git install/update the host syncs slash commands. Run `strife/emoji` if it had `emoji/`. Plugin emoji stay in the package (`emoji/duke.webp` in Coup → `coup_duke`). They never copy into `assets/emoji/`.
+
+A live match stores a plugin **build** fingerprint (content hash of `*.py` and `plugin.toml`). After an update, the next boot resumes a live match only if that hash still matches.
 
 ## Overlay
 
@@ -63,13 +67,13 @@ Uninstalling a builtin adds it to `removed`; the files stay in the image. `games
 
 Git plugins live in `plugins/<key>/` (compose mounts `./plugins`). During `strife/update` the old copy sits in `plugins/.<key>.previous/` until the new code loads; dot-folders are never loaded. Uninstall deletes that directory and **fails** (history untouched) if it can’t. Host installs need `git` on PATH.
 
-`strife/emoji` replaces emoji one name at a time; a failed upload leaves that name on its Unicode `fallback` and is listed in the reply. It uploads plugin files as `{key}_{stem}` and platform files from `assets/emoji/` using names in `strife/presentation/base_emojis.py`.
+`strife/emoji` replaces emoji one name at a time and deletes stale names; a failed upload leaves that name on its Unicode `fallback` and is listed in the reply. It uploads plugin files as `{key}_{stem}` and platform files from `assets/emoji/` using names in `strife/presentation/base_emojis.py`.
 
 ## Dependencies
 
 If `STRIFE_SYNC_PLUGIN_DEPS` is true (default), boot pip-installs **missing** extras for active plugins (off the event loop). Missing = distribution absent or version doesn’t match (`chess>=1.11.2`). The Docker image runs `python -m strife.plugins sync-deps --builtins-only` at build so Chess works on first start.
 
-Live install/update/uninstall do **not** call pip. If extras are missing after install, files stay and the owner is told to restart. Extras are never pip-uninstalled from a running bot.
+Live install/update/uninstall do **not** call pip. If extras are missing after install, files stay and the owner is told to restart. A failed update still restores the previous files. Extras are never pip-uninstalled from a running bot.
 
 ## Trust
 

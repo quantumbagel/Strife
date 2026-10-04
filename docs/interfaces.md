@@ -83,7 +83,7 @@ Lobby and board controls that only carry a source + resource id must not expire 
 
 **Hidden info.** Mafia, Spyfall, and Liar’s Dice DM when DMs work; **Peek** always works. Coup is peek-only. Failed DMs post a thread notice — they must not dump the private content.
 
-**Rematch.** Eligible humans vote for 120s. Unanimous → new lobby with the same privacy, creator, settings, and bots. If a voter is already in another session, the vote fails (`errors.already_in_session`).
+**Rematch.** Eligible humans vote for 120s. Unanimous → new lobby with the same privacy, creator, settings, bots, blacklist, and approvals. People who left the server are skipped. If a voter is already in another session, the vote fails (`errors.already_in_session`).
 
 **Replay / profile.** Ephemeral. Jump modals edit the parent message. Abandoned matches may show on the profile list; `/strife replay` autocomplete is completed matches only.
 
@@ -116,12 +116,12 @@ Type `strife/<cmd>` at the **start** of the message. Mentions are ignored. Messa
 | Command | Does |
 |---------|------|
 | `strife/sync [local \| <guild id>]` | Push the slash tree (default: global). Guild sync warns if the tree is also global (duplicates) |
-| `strife/emoji` | Upload `assets/emoji/` plus each plugin `emoji/` as `{key}_{stem}`, one name at a time; failures keep their fallback and are listed |
+| `strife/emoji` | Replace application emoji per name and delete stale names (no source file). Uploads `assets/emoji/` plus each plugin `emoji/` as `{key}_{stem}`; a failed name keeps its fallback and is listed |
 | `strife/plugins` | List builtins and git plugins, with loaded / not loaded / hidden status |
-| `strife/install <git-url> [ref]` | Clone, register. Creates `games.yaml` row if the key is new. Rolled back if load or slash registration fails |
+| `strife/install <git-url> [ref]` | Clone, register, sync slash commands. Creates `games.yaml` row if the key is new. Rolled back if load or slash registration fails |
 | `strife/install <key>` | Restore an uninstalled builtin (does not un-hide `enabled: false`) |
-| `strife/update <key> [ref]` | Replace git files; keep history; refuse while that game is live. Old files and ref restored if reload fails |
-| `strife/uninstall <key> confirm` | Stop live games, remove plugin, **then** wipe matches/stats |
+| `strife/update <key> [ref]` | Replace git files; keep history; refuse while that game has live matches (in memory or stored). Old files and ref restored if reload fails (any reason, including missing extras). Syncs slash commands |
+| `strife/uninstall <key> confirm` | Stop live games, remove plugin, **then** wipe matches/stats. Syncs slash commands |
 | `strife/dbreset confirm` | Wipe the database and re-run migrations. Refused while games or lobbies are live; clears replay caches |
 
 `strife/clear` and `strife/treediff` are internals. Leave them out of README. `clear` wipes the slash tree and is easy to run by mistake.
@@ -132,7 +132,7 @@ Hide a game without deleting history: `config/games.yaml` `enabled: false`.
 
 | File / env | Role |
 |------------|------|
-| `config/games.yaml` | Exposure and timeouts. Unknown key → **`enabled: false`**. Fields: `enabled`, `turn_timeout_seconds`, `turn_warning_seconds`, `turn_timeout_max_strikes`, `turn_timeout_consequence` (`abandon` \| `skip` \| `auto_pass` \| `game_ends` \| `strike`), `play_hang_seconds`, `settings_overrides` |
+| `config/games.yaml` | Exposure and timeouts. A loaded game with no row is **enabled** with default tuning; only `enabled: false` hides it. Fields: `enabled`, `turn_timeout_seconds`, `turn_warning_seconds`, `turn_timeout_max_strikes`, `turn_timeout_consequence` (`abandon` \| `skip` \| `auto_pass` \| `game_ends` \| `strike`), `play_hang_seconds`, `settings_overrides` |
 | `config/plugins.yaml` | `removed` builtins, `installed` git plugins |
 | `config/emoji.yaml` | Emoji **id cache**, written by `strife/emoji` |
 | `config/text.toml` | Player-facing copy |
@@ -187,12 +187,12 @@ Games type against the protocol. They never construct a host.
 | `ctx.emoji` | Emoji keys |
 | `ctx.started_at`, `ctx.is_replay`, `ctx.is_bot(seat)` | Clock, hide controls, skip DMs |
 | `ctx.turn_timeout_seconds` | Host per-turn budget (`float`); `None` on CLI/replay (no clock) |
-| `ctx.turn_deadline(seconds)` | One clock across several `request_input` calls (no-op on replay/CLI) |
+| `ctx.turn_deadline(seconds)` | One clock across several `request_input` calls (no-op on replay/CLI; survives restart catch-up and does not reset on re-asks) |
 | `await ctx.update(view)` | Refresh the board |
 | `await ctx.request_input(...)` | One actor |
 | `await ctx.request_inputs(...)` | Simultaneous / first-to-act. `until="any"` returns `{}` if its window times out with nobody acting (no seat is penalized) |
 | `await ctx.send_private(seat, view)` | DM; thread notice if DMs fail |
-| `await ctx.record_event(source, arguments)` | One `game` log row. Rejects system names |
+| `await ctx.record_event(source, arguments)` | One `game` log row. Rejects system names. Args must be JSON-serializable (`TypeError` otherwise) |
 | `await ctx.respond_query(view)` | Only inside `handle_query` |
 
 `timeout_seconds` / `timeout_consequence` / `per_seat` (`SeatPrompt`) / `ctx.turn_deadline` are real API. Chess clocks and Coup skip-on-timeout use them. Replay answers `request_*` from the log.
@@ -209,20 +209,20 @@ Don’t call `bot_move` from `play()`. Call `request_input` so bots, humans, CLI
 | Group input | `request_inputs(...)` then one `record_event` | One `game` row per input + one event row |
 | Query | `query=True` + `handle_query` | No |
 | Link | `ButtonStyle.LINK` | No |
-| System | Host only | `forfeit`, `game_end`, `bot_takeover`, `timeout` |
+| System | Host only | `forfeit`, `game_end`, `bot_takeover`, `timeout`, `timeout_strike` |
 
 `query=True` is stripped from allowed sources. The router calls `handle_query` only for query controls. `add_controls` is a no-op when `ctx.is_replay`.
 
 `Move.args` holds payload fields. Slash **name** is the `source`.
 
-Replay re-runs `play()` with log-driven `ReplayContext`; every input is logged on live and CLI hosts.
+Replay re-runs `play()` with log-driven `ReplayContext`; every input is logged when accepted. `until="any"` keeps one winner. A bot that crashes or returns an invalid move gets a system timeout for that turn instead of ending the match.
 
 ### 5.5 Three hosts
 
 | Host | Class | Bots | Timeouts | Queries |
 |------|--------|------|----------|---------|
 | Live | `LiveContext` | via `request_input` | Honor | `handle_query` |
-| CLI | `strife.engine.testing.MockContext` | Real `bot_move` + `validate_bot_move`; same `resolve_sources` as live | Passed through | Optional |
+| CLI | `strife.engine.testing.MockContext` | Real `bot_move` + `validate_bot_move`; same `resolve_sources` as live | Accepted but not enforced | Optional |
 | Replay | `ReplayContext` | n/a | n/a | n/a |
 
 CLI and live share `MatchLog` semantics (`record` / `event` / `system`); `--replay` calls `run_replay` on the same `Move` stream as `recorded_moves`.
@@ -233,7 +233,7 @@ CLI and live share `MatchLog` semantics (`record` / `event` / `system`); `--repl
 
 Games build dataclasses in `strife/presentation/components.py`. Emoji is a string key. Files are `ViewFile` bytes. Don’t set `route_prefix` / `resource_id` on board controls.
 
-`ChannelSelect` / `UserSelect` are host widgets. `MoveParam.autocomplete` is `(current: str) -> list[str]` — no Discord `Interaction`. Shipped games must not need Discord types.
+`ChannelSelect` / `UserSelect` are host widgets. `MoveParam.autocomplete` is `async def autocomplete(current: str) -> list[str]` — no Discord `Interaction`. Shipped games must not need Discord types.
 
 Compiler limits fail in the host. CLI should surface the same `LayoutError`.
 
@@ -250,7 +250,7 @@ Compiler limits fail in the host. CLI should surface the same `LayoutError`.
 ## 7. Still open
 
 - `/strife lobby *` still exists as a parallel surface. Deleting duplicates is optional (`/strife lobby join` stays).
-- Live matches are a `matches` row with `status = 'live'` from the start; moves are appended as they're logged. Graceful shutdown pauses them, and the next boot resumes them (or posts an “interrupted” notice and locks the thread if the plugin is gone, its version changed, or catch-up fails). A kill -9 can lose at most the last few unflushed rows.
+- Live matches are a `matches` row with `status = 'live'` from the start; moves are appended as they're logged (retried until stored). Finish retries too. One live match per thread. Graceful shutdown pauses them, and the next boot resumes them (or posts an “interrupted” notice and locks the thread if the plugin is gone, its content-hash build changed, or catch-up fails). Turn-deadline clocks and timeout strikes survive that catch-up; the board and DMs are re-sent. A kill -9 can lose at most the last few unflushed rows.
 - Profile `list_recent` still uses a per-row count subquery.
 - `config/emoji.yaml` may keep leftover cache keys until the next `strife/emoji`.
 - `errors.not_on_whitelist` is unused copy.
@@ -264,7 +264,7 @@ Member cache is off, so join/ready may fetch while holding the lobby lock. Match
 
 Repos are one module. A match row is inserted on start (`live`), moves are appended as they're logged, and finalize marks the status and backfills any missing moves.
 
-`strife/emoji` still deletes every application emoji before upload.
+`strife/emoji` replaces each planned name and deletes stale names (no source file).
 
 Plugins run in-process. Live install does not pip-install; missing extras load on the next boot.
 

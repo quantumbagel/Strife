@@ -81,7 +81,7 @@ A loaded game with no row is enabled with the `defaults` tuning (boot logs that 
 
 A click becomes `Move(actor_seat, source, args)` after the host checks seat and allowed sources. Attachments are `ViewFile` bytes.
 
-Don’t import `discord`, encode `custom_id`s, set `route_prefix` on board controls, touch the database, or emit system log names (`forfeit`, `game_end`, `bot_takeover`, `timeout`). `Player.mention` is format-agnostic; Discord markup is installed by the host.
+Don’t import `discord`, encode `custom_id`s, set `route_prefix` on board controls, touch the database, or emit system log names (`forfeit`, `game_end`, `bot_takeover`, `timeout`, `timeout_strike`). `record_event` args must be JSON-serializable. `Player.mention` is format-agnostic; Discord markup is installed by the host.
 
 Layout is dataclasses (`LayoutView`, `Button`, …), not `discord.ui`. Emoji is a string key. The host compiles, signs `custom_id`s, and sends. Limits (40 components, 4000 chars, 100-char ids) fail in the host.
 
@@ -99,11 +99,11 @@ Replay builds a fresh game with the stored seed and re-runs `play()` against the
 
 Seat events (removals, bot takeovers) are applied by the engine at the position of their log row — when `play()` next calls `request_input` / `request_inputs` / `record_event`, or before the move that follows them is returned. `remove_player` is called by the engine exactly once; games must not call it. `ctx.is_bot(seat)` is the game’s view of that seat (updated at those sync points).
 
-Timeouts, forfeits, persist, rematch, and thread lock stay in the session. `timeout_consequence=AUTO_PASS` requires `"pass"` in allowed sources; otherwise the host injects a system `timeout` instead.
+Timeouts, forfeits, persist, rematch, and thread lock stay in the session. `timeout_consequence=AUTO_PASS` is valid if at least one seat’s resolved sources include `"pass"`; seats without it get a system `timeout`. A bot that crashes or returns an invalid move gets a system timeout for that turn.
 
 ## Restarts
 
-Live matches are written as they run (match row at start, moves as they are logged). After a crash or graceful restart, the host re-runs `play()` against that log until it catches up, then continues live — another reason `play()` must be deterministic given seed, players, settings, and log. If the plugin is gone or its version changed while a match was live, the next boot abandons it instead.
+Live matches are written as they run (match row at start, moves retried until stored; one live match per thread). After a crash or graceful restart, the host re-runs `play()` against that log until it catches up, then continues live — another reason `play()` must be deterministic given seed, players, settings, and log. Turn-deadline clocks and timeout strikes survive catch-up; the board and DMs are re-sent. If the plugin is gone or its build fingerprint (content hash of `*.py` and `plugin.toml`) changed while a match was live, the next boot abandons it instead. Rows with no stored build still compare `game_version`.
 
 ## Discord exposure
 
@@ -131,7 +131,7 @@ A tight CPU loop (no await) still freezes the process. `run_cpu` offloads to a t
 1. `plugin.toml` + `GAME` export. `changelog.toml` for Changes
 2. Key matches, versions valid, extras installed, not in `plugins.yaml` `removed`
 3. Not `enabled: false` in `config/games.yaml` (a missing row means enabled)
-4. Optional `strife/emoji` and `strife/sync` for `slash_moves`
+4. Optional `strife/emoji`. Install/update/uninstall sync slash commands automatically
 
 No edits to `bot.py`, the router, or `strife.session`.
 

@@ -2,6 +2,33 @@
 # Newest first. Game API versions go in platform.toml.
 
 [[release]]
+version = "1.2.0"
+date = "2026-10-04"
+summary = "Live matches pause and resume; lobby, match, and replay fixes."
+changed = [
+  "Live matches pause on shutdown and resume after a restart",
+  "Plugin installs and updates roll back on failure; an update is refused while that game is live",
+]
+fixed = [
+  "A lobby no longer auto-starts when someone leaves or is kicked",
+  "Deny on a stale join-request card explains itself",
+  "Rematch keeps the blacklist and approvals, and skips people who left the server",
+  "Bulk-deleted or channel-deleted lobbies release their players",
+  "/play during a restart no longer fails",
+  "Two first-to-act clicks at once no longer both count",
+  "A bot that errors no longer ends the match",
+  "Timeouts no longer race with a click that already landed",
+  "Timeout strikes survive a restart",
+  "A deleted board message is posted again",
+  "Archived game threads reopen when the match resumes",
+  "Replay buttons respond while a long rebuild is running",
+  "A still-live match code says the game is still going",
+  "Abandoned matches no longer read as a draw",
+  "Profile page jump and last page work",
+  "Forfeit results show on the profile",
+]
+
+[[release]]
 version = "1.1.0"
 date = "2026-10-04"
 summary = "Replays rebuilt from the real game; old replays retired."

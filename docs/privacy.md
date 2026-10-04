@@ -6,19 +6,20 @@ Strife is a Discord bot. If you invite the public instance, this is what it stor
 
 - Guild (server) IDs and an optional default lobby channel
 - User IDs and display names of people who play
-- Finished matches: game, settings, seed, outcome, move log (for replay)
+- Live matches from the start (`matches` row with status `live`): game, guild / thread / message IDs, seed, settings, game version and build, timeout settings, lobby privacy and creator, and each seat’s user ID, display name, role, and bot flags. Moves are appended as they happen
+- Finished matches: the same row (status `completed` or `abandoned`), outcome, and the full move log (for replay)
 - Per-user win / loss / draw / played counts by game
 
-Live lobbies and in-progress matches stay in the memory of the program and are not themselve stored.
+Lobbies stay in the memory of the program and are not stored.
 
 ## Not stored
 
-- Messages
-- Any Discord account information
+- Channel messages (except the IDs of the match thread, board, header, and lobby card)
+- Discord account fields other than user ID and the display name recorded at play time
 
 ## Why
 
-So `/strife replay` and `/strife profile` work. Guild IDs so `/strife server` can remember the default lobby channel.
+So `/strife replay` and `/strife profile` work, and so a restart can resume a live match. Guild IDs so `/strife server` can remember the default lobby channel.
 
 ## Who can see what
 
@@ -30,7 +31,9 @@ So `/strife replay` and `/strife profile` work. Guild IDs so `/strife server` ca
 
 ## Retention
 
-History and stats stay until the operator deletes the database. There is no public self-serve delete. Contact the operator (`/strife about`) to request deletion of your user row and match-player rows.
+History and stats stay until the operator deletes them. There is no public self-serve delete. Contact the operator (`/strife about`) to request deletion of your user row and match-player rows.
+
+The operator can also wipe history with `strife/uninstall <key> confirm` (that game’s matches and stats) or `strife/dbreset confirm` (the whole database).
 
 ## Self-hosted
 
