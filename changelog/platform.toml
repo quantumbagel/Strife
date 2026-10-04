@@ -21,6 +21,7 @@ changed = [
 ]
 fixed = [
   "until=any windows accept only one winner; inputs are logged when accepted",
+  "request_inputs(until=\"all\") returns answers in log order live too, matching restarts and replays",
   "Turn-deadline clocks survive restart catch-up and do not reset on re-asks even after expiry",
 ]
 

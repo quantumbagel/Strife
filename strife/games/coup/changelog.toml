@@ -1,4 +1,12 @@
 [[release]]
+version = "1.1.1"
+date = "2026-10-04"
+summary = "Simultaneous challenges resume and replay the same way."
+fixed = [
+  "When several players challenge or block at once, the lowest seat wins the tie every time, so restarts and replays agree with the live game",
+]
+
+[[release]]
 version = "1.1.0"
 date = "2026-10-04"
 summary = "Replays show every hand. AFK takeovers keep playing."

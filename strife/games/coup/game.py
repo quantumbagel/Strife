@@ -113,7 +113,8 @@ class Coup(Game):
     def _pick_challenge(self, moves: dict[int, Move]) -> tuple[int | None, Move | None]:
         human = None
         bot = None
-        for seat, move in moves.items():
+        # Lowest seat wins a tie, independent of the order the answers arrived in.
+        for seat, move in sorted(moves.items()):
             if move.interrupt is not None:
                 continue
             if move.source != "challenge":
@@ -129,7 +130,7 @@ class Coup(Game):
         valid = self._valid_block_sources(action_type)
         human = None
         bot = None
-        for seat, move in moves.items():
+        for seat, move in sorted(moves.items()):
             if move.interrupt is not None:
                 continue
             if move.source not in valid:

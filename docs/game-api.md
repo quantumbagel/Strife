@@ -216,6 +216,8 @@ Banner metadata for removals and bot takeover uses `system_replay_info()` from `
 
 `until="all"` keeps per-seat timeouts: each seat that runs out gets its own consequence.
 
+The returned dict is in the order the answers were accepted (log order), live, after a restart, and in replays. Don't let a tie depend on it anyway: pick by seat (e.g. lowest seat), not by "first item".
+
 ## Public types
 
 Exported from `strife.engine`:

@@ -324,7 +324,8 @@ class LiveContext:
             self._sync(max(move.turn_index for move in results.values()))
         elif self._host()._phase_timeout_index is not None:
             self._sync(self._host()._phase_timeout_index)
-        return results
+        # Log order, the same order catch-up and replay build this dict in.
+        return dict(sorted(results.items(), key=lambda item: item[1].turn_index))
 
     async def send_private(self, seat: int, view: LayoutView) -> None:
         self._touch()
