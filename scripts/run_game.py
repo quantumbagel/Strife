@@ -28,13 +28,16 @@ def _load_emoji() -> EmojiResolver:
     return EmojiResolver(load_emoji_config(ROOT / "config" / "emoji.yaml"))
 
 
-def _parse_scripted(raw: list[str]) -> list[tuple[int, str, dict]]:
-    moves: list[tuple[int, str, dict]] = []
+def _parse_scripted(raw: list[str]) -> list[tuple[int | None, str, dict]]:
+    moves: list[tuple[int | None, str, dict]] = []
     for item in raw:
         parts = item.split(":", 2)
         if len(parts) != 3:
             raise ValueError(f"Invalid move format '{item}'. Use seat:source:args_json")
-        seat = int(parts[0])
+        if parts[0] in ("", "None", "none", "null"):
+            seat: int | None = None
+        else:
+            seat = int(parts[0])
         source = parts[1]
         args = {} if not parts[2] else __import__("json").loads(parts[2])
         moves.append((seat, source, args))

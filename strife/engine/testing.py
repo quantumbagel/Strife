@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import random
 from collections.abc import Mapping
@@ -17,12 +18,22 @@ from strife.engine.inputs import (
     validate_form_args,
 )
 from strife.engine.log import SYSTEM_SOURCES, LogEntryKind
+from strife.engine.log_cursor import (
+    LogEnded,
+    ReplayDivergence,
+    args_equal,
+    is_match_ending,
+)
 from strife.engine.match_log import MatchLog
 from strife.engine.players import Move
+from strife.logging import get_logger
 from strife.engine.requests import SeatPrompt, TimeoutConsequence
 from strife.engine.seat_events import apply_seat_event, is_seat_event
 from strife.presentation.components import LayoutView, default_form_values, form_fields
 from strife.presentation.emoji import EmojiResolver
+
+
+log = get_logger("engine.testing")
 
 
 class ScriptExhausted(RuntimeError):
@@ -37,7 +48,7 @@ class MockContext:
         game: Game,
         *,
         emoji: EmojiResolver,
-        script: list[tuple[int, str, dict]] | None = None,
+        script: list[tuple[int | None, str, dict]] | None = None,
         interactive: bool = False,
         verbose: bool = False,
     ) -> None:
@@ -104,11 +115,12 @@ class MockContext:
         if form:
             validate_form_args(form, move.args)
 
-    def _script_row(self, index: int) -> tuple[int, str, dict, LogEntryKind] | None:
+    def _script_row(self, index: int) -> tuple[int | None, str, dict, LogEntryKind] | None:
         if index >= len(self._script):
             return None
         row = self._script[index]
-        seat = int(row[0])
+        raw_seat = row[0]
+        seat = None if raw_seat is None else int(raw_seat)
         source = str(row[1])
         args = dict(row[2])
         if len(row) >= 4:
@@ -119,27 +131,47 @@ class MockContext:
             kind = LogEntryKind.GAME
         return seat, source, args, kind
 
+    def _script_move(self, row: tuple[int | None, str, dict, LogEntryKind]) -> Move:
+        seat, source, args, kind = row
+        return Move(
+            actor_seat=seat,
+            source=source,
+            args=dict(args),
+            kind=kind,
+        )
+
+    def _log_scripted_system(
+        self, source: str, args: dict, actor_seat: int | None
+    ) -> Move:
+        logged = self.log.system(source, dict(args), actor_seat=actor_seat)
+        if self._verbose:
+            print(f"[system] {logged.source} {logged.args} seat={actor_seat}")
+        self._script_index += 1
+        return logged
+
     def _drain_metadata(self, waiting: set[int]) -> None:
         while True:
             row = self._script_row(self._script_index)
             if row is None:
                 return
             seat, source, args, kind = row
-            move = Move(
-                actor_seat=seat,
-                source=source,
-                args=dict(args),
-                kind=kind,
-            )
+            move = self._script_move(row)
+            if is_match_ending(move):
+                answers_waiting = (
+                    move.source == "forfeit"
+                    and move.actor_seat is not None
+                    and int(move.actor_seat) in waiting
+                )
+                if answers_waiting:
+                    return
+                self._log_scripted_system(source, args, seat)
+                raise LogEnded(match_ended=True)
             if kind != LogEntryKind.SYSTEM or not is_seat_event(move):
                 return
-            if source == "forfeit" and seat in waiting:
+            if source == "forfeit" and seat is not None and seat in waiting:
                 return
             apply_seat_event(self._game, move)
-            logged = self.log.system(source, dict(args), actor_seat=seat)
-            if self._verbose:
-                print(f"[system] {logged.source} {logged.args} seat={seat}")
-            self._script_index += 1
+            self._log_scripted_system(source, args, seat)
 
     def _take_scripted(
         self, seat: int, allowed: set[str] | None, view: LayoutView
@@ -213,6 +245,33 @@ class MockContext:
             if seat in seats:
                 return seat
 
+    async def _bot_move(
+        self,
+        view: LayoutView,
+        seat: int,
+        *,
+        allowed: set[str] | None,
+        description: str | None,
+    ) -> Move | None:
+        request = make_bot_request(
+            self._game.players,
+            view,
+            seat,
+            sources=allowed,
+            description=description,
+        )
+        try:
+            move = await asyncio.wait_for(self._game.bot_move(request), timeout=10.0)
+            move = apply_bot_form(request, move)
+            validate_bot_move(request, move)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Same as the live host: the turn becomes a system timeout, but say why.
+            log.exception("Bot move failed for seat %s; logging a timeout", seat)
+            return None
+        return move
+
     async def _act(
         self,
         view: LayoutView,
@@ -223,16 +282,19 @@ class MockContext:
     ) -> Move:
         move = self._take_scripted(seat, allowed, view)
         if move is None and self.is_bot(seat):
-            request = make_bot_request(
-                self._game.players,
+            move = await self._bot_move(
                 view,
                 seat,
-                sources=allowed,
+                allowed=allowed,
                 description=description,
             )
-            move = await self._game.bot_move(request)
-            move = apply_bot_form(request, move)
-            validate_bot_move(request, move)
+            if move is None:
+                move = Move(
+                    actor_seat=seat,
+                    source="timeout",
+                    args={},
+                    kind=LogEntryKind.SYSTEM,
+                )
         elif move is None:
             if self._interactive:
                 move = self._prompt_interactive(seat, allowed, view)
@@ -299,7 +361,15 @@ class MockContext:
         if until == "any":
             row = self._script_row(self._script_index)
             if row is not None:
-                script_seat = row[0]
+                script_seat, source, args, kind = row
+                if (
+                    kind == LogEntryKind.SYSTEM
+                    and source == "timeout"
+                    and script_seat is None
+                    and args.get("until") == "any"
+                ):
+                    self._log_scripted_system(source, args, script_seat)
+                    return {}
                 if script_seat in actors:
                     move = await self._act(
                         view,
@@ -314,12 +384,28 @@ class MockContext:
 
             if bots:
                 bot_seat = self._rng.choice(sorted(bots))
-                move = await self._act(
+                move = await self._bot_move(
                     view,
                     bot_seat,
                     allowed=_allowed(bot_seat),
                     description=_description(bot_seat),
                 )
+                if move is None:
+                    logged = self.log.system(
+                        "timeout",
+                        {
+                            "reason": "timeout",
+                            "until": "any",
+                            "seats": sorted(actors),
+                        },
+                    )
+                    if self._verbose:
+                        print(
+                            f"[system] {logged.source} {logged.args} "
+                            f"seat={logged.actor_seat}"
+                        )
+                    return {}
+                self.log.record(move)
                 return {bot_seat: move}
 
             if self._interactive:
@@ -392,6 +478,16 @@ class MockContext:
 
     async def record_event(self, source: str, arguments: dict) -> None:
         self._drain_metadata(set())
+        row = self._script_row(self._script_index)
+        if row is not None:
+            script_seat, script_source, script_args, kind = row
+            if kind == LogEntryKind.GAME and script_seat is None:
+                self._script_index += 1
+                if script_source != source or not args_equal(script_args, arguments):
+                    raise ReplayDivergence(
+                        f"record_event {source!r} args mismatch: "
+                        f"log={script_args!r} live={arguments!r}"
+                    )
         if self._verbose:
             print(f"[event] {source} {arguments}")
         self.log.event(source, arguments)
