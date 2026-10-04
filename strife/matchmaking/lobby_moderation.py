@@ -81,7 +81,8 @@ class LobbyModerationMixin:
             lobby.approved.discard(target_id)
             lobby.pending_requests.pop(target_id, None)
             await self._eject_member(lobby, target_id)
-        await interaction.response.defer(ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="access", edit=True)
         await self._refresh(lobby, interaction)
 
@@ -98,7 +99,8 @@ class LobbyModerationMixin:
                 await self._error(interaction, "errors.not_blacklisted", lobby=lobby)
                 return
             lobby.blacklist.discard(target_id)
-        await interaction.response.defer(ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="access", edit=True)
         await self._refresh(lobby, interaction)
 
@@ -126,7 +128,8 @@ class LobbyModerationMixin:
                 )
             )
             lobby.reset_ready()
-        await interaction.response.defer(ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="general", edit=True)
         await self._refresh(lobby, interaction)
 
@@ -144,7 +147,8 @@ class LobbyModerationMixin:
                 return
             lobby.bots = [bot for bot in lobby.bots if bot.name != name]
             lobby.reset_ready()
-        await interaction.response.defer(ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="general", edit=True)
         await self._refresh(lobby, interaction)
 
@@ -172,13 +176,14 @@ class LobbyModerationMixin:
             lobby.pending_requests.pop(target_id, None)
             await self._eject_member(lobby, target_id)
             if not lobby.members:
-                await interaction.response.defer(ephemeral=True)
+                if not interaction.response.is_done():
+                    await interaction.response.defer(ephemeral=True)
                 await self._teardown(lobby, interaction)
                 return
-        await interaction.response.defer(ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="access", edit=True)
-        await self._refresh(lobby, interaction)
-        if kicked_name:
+        if await self._refresh(lobby, interaction) and kicked_name:
             await self._success(interaction, "lobby.player_kicked", name=kicked_name)
 
     async def _clear_ready(
@@ -188,10 +193,11 @@ class LobbyModerationMixin:
             await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
         lobby.ready.clear()
-        await interaction.response.defer(ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="general", edit=True)
-        await self._refresh(lobby, interaction)
-        await self._success(interaction, "lobby.ready_cleared")
+        if await self._refresh(lobby, interaction):
+            await self._success(interaction, "lobby.ready_cleared")
 
     async def _pre_approve(
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
@@ -216,10 +222,10 @@ class LobbyModerationMixin:
             lobby.denied.discard(target_id)
             lobby.pending_requests.pop(target_id, None)
             approved_name = await self._display_name(interaction.guild, target_id)
-        await interaction.response.defer(ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="access", edit=True)
-        await self._refresh(lobby, interaction)
-        if approved_name:
+        if await self._refresh(lobby, interaction) and approved_name:
             await self._success(
                 interaction, "lobby.player_preapproved", name=approved_name
             )
@@ -240,7 +246,8 @@ class LobbyModerationMixin:
                 return
             lobby.approved.discard(target_id)
             revoked_name = await self._display_name(interaction.guild, target_id)
-        await interaction.response.defer(ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="access", edit=True)
         if revoked_name:
             await self._success(

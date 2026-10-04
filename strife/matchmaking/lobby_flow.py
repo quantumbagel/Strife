@@ -262,6 +262,17 @@ class LobbyFlowMixin:
         if lobby is None:
             await self._disable_and_report_closed(interaction, "lobby.already_dead")
             return
+        # send_modal must be the first response; skip REST and the lobby lock.
+        if route.prefix == P.LOBBY_OPT_MODAL:
+            if await self._reject_frozen_lobby(lobby, interaction):
+                return
+            await self._option_modal(lobby, route, interaction)
+            return
+        if not interaction.response.is_done():
+            if route.prefix == P.LOBBY_SETTINGS and route.source != "tab":
+                await interaction.response.defer(ephemeral=True, thinking=True)
+            else:
+                await interaction.response.defer()
         if route.prefix != P.LOBBY_LEAVE:
             if not await self._check_lobby_channel_access(interaction, lobby):
                 return
@@ -332,7 +343,7 @@ class LobbyFlowMixin:
         if should_start:
             await self._start(lobby, route, interaction)
 
-    async def _refresh(self, lobby: Lobby, interaction: discord.Interaction) -> None:
+    async def _refresh(self, lobby: Lobby, interaction: discord.Interaction) -> bool:
         meta = self._meta(lobby.game_key)
         try:
             view = self._build_lobby_view(lobby, meta)
@@ -341,7 +352,7 @@ class LobbyFlowMixin:
 
             if isinstance(exc, LayoutError):
                 await self._error(interaction, "common.error", lobby=lobby)
-                return
+                return False
             raise
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
@@ -357,8 +368,9 @@ class LobbyFlowMixin:
 
                 if isinstance(exc, LayoutError):
                     await self._error(interaction, "common.error", lobby=lobby)
-                    return
+                    return False
                 raise
+        return True
 
     async def _seat_member(
         self,
@@ -495,6 +507,8 @@ class LobbyFlowMixin:
         creator_only: bool = False,
         require_channel_access: bool = True,
     ) -> Lobby | None:
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         lobby = self.lobby_of_user(interaction.user.id)
         if lobby is None:
             loc = self.registries.location_of(interaction.user.id)
@@ -567,18 +581,17 @@ class LobbyFlowMixin:
             lobby.pending_requests[user.id] = user.display_name
             if not interaction.response.is_done():
                 await interaction.response.defer(ephemeral=True)
-            await self._refresh(lobby, interaction)
-            await self._success(
-                interaction,
-                "lobby.request_sent",
-                creator=f"<@{lobby.creator_id}>",
-            )
+            if await self._refresh(lobby, interaction):
+                await self._success(
+                    interaction,
+                    "lobby.request_sent",
+                    creator=f"<@{lobby.creator_id}>",
+                )
             return
 
         if not await self._seat_member(lobby, user.id, user.display_name, interaction):
             return
-        await self._refresh(lobby, interaction)
-        if announce_join:
+        if await self._refresh(lobby, interaction) and announce_join:
             await self._success(interaction, "lobby.joined")
 
     async def _join(
@@ -600,8 +613,7 @@ class LobbyFlowMixin:
         """Drop the caller's pending join request. Call with ``lobby.lock`` held."""
         if lobby.pending_requests.pop(interaction.user.id, None) is None:
             return False
-        await self._refresh(lobby, interaction)
-        if notify:
+        if await self._refresh(lobby, interaction) and notify:
             await self._success(interaction, "lobby.request_withdrawn")
         return True
 
@@ -651,8 +663,8 @@ class LobbyFlowMixin:
         if interaction.user.id in lobby.ready:
             # One shared button toggles; say so, or a double-click silently un-readies.
             lobby.ready.discard(interaction.user.id)
-            await self._refresh(lobby, interaction)
-            await self._success(interaction, "lobby.ready_off")
+            if await self._refresh(lobby, interaction):
+                await self._success(interaction, "lobby.ready_off")
             return False
         meta = self._meta(lobby.game_key)
         ok, reason_key, reason_kwargs = lobby.can_ready(meta, self.text)

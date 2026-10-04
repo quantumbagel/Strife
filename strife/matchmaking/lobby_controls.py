@@ -43,7 +43,7 @@ class LobbyControlsMixin:
         except LayoutError:
             await self._error(interaction, "common.error", lobby=lobby)
             return
-        if edit:
+        if edit or interaction.response.is_done():
             await interaction.edit_original_response(view=compiled)
         else:
             await interaction.response.send_message(view=compiled, ephemeral=True)
@@ -73,7 +73,8 @@ class LobbyControlsMixin:
             return
         tab = normalize_settings_tab(route.payload.get("tab"))
         if route.source == "tab":
-            await interaction.response.defer(ephemeral=True)
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True)
             await self._send_settings(lobby, interaction, tab=tab, edit=True)
             return
         await self._send_settings(lobby, interaction, tab=tab, edit=False)
@@ -87,7 +88,8 @@ class LobbyControlsMixin:
         values = interaction.data.get("values") if interaction.data else []
         if values:
             lobby.private = values[0] == "private"
-        await interaction.response.defer(ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="general", edit=True)
         await self._refresh(lobby, interaction)
 
@@ -102,7 +104,8 @@ class LobbyControlsMixin:
         lobby.pending_requests.clear()
         lobby.denied.clear()
         lobby.blacklist.clear()
-        await interaction.response.defer(ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="general", edit=True)
         await self._refresh(lobby, interaction)
 
@@ -148,7 +151,8 @@ class LobbyControlsMixin:
                 lobby.settings[key] = raw
         if lobby.settings != before:
             lobby.reset_ready()
-        await interaction.response.defer(ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="rules", edit=True)
         await self._refresh(lobby, interaction)
 
@@ -178,6 +182,8 @@ class LobbyControlsMixin:
 
         async def apply(modal_interaction: discord.Interaction, value: int) -> None:
             # The modal can sit open while the lobby starts, ends, or changes hands.
+            if not modal_interaction.response.is_done():
+                await modal_interaction.response.defer()
             async with lobby.lock:
                 if self.registries.get_lobby(lobby.thread_id) is not lobby:
                     await self._error(modal_interaction, "lobby.already_dead")
@@ -191,7 +197,6 @@ class LobbyControlsMixin:
                 self._apply_int_setting(lobby, option, value)
                 if lobby.settings != before:
                     lobby.reset_ready()
-                await modal_interaction.response.defer(ephemeral=True)
                 await self._send_settings(lobby, modal_interaction, tab="rules", edit=True)
                 await self._refresh(lobby, modal_interaction)
 
@@ -225,7 +230,8 @@ class LobbyControlsMixin:
         lobby.settings = self._default_settings(self._meta(lobby.game_key))
         if lobby.settings != before:
             lobby.reset_ready()
-        await interaction.response.defer(ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="rules", edit=True)
         await self._refresh(lobby, interaction)
 

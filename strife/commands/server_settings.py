@@ -165,19 +165,18 @@ class ServerSettingsService:
     ) -> None:
         if not await self._require_admin(interaction):
             return
+        if not interaction.response.is_done():
+            if edit:
+                await interaction.response.defer()
+            else:
+                await interaction.response.defer(ephemeral=True)
         await self.guilds.upsert(interaction.guild_id)
         channel_id = await self.guilds.get_default_channel(interaction.guild_id)
         view = self._build_view(interaction.guild_id, channel_id)
         compiled = self.compiler.compile(
             view, resource_id=interaction.guild_id, prefix=P.SERVER_NAV
         )
-        if edit:
-            if interaction.response.is_done():
-                await interaction.edit_original_response(view=compiled)
-            else:
-                await interaction.response.edit_message(view=compiled)
-        else:
-            await interaction.response.send_message(view=compiled, ephemeral=True)
+        await interaction.edit_original_response(view=compiled)
 
     async def set_channel(
         self, interaction: discord.Interaction, channel_id: int
@@ -223,9 +222,10 @@ class ServerSettingsService:
     async def clear_channel(self, interaction: discord.Interaction) -> None:
         if not await self._require_admin(interaction):
             return
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         await self.guilds.upsert(interaction.guild_id)
         await self.guilds.clear_default_channel(interaction.guild_id)
-        await interaction.response.defer(ephemeral=True)
         view = self._build_view(interaction.guild_id, None)
         compiled = self.compiler.compile(
             view, resource_id=interaction.guild_id, prefix=P.SERVER_NAV
