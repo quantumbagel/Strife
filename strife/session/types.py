@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from strife.engine.game import Game
-from strife.engine.inputs import InvalidBotMove, validate_bot_move
+from strife.engine.inputs import InvalidBotMove, apply_bot_form, validate_bot_move
 from strife.engine.players import Move
 from strife.engine.requests import BotRequest, TimeoutConsequence
 from strife.logging import get_logger
@@ -31,6 +31,7 @@ def guard_bot_move(game: Game) -> None:
             log.exception("Bot move crashed or timed out for seat %s", request.seat)
             raise RuntimeError(f"Bot failed to make a move: {e}") from e
         try:
+            move = apply_bot_form(request, move)
             validate_bot_move(request, move)
         except InvalidBotMove as e:
             log.error("Bot move validation failed for seat %s: %s", request.seat, e)

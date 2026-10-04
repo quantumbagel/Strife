@@ -34,9 +34,10 @@ def _players_from_match(detail: MatchDetail) -> list[Player]:
 
 def _apply_host_bookkeeping(
     players: list[Player], moves: list[Move]
-) -> tuple[set[int], set[int]]:
+) -> tuple[set[int], set[int], dict[int, int]]:
     taken_over: set[int] = set()
     removed: set[int] = set()
+    timeout_strikes: dict[int, int] = {}
     by_seat = {p.seat: p for p in players}
     for move in moves:
         if not move.is_system:
@@ -57,7 +58,13 @@ def _apply_host_bookkeeping(
             seat = move.actor_seat
             if seat is not None:
                 removed.add(int(seat))
-    return taken_over, removed
+        elif move.source == "timeout_strike":
+            seat = move.args.get("seat")
+            count = move.args.get("count")
+            if seat is None or count is None:
+                continue
+            timeout_strikes[int(seat)] = int(count)
+    return taken_over, removed, timeout_strikes
 
 
 async def _fetch_thread(bot, thread_id: int) -> discord.Thread | None:
@@ -112,10 +119,6 @@ async def abandon_unresumed(bot, matches, live: MatchDetail, moves: list[Move], 
         turn_index=next_index,
         created_at=datetime.now(timezone.utc),
     )
-    try:
-        await matches.append_moves(live.id, [game_end])
-    except Exception:
-        log.exception("Failed to append game_end for live match %s", live.id)
     finished = FinishedMatch(
         code=live.code,
         game_key=live.game_key,
@@ -131,7 +134,7 @@ async def abandon_unresumed(bot, matches, live: MatchDetail, moves: list[Move], 
         },
         total_turns=sum(1 for m in moves if m.is_game and m.actor_seat is not None),
         players=list(live.players),
-        moves=[],
+        moves=[*moves, game_end],
         started_at=live.started_at,
         ended_at=datetime.now(timezone.utc),
         match_id=live.id,
@@ -187,23 +190,47 @@ async def _resume_one(bot, live: MatchDetail, matches, moves_repo, registry) -> 
     elif not registry.contains(live.game_key):
         skip_reason = "game not registered"
     else:
-        current = registry.metadata(live.game_key).version
-        if live.game_version is None or live.game_version != current:
-            skip_reason = "plugin version changed"
-        elif log_ends_match(stored_moves):
+        if live.game_build is not None:
+            plugin_manager = getattr(bot, "plugin_manager", None)
+            current_build = (
+                plugin_manager.build_for(live.game_key)
+                if plugin_manager is not None
+                else None
+            )
+            if current_build != live.game_build:
+                skip_reason = "plugin build changed"
+        else:
+            current = registry.metadata(live.game_key).version
+            if live.game_version is None or live.game_version != current:
+                skip_reason = "plugin version changed"
+        if skip_reason is None and log_ends_match(stored_moves):
             skip_reason = "log already ended"
 
     thread = await _fetch_thread(bot, thread_id) if thread_id is not None else None
     board_message = None
     header_message = None
     if skip_reason is None:
-        if thread is None or live.board_message_id is None:
-            skip_reason = "thread or board missing"
+        if thread is None:
+            skip_reason = "thread missing"
         else:
+            if thread.archived or thread.locked:
+                try:
+                    await thread.edit(archived=False, locked=False)
+                except discord.Forbidden:
+                    log.warning(
+                        "Couldn't unarchive/unlock thread %s for live match %s",
+                        thread.id,
+                        live.id,
+                    )
+                except discord.HTTPException as exc:
+                    log.warning(
+                        "Couldn't unarchive/unlock thread %s for live match %s: %s",
+                        thread.id,
+                        live.id,
+                        exc,
+                    )
             board_message = await _fetch_message(thread, live.board_message_id)
             header_message = await _fetch_message(thread, live.header_message_id)
-            if board_message is None:
-                skip_reason = "board message missing"
 
     if skip_reason is not None:
         log.info("Skipping resume of match %s (%s): %s", live.id, live.game_key, skip_reason)
@@ -211,11 +238,12 @@ async def _resume_one(bot, live: MatchDetail, matches, moves_repo, registry) -> 
         return
 
     assert thread is not None
-    assert board_message is not None
 
     game_players = _players_from_match(live)
     session_players = [dataclasses.replace(p) for p in game_players]
-    taken_over, removed = _apply_host_bookkeeping(session_players, stored_moves)
+    taken_over, removed, timeout_strikes = _apply_host_bookkeeping(
+        session_players, stored_moves
+    )
     settings = dict(live.settings or {})
     session_settings = dict(settings)
     session_settings.pop("creator_id", None)
@@ -231,7 +259,8 @@ async def _resume_one(bot, live: MatchDetail, matches, moves_repo, registry) -> 
     if header_message is not None:
         header_surface.bind(header_message)
     game_surface = ViewSurface(compiler, prefix=P.G_MOVE, resource_id=thread.id)
-    game_surface.bind(board_message)
+    if board_message is not None:
+        game_surface.bind(board_message)
 
     lobby_surface = None
     if live.lobby_channel_id and live.lobby_message_id:
@@ -275,6 +304,7 @@ async def _resume_one(bot, live: MatchDetail, matches, moves_repo, registry) -> 
     session.lobby_message_id = live.lobby_message_id
     session.taken_over = taken_over
     session._removed_seats = removed
+    session.timeout_strikes = timeout_strikes
     session.set_bot(bot)
     try:
         await bot.sessions.register_session(session)

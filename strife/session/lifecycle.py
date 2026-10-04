@@ -15,13 +15,18 @@ from strife.session.types import log
 class SessionLifecycleMixin:
     async def cancel(self, reason: str, forfeiter_seat: int | None = None) -> bool:
         async with self.lock:
-            if self._finalized or self._ending:
+            if self._finalized or self._ending or self._pausing:
                 return False
             self._ending = True
         task = self.task
         if task is not None and not task.done() and task is not asyncio.current_task():
             task.cancel()
-        self.log.system("game_end", {"reason": reason, "cancelled": True})
+            try:
+                await asyncio.wait_for(task, timeout=10.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+        async with self.lock:
+            self.log.system("game_end", {"reason": reason, "cancelled": True})
         if forfeiter_seat is not None:
             outcome = self.game.forfeit_end_outcome(forfeiter_seat, reason)
         elif reason == "restart":
@@ -59,6 +64,17 @@ class SessionLifecycleMixin:
             except asyncio.CancelledError:
                 pass
         await self._stop_writer()
+        match_id = self._match_id
+        if match_id is not None:
+            try:
+                await self._finalizer.append_moves(
+                    match_id, list(self.log.entries)
+                )
+            except Exception:
+                log.exception(
+                    "Failed to re-append in-memory log for thread %s on pause",
+                    self.thread_id,
+                )
         await self._notify_thread(self.text.get("match.session_paused"))
         return True
 
@@ -69,6 +85,7 @@ class SessionLifecycleMixin:
                 return
             self._ending = True
             self._finalized = True
+            moves = list(self.recorded_moves)
         match_id = 0
         persist_ok = False
         released = False
@@ -102,7 +119,7 @@ class SessionLifecycleMixin:
                 },
                 total_turns=sum(
                     1
-                    for m in self.recorded_moves
+                    for m in moves
                     if m.kind == LogEntryKind.GAME and m.actor_seat is not None
                 ),
                 started_at=self._started_at,
@@ -137,20 +154,30 @@ class SessionLifecycleMixin:
                     )
                     for p in self.players
                 ],
-                moves=list(self.recorded_moves),
+                moves=moves,
             )
 
             try:
                 await self._stop_writer()
             except Exception:
                 log.exception("Failed to flush moves for thread %s", self.thread_id)
-            try:
-                match_id, code = await self._finalizer.finish(finished, outcome)
-                persist_ok = True
-            except Exception:
-                log.exception("Failed to persist match for thread %s", self.thread_id)
+            match_id, code = 0, self._match_code or ""
+            delays = (1.0, 3.0, 9.0)
+            for attempt, delay in enumerate(delays):
+                try:
+                    match_id, code = await self._finalizer.finish(finished, outcome)
+                    persist_ok = True
+                    break
+                except Exception:
+                    log.exception(
+                        "Failed to persist match for thread %s (attempt %s/3)",
+                        self.thread_id,
+                        attempt + 1,
+                    )
+                    if attempt + 1 < len(delays):
+                        await asyncio.sleep(delay)
+            if not persist_ok:
                 await self._notify_thread(self.text.get("match.save_failed"))
-                match_id, code = 0, self._match_code or ""
             if persist_ok:
                 try:
                     self._finalizer.notify_match_end(self.thread_id, match_id, outcome, self.players)
@@ -211,7 +238,7 @@ class SessionLifecycleMixin:
             except Exception:
                 log.exception("Failed to update results view on finalize")
 
-            if self._bot:
+            if persist_ok and self._bot:
                 thread = self._bot.get_channel(self.thread_id)
                 if not thread:
                     try:

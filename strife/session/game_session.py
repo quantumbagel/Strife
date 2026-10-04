@@ -125,6 +125,8 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
         self._phase_timeout_index: int | None = None
         self._move_writer: MoveWriter | None = None
         self._board_message_saved = False
+        self._header_refreshing = False
+        self._header_dirty = False
         self.game_version: str | None = None
 
     @property
@@ -152,8 +154,37 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
     def _start_writer(self) -> None:
         if self._match_id is None:
             return
-        self._move_writer = MoveWriter(self._finalizer.append_moves, self._match_id)
+        self._move_writer = MoveWriter(
+            self._finalizer.append_moves,
+            self._match_id,
+            on_fatal=self._on_writer_fatal,
+        )
         self._move_writer.start()
+
+    async def _on_writer_fatal(self, exc: BaseException) -> None:
+        """Another process finished or owns this row; stop play without finish()."""
+        log.error(
+            "Live match %s lost move persistence (%s); stopping without finish",
+            self._match_id,
+            exc,
+        )
+        self._move_writer = None
+        async with self.lock:
+            if self._finalized or self._ending:
+                return
+            self._ending = True
+        task = self.task
+        current = asyncio.current_task()
+        if task is not None and not task.done() and task is not current:
+            task.cancel()
+        await self._notify_thread(self.text.get("match.interrupted"))
+        try:
+            await self._finalizer.session_complete(self)
+        except Exception:
+            log.exception(
+                "Failed to release occupancy after writer failure (thread %s)",
+                self.thread_id,
+            )
 
     async def _stop_writer(self) -> None:
         writer = self._move_writer
@@ -161,7 +192,7 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
         if writer is None:
             return
         try:
-            await writer.stop()
+            await writer.stop(timeout=10.0)
         except Exception:
             log.exception("Failed to flush move writer for thread %s", self.thread_id)
 
@@ -169,7 +200,7 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
         self._start_writer()
         if resume:
             self._resuming = True
-            self._board_message_saved = True
+            self._board_message_saved = self.surface.message is not None
             self.ctx.begin_catchup(list(self.log.entries))
         self.task = asyncio.create_task(self._run())
         if resume:
@@ -232,6 +263,11 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
                 log.exception("Game session crashed", extra={"match_id": self.id})
                 await self._notify_thread(self.text.get("match.session_crashed"))
                 if not self._finalized and not self._ending:
+                    async with self.lock:
+                        self.log.system(
+                            "game_end",
+                            {"reason": "error", "cancelled": True},
+                        )
                     await self._finalize(
                         GameOutcome(
                             results={},

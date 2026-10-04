@@ -11,6 +11,8 @@ from strife.session.header import build_game_thread_header_view
 from strife.presentation.message import ViewSurface, to_discord_files
 from strife.session.types import log
 
+_THREAD_ARCHIVED_CODE = 50083
+
 
 class SessionIOMixin:
     def set_bot(self, bot) -> None:
@@ -43,34 +45,93 @@ class SessionIOMixin:
     async def _notify_thread(self, content: str) -> None:
         if self._bot is None or not content:
             return
-        thread = self._bot.get_channel(self.thread_id)
+        thread = await self._game_thread()
         if thread is None:
-            try:
-                thread = await self._bot.fetch_channel(self.thread_id)
-            except Exception:
-                return
-        if not isinstance(thread, discord.Thread):
             return
         try:
             await thread.send(content)
         except discord.HTTPException:
             log.exception("Failed to post notice in thread %s", self.thread_id)
 
+    async def _game_thread(self) -> discord.Thread | None:
+        if self._bot is None:
+            return None
+        thread = self._bot.get_channel(self.thread_id)
+        if thread is None:
+            try:
+                thread = await self._bot.fetch_channel(self.thread_id)
+            except Exception:
+                return None
+        return thread if isinstance(thread, discord.Thread) else None
+
+    def _is_archived_thread_error(self, exc: BaseException) -> bool:
+        return (
+            isinstance(exc, discord.HTTPException)
+            and getattr(exc, "code", None) == _THREAD_ARCHIVED_CODE
+        )
+
+    async def _unarchive_game_thread(self) -> bool:
+        thread = await self._game_thread()
+        if thread is None:
+            return False
+        try:
+            await thread.edit(archived=False, locked=False)
+            return True
+        except discord.Forbidden:
+            log.warning("Couldn't unarchive game thread %s", self.thread_id)
+            return False
+        except discord.HTTPException:
+            log.exception("Failed to unarchive game thread %s", self.thread_id)
+            return False
+
+    async def _send_board(self, view: LayoutView) -> None:
+        thread = await self._game_thread()
+        if thread is None:
+            return
+        await self.surface.send(thread, view)
+        await self._persist_board_message()
 
     async def _update_surface(self, view: LayoutView) -> None:
-        if self.surface.message is None:
-            if self._bot is not None:
-                thread = self._bot.get_channel(self.thread_id)
-                if not thread:
-                    try:
-                        thread = await self._bot.fetch_channel(self.thread_id)
-                    except Exception:
-                        pass
-                if thread is not None:
-                    await self.surface.send(thread, view)
+        retried_unarchive = False
+        while True:
+            try:
+                if self.surface.message is None:
+                    await self._send_board(view)
+                else:
+                    await self.surface.update(view)
                     await self._persist_board_message()
-        else:
-            await self.surface.update(view)
+                return
+            except discord.NotFound:
+                self._board_message_saved = False
+                try:
+                    await self._send_board(view)
+                    return
+                except discord.HTTPException as send_exc:
+                    if (
+                        not retried_unarchive
+                        and self._is_archived_thread_error(send_exc)
+                        and await self._unarchive_game_thread()
+                    ):
+                        retried_unarchive = True
+                        continue
+                    log.exception(
+                        "Failed to send replacement board in thread %s",
+                        self.thread_id,
+                    )
+                    return
+            except discord.HTTPException as exc:
+                if (
+                    not retried_unarchive
+                    and self._is_archived_thread_error(exc)
+                    and await self._unarchive_game_thread()
+                ):
+                    retried_unarchive = True
+                    continue
+                log.exception(
+                    "Failed to update game surface in thread %s",
+                    self.thread_id,
+                )
+                return
 
     async def _persist_board_message(self) -> None:
         if self._board_message_saved or self._match_id is None:
@@ -86,6 +147,28 @@ class SessionIOMixin:
 
 
     async def refresh_header(self) -> None:
+        if self.header_surface is None or self._finalized:
+            return
+        self._header_dirty = True
+        if self._header_refreshing:
+            return
+        self._header_refreshing = True
+        try:
+            while True:
+                self._header_dirty = False
+                if self.header_surface is None or self._finalized:
+                    break
+                await self._refresh_header_once()
+                if not self._header_dirty:
+                    self._header_refreshing = False
+                    if self._header_dirty:
+                        self._header_refreshing = True
+                        continue
+                    return
+        finally:
+            self._header_refreshing = False
+
+    async def _refresh_header_once(self) -> None:
         if self.header_surface is None or self._finalized:
             return
         try:
@@ -159,12 +242,7 @@ class SessionIOMixin:
             if player.user_id in self._dm_failure_notified:
                 return
             self._dm_failure_notified.add(player.user_id)
-            thread = self._bot.get_channel(self.thread_id)
-            if thread is None:
-                try:
-                    thread = await self._bot.fetch_channel(self.thread_id)
-                except Exception:
-                    thread = None
+            thread = await self._game_thread()
             if isinstance(thread, discord.Thread):
                 try:
                     await thread.send(

@@ -21,7 +21,10 @@ class ResolvedTimeoutConsequence(StrEnum):
 
 def _input_consequence(session: object, seat: int) -> InputTimeoutConsequence:
     pending = getattr(session, "pending", {}).get(seat)
-    if pending is not None and getattr(pending, "timeout_consequence", None) is not None:
+    if (
+        pending is not None
+        and getattr(pending, "timeout_consequence", None) is not None
+    ):
         value = pending.timeout_consequence
     elif hasattr(session, "turn_timeout_consequence"):
         value = session.turn_timeout_consequence
@@ -44,6 +47,10 @@ def will_removal_end_game(session: object, seat: int) -> bool:
     Lobby ``min_players`` is a start constraint, not a mid-game floor.
     Play continues while any active seats and at least one human remain;
     the game itself decides when a faction or seat count has lost.
+
+    Callers must hold the session lock. In-progress removals belong in
+    ``session._removed_seats`` before this runs so two concurrent forfeits
+    cannot both choose REMOVED and leave only bots.
     """
     game = session.game  # type: ignore[attr-defined]
     removed = getattr(session, "_removed_seats", set())

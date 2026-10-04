@@ -5,8 +5,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
+from strife.logging import get_logger
 from strife.session import GameSession
 from strife.matchmaking.lobby import Lobby
+
+log = get_logger("matchmaking.registries")
 
 
 @dataclass
@@ -99,6 +102,16 @@ class SessionRegistries:
             removed = getattr(session, "_removed_seats", set())
             for member in session.players:
                 if member.user_id and not member.is_bot and member.seat not in removed:
+                    existing = self.user_location.get(member.user_id)
+                    if existing is not None and existing.thread_id != session.thread_id:
+                        log.warning(
+                            "Not stealing occupancy of user %s from %s %s for resumed match %s",
+                            member.user_id,
+                            existing.kind,
+                            existing.thread_id,
+                            session.thread_id,
+                        )
+                        continue
                     self.user_location[member.user_id] = UserLocation(
                         "game", session.thread_id, session.guild_id
                     )

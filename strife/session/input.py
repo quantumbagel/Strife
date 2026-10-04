@@ -9,7 +9,11 @@ from typing import Any, Literal
 import discord
 
 from strife.session.errors import SessionError
-from strife.engine.inputs import check_timeout_consequence, make_bot_request, resolve_sources
+from strife.engine.inputs import (
+    check_timeout_consequence,
+    make_bot_request,
+    resolve_sources,
+)
 from strife.engine.requests import SeatPrompt, TimeoutConsequence
 from strife.engine.log import LogEntryKind
 from strife.engine.players import Move
@@ -18,6 +22,16 @@ from strife.routing.router import InteractionInput
 from strife.session.types import PendingInput, QUERY_TIMEOUT_SECONDS, log
 
 _UNTIL_ANY_BOT_DELAY_SECONDS = 8.0
+
+
+def _system_timeout_move(seat: int) -> Move:
+    """AFK skip / failed-bot fallback. Same shape the watchdog injects for SKIP."""
+    return Move(
+        actor_seat=seat,
+        source="timeout",
+        args={},
+        kind=LogEntryKind.SYSTEM,
+    )
 
 
 class SessionInputMixin:
@@ -29,6 +43,59 @@ class SessionInputMixin:
         if inp.args.get("value") is not None:
             return [str(inp.args["value"])]
         return []
+
+    def _close_until_any_window(
+        self,
+        phase_timeout: asyncio.Future[None] | None,
+        *,
+        as_timeout: bool = False,
+        seats: list[int] | None = None,
+    ) -> None:
+        """Drop every pending seat sharing ``phase_timeout``.
+
+        Caller holds ``self.lock``.
+        """
+        if phase_timeout is None:
+            return
+        if as_timeout and phase_timeout.done():
+            return
+        if as_timeout:
+            if seats is None:
+                seats = sorted(
+                    seat
+                    for seat, pending in self.pending.items()
+                    if pending.phase_timeout is phase_timeout
+                )
+            logged = self.log.system(
+                "timeout",
+                {"reason": "timeout", "until": "any", "seats": seats},
+            )
+            self._phase_timeout_index = logged.turn_index
+        for seat, pending in list(self.pending.items()):
+            if pending.phase_timeout is not phase_timeout:
+                continue
+            if not pending.future.done():
+                pending.future.cancel()
+            self.pending.pop(seat, None)
+        if not phase_timeout.done():
+            if as_timeout:
+                phase_timeout.set_result(None)
+            else:
+                phase_timeout.cancel()
+
+    def _accept_move(self, seat: int, move: Move) -> Move | None:
+        """Record ``move`` as this seat's answer. Caller holds ``self.lock``."""
+        if self._finalized or self._ending or self._pausing:
+            return None
+        pending = self.pending.get(seat)
+        if pending is None or pending.future.done():
+            return None
+        recorded = self.log.record(move)
+        pending.future.set_result(recorded)
+        self.pending.pop(seat, None)
+        if pending.until == "any":
+            self._close_until_any_window(pending.phase_timeout)
+        return recorded
 
     async def submit(self, inp: InteractionInput) -> bool:
         """Record a click. Returns True when other humans still have to act."""
@@ -46,7 +113,10 @@ class SessionInputMixin:
                     raise SessionError("invalid_action")
                 pending.form_values[inp.source] = values if field.multi else values[0]
                 return False
-            if pending.allowed_sources is not None and inp.source not in pending.allowed_sources:
+            if (
+                pending.allowed_sources is not None
+                and inp.source not in pending.allowed_sources
+            ):
                 raise SessionError("invalid_action")
             move = Move(
                 actor_seat=seat,
@@ -54,11 +124,11 @@ class SessionInputMixin:
                 args={**pending.form_values, **inp.args},
                 created_at=datetime.now(timezone.utc),
             )
-            if not pending.future.done():
-                pending.future.set_result(move)
-            self.pending.pop(seat, None)
+            until = pending.until
+            if self._accept_move(seat, move) is None:
+                raise SessionError("cannot_act")
             # until="any" resolves on this click, so only "all" phases keep waiting.
-            waiting_on_others = pending.until == "all" and any(
+            waiting_on_others = until == "all" and any(
                 not self.players[other].is_bot for other in self.pending
             )
         if waiting_on_others:
@@ -66,8 +136,9 @@ class SessionInputMixin:
             await self.refresh_header()
         return waiting_on_others
 
-
-    async def handle_slash_command(self, user_id: int, command_name: str, args: dict[str, Any]) -> None:
+    async def handle_slash_command(
+        self, user_id: int, command_name: str, args: dict[str, Any]
+    ) -> None:
         async with self.lock:
             seat = self._seat_for_user(user_id)
             if seat is None:
@@ -75,11 +146,16 @@ class SessionInputMixin:
             pending = self.pending.get(seat)
             if pending is None or seat not in pending.allowed_actors:
                 raise SessionError("cannot_act")
+            if command_name in pending.form:
+                raise SessionError("invalid_action")
 
             source = command_name
-            move_args = args
+            move_args = {**pending.form_values, **args}
 
-            if pending.allowed_sources is not None and source not in pending.allowed_sources:
+            if (
+                pending.allowed_sources is not None
+                and source not in pending.allowed_sources
+            ):
                 raise SessionError("invalid_action")
 
             move = Move(
@@ -88,15 +164,16 @@ class SessionInputMixin:
                 args=move_args,
                 created_at=datetime.now(timezone.utc),
             )
-            if not pending.future.done():
-                pending.future.set_result(move)
-            self.pending.pop(seat, None)
-
+            if self._accept_move(seat, move) is None:
+                raise SessionError("cannot_act")
 
     async def handle_query(self, source: str, interaction: discord.Interaction) -> bool:
         seat = self._seat_for_user(interaction.user.id)
         if seat is None:
             raise SessionError("not_a_player")
+
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True, thinking=False)
 
         self.ctx._begin_query(interaction)
         try:
@@ -114,46 +191,34 @@ class SessionInputMixin:
         finally:
             self.ctx._end_query()
 
-        if handled and not interaction.response.is_done():
-            await interaction.response.defer(ephemeral=True)
         return handled
-
 
     async def force_move(self, seat: int, move: Move) -> None:
         async with self.lock:
-            pending = self.pending.get(seat)
-            if pending and not pending.future.done():
-                pending.future.set_result(move)
-                self.pending.pop(seat, None)
+            self._accept_move(seat, move)
         await self.refresh_header()
-
 
     async def force_forfeit(self, seat: int, reason: str) -> None:
         """Hand a removed seat's pending input a ``forfeit`` and log the removal.
 
-        The system row is written exactly once: by the request path when the seat
-        was waiting on a recorded input, otherwise here. ``removed`` marks it as a
-        mid-match removal so replays keep going past it.
+        If the seat was still waiting, the system row is that seat's answer.
+        If the seat already answered, the removal is a standalone metadata row
+        after that answer (applied at its log position, not as a second answer).
         """
         args = {"reason": reason, "removed": True}
         async with self.lock:
+            if self._finalized or self._ending:
+                return
             pending = self.pending.get(seat)
-            delivered = pending is not None and not pending.future.done()
-            if delivered:
-                pending.future.set_result(
-                    Move(
-                        actor_seat=seat,
-                        source="forfeit",
-                        args=dict(args),
-                        kind=LogEntryKind.SYSTEM,
-                        created_at=datetime.now(timezone.utc),
-                    )
-                )
+            if pending is not None and not pending.future.done():
+                recorded = self.log.system("forfeit", dict(args), actor_seat=seat)
+                pending.future.set_result(recorded)
                 self.pending.pop(seat, None)
-            if not delivered:
-                self.log.system("forfeit", args, actor_seat=seat)
+                if pending.until == "any":
+                    self._close_until_any_window(pending.phase_timeout)
+            else:
+                self.log.system("forfeit", dict(args), actor_seat=seat)
         await self.refresh_header()
-
 
     async def expire_phase(self, seat: int) -> bool:
         """Close an ``until="any"`` window whose shared deadline passed.
@@ -169,9 +234,8 @@ class SessionInputMixin:
                 or pending.phase_timeout.done()
             ):
                 return False
-            pending.phase_timeout.set_result(None)
+            self._close_until_any_window(pending.phase_timeout, as_timeout=True)
         return True
-
 
     async def _request_input(
         self,
@@ -193,7 +257,13 @@ class SessionInputMixin:
                 sources=sources,
                 description=description,
             )
-            move = await self.game.bot_move(request)
+            try:
+                move = await self.game.bot_move(request)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("Bot move failed for seat %s", actor)
+                move = _system_timeout_move(actor)
             await self._update_surface(view)
             async with self.lock:
                 return self.log.record(move)
@@ -204,8 +274,12 @@ class SessionInputMixin:
         now = time.monotonic()
         generation = self._timeout_generation.get(actor, 0) + 1
         self._timeout_generation[actor] = generation
-        seconds = timeout_seconds if timeout_seconds is not None else self.turn_timeout_seconds
-        deadline = now + seconds
+        seconds = (
+            timeout_seconds
+            if timeout_seconds is not None
+            else self.turn_timeout_seconds
+        )
+        deadline = now + seconds if seconds is not None else None
         async with self.lock:
             self.pending[actor] = PendingInput(
                 {actor},
@@ -224,10 +298,7 @@ class SessionInputMixin:
             self._timeout_inflight.discard(actor)
         await self._update_surface(view)
         await self.refresh_header()
-        move = await future
-        async with self.lock:
-            return self.log.record(move)
-
+        return await future
 
     async def _request_inputs(
         self,
@@ -247,13 +318,14 @@ class SessionInputMixin:
         bots = actors - humans
         fields = form_fields(view)
 
-        for seat in actors:
-            check_timeout_consequence(
-                timeout_consequence,
-                resolve_sources(
-                    view, sources, per_seat=per_seat, seat=seat
-                ),
-            )
+        allowed_by_seat = [
+            resolve_sources(view, sources, per_seat=per_seat, seat=seat)
+            for seat in actors
+        ]
+        if allowed_by_seat:
+            check_timeout_consequence(timeout_consequence, *allowed_by_seat)
+        else:
+            check_timeout_consequence(timeout_consequence, None)
 
         if until == "any" and not humans:
             # All actors are bots: pick one at random and return only that move.
@@ -266,14 +338,35 @@ class SessionInputMixin:
                 per_seat=per_seat,
                 description=description,
             )
-            move = await self.game.bot_move(request)
-            return {bot_seat: self.log.record(move)}
+            try:
+                move = await self.game.bot_move(request)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("until=any bot move failed")
+                async with self.lock:
+                    logged = self.log.system(
+                        "timeout",
+                        {
+                            "reason": "timeout",
+                            "until": "any",
+                            "seats": sorted(actors),
+                        },
+                    )
+                    self._phase_timeout_index = logged.turn_index
+                return {}
+            async with self.lock:
+                return {bot_seat: self.log.record(move)}
 
         loop = asyncio.get_running_loop()
         futures: dict[int, asyncio.Future[Move]] = {}
         now = time.monotonic()
-        seconds = timeout_seconds if timeout_seconds is not None else self.turn_timeout_seconds
-        deadline = now + seconds
+        seconds = (
+            timeout_seconds
+            if timeout_seconds is not None
+            else self.turn_timeout_seconds
+        )
+        deadline = now + seconds if seconds is not None else None
         # One shared "window closed" signal for first-to-act phases.
         phase_timeout: asyncio.Future[None] | None = (
             loop.create_future() if until == "any" else None
@@ -313,7 +406,11 @@ class SessionInputMixin:
         if until == "any":
             bot_waiter: asyncio.Task | None = None
             if bots:
-                delay = min(_UNTIL_ANY_BOT_DELAY_SECONDS, max(2.0, seconds * 0.2))
+                budget = seconds if seconds is not None and seconds > 0 else 0.0
+                delay = min(
+                    _UNTIL_ANY_BOT_DELAY_SECONDS,
+                    max(2.0, budget * 0.2),
+                )
 
                 async def _bot_contender() -> tuple[int, Move]:
                     await asyncio.sleep(delay)
@@ -338,20 +435,24 @@ class SessionInputMixin:
                 return results
             if phase_timeout is not None:
                 waiters.append(phase_timeout)
-            done, _pending = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+            done, _pending = await asyncio.wait(
+                waiters, return_when=asyncio.FIRST_COMPLETED
+            )
             try:
                 async with self.lock:
                     for seat, future in futures.items():
                         # Not just `done`: a submit can land between the deadline
                         # firing and this lock, and was already accepted.
                         if future.done() and not future.cancelled():
-                            move = future.result()
-                            results[seat] = self.log.record(move)
+                            results[seat] = future.result()
                         elif not future.done():
                             future.cancel()
                         self.pending.pop(seat, None)
+                    window_open = (
+                        phase_timeout is None or not phase_timeout.done()
+                    ) and not results
                     if (
-                        not results
+                        window_open
                         and bot_waiter is not None
                         and bot_waiter in done
                         and not bot_waiter.cancelled()
@@ -360,18 +461,17 @@ class SessionInputMixin:
                         if exc is None:
                             bot_seat, move = bot_waiter.result()
                             results[bot_seat] = self.log.record(move)
+                            self._close_until_any_window(phase_timeout)
                         else:
                             log.exception(
                                 "until=any bot move failed",
                                 exc_info=exc,
                             )
-                    if not results and phase_timeout is not None and phase_timeout in done:
-                        # The window closed with nobody acting; no seat is to blame.
-                        logged = self.log.system(
-                            "timeout",
-                            {"reason": "timeout", "until": "any", "seats": sorted(humans)},
-                        )
-                        self._phase_timeout_index = logged.turn_index
+                            self._close_until_any_window(
+                                phase_timeout,
+                                as_timeout=True,
+                                seats=sorted(humans),
+                            )
             finally:
                 if phase_timeout is not None and not phase_timeout.done():
                     phase_timeout.cancel()
@@ -394,14 +494,17 @@ class SessionInputMixin:
                 per_seat=per_seat,
                 description=description,
             )
-            move = await self.game.bot_move(request)
+            try:
+                move = await self.game.bot_move(request)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("Bot move failed for seat %s", seat)
+                move = _system_timeout_move(seat)
             async with self.lock:
                 results[seat] = self.log.record(move)
 
         for seat, future in futures.items():
-            move = await future
-            async with self.lock:
-                results[seat] = self.log.record(move)
-                self.pending.pop(seat, None)
+            results[seat] = await future
         await self.refresh_header()
         return results

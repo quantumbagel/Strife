@@ -24,6 +24,15 @@ _QUERY_INTERACTION: ContextVar[object | None] = ContextVar(
 )
 
 
+class _UnarmedDeadline:
+    """Turn-deadline budget stored during catch-up; armed in ``_leave_catchup``."""
+
+    __slots__ = ("budget",)
+
+    def __init__(self, budget: float | None) -> None:
+        self.budget = budget
+
+
 class LiveContext:
     """``GameContext`` implementation backed by a live ``GameSession``.
 
@@ -35,9 +44,11 @@ class LiveContext:
         _HOSTS[self] = session
         self._query_interaction: object | None = None
         self._applied = 0
-        self._turn_deadlines: list[float | None] = []
+        self._turn_deadlines: list[float | None | _UnarmedDeadline] = []
         self._catching_up = False
         self._log: LogCursor | None = None
+        self._deferred_board: LayoutView | None = None
+        self._deferred_dms: dict[int, LayoutView] = {}
 
     def _host(self) -> GameSession:
         return _HOSTS[self]
@@ -50,15 +61,56 @@ class LiveContext:
         self._catching_up = True
         self._applied = len(moves)
         self._log = LogCursor(moves, self._host().game)
+        self._deferred_board = None
+        self._deferred_dms = {}
 
-    def _leave_catchup(self) -> None:
+    def _arm_turn_deadlines(self) -> None:
+        now = time.monotonic()
+        for i, entry in enumerate(self._turn_deadlines):
+            if isinstance(entry, _UnarmedDeadline):
+                budget = entry.budget
+                self._turn_deadlines[i] = now + budget if budget is not None else None
+
+    def _drop_deferred_dm(self, seat: int | None) -> None:
+        if seat is not None:
+            self._deferred_dms.pop(int(seat), None)
+
+    async def _leave_catchup(
+        self,
+        *,
+        flush_view: bool = True,
+        waiting: set[int] | None = None,
+    ) -> None:
+        if not self._catching_up:
+            return
         self._catching_up = False
         self._log = None
         self._host()._resuming = False
+        self._arm_turn_deadlines()
+        host = self._host()
+        if flush_view and self._deferred_board is not None:
+            await host._update_surface(self._deferred_board)
+        self._deferred_board = None
+        await host.refresh_header()
+        if waiting is not None:
+            await self._flush_deferred_dms(waiting)
 
-    def _after_catchup_consume(self) -> None:
+    async def _flush_deferred_dms(self, waiting: set[int]) -> None:
+        """Re-send DMs skipped during catch-up to the seats a live request now waits on.
+
+        Kept until the first live request when catch-up ran out on a non-request row.
+        """
+        if not self._deferred_dms:
+            return
+        deferred, self._deferred_dms = self._deferred_dms, {}
+        for seat in waiting:
+            view = deferred.get(seat)
+            if view is not None:
+                await self._host()._send_private(seat, view)
+
+    async def _after_catchup_consume(self) -> None:
         if self._log is not None and self._log.at_end():
-            self._leave_catchup()
+            await self._leave_catchup()
 
     def _begin_query(self, interaction: object) -> None:
         _QUERY_INTERACTION.set(interaction)
@@ -81,12 +133,15 @@ class LiveContext:
     def is_bot(self, seat: int) -> bool:
         return self._host().game.players[seat].is_bot
 
-    def _sync(self, through: int | None, waiting: set[int] | None = None) -> Move | None:
+    def _sync(
+        self, through: int | None, waiting: set[int] | None = None
+    ) -> Move | None:
         entries = self._host().log.entries
-        last = len(entries) - 1 if through is None else through
         waiting = waiting or set()
-        while self._applied <= last:
+        while self._applied < len(entries):
             move = entries[self._applied]
+            if through is not None and move.turn_index > through:
+                break
             if (
                 is_seat_event(move)
                 and move.source == "forfeit"
@@ -103,21 +158,24 @@ class LiveContext:
 
     def _bound_timeout(self, timeout_seconds: float | None) -> float | None:
         deadline = self._turn_deadlines[-1] if self._turn_deadlines else None
+        if isinstance(deadline, _UnarmedDeadline):
+            deadline = None
         if deadline is None:
             return timeout_seconds
-        remaining = max(1.0, deadline - time.monotonic())
+        remaining = deadline - time.monotonic()
         if timeout_seconds is None:
             return remaining
-        return max(1.0, min(float(timeout_seconds), remaining))
+        return min(float(timeout_seconds), remaining)
 
     @asynccontextmanager
     async def turn_deadline(self, seconds: float | None = None):
-        if self._catching_up:
-            yield
-            return
         budget = self._host().turn_timeout_seconds if seconds is None else seconds
-        token = time.monotonic() + float(budget) if budget is not None else None
-        self._turn_deadlines.append(token)
+        budget_f = float(budget) if budget is not None else None
+        if self._catching_up:
+            self._turn_deadlines.append(_UnarmedDeadline(budget_f))
+        else:
+            token = time.monotonic() + budget_f if budget_f is not None else None
+            self._turn_deadlines.append(token)
         try:
             yield
         finally:
@@ -130,6 +188,7 @@ class LiveContext:
     async def update(self, view: LayoutView) -> None:
         self._touch()
         if self._catching_up:
+            self._deferred_board = view
             return
         await self._host()._update_surface(view)
 
@@ -148,15 +207,17 @@ class LiveContext:
             assert self._log is not None
             try:
                 move = self._log.take_input(actor)
-                self._after_catchup_consume()
+                self._drop_deferred_dm(move.actor_seat)
+                await self._after_catchup_consume()
                 return move
             except LogEnded as exc:
                 if exc.match_ended:
                     raise
-                self._leave_catchup()
+                await self._leave_catchup(flush_view=False, waiting={actor})
         logged = self._sync(None, waiting={actor})
         if logged is not None:
             return logged
+        await self._flush_deferred_dms({actor})
         move = await self._host()._request_input(
             view,
             actor=actor,
@@ -182,21 +243,24 @@ class LiveContext:
         timeout_consequence: TimeoutConsequence | None = None,
     ) -> dict[int, Move]:
         self._touch()
-        timeout_seconds = self._bound_timeout(timeout_seconds)
         if until == "any":
             if self._catching_up:
                 assert self._log is not None
                 try:
                     moves = self._log.take_inputs_any(actors)
-                    self._after_catchup_consume()
+                    for seat in moves:
+                        self._drop_deferred_dm(seat)
+                    await self._after_catchup_consume()
                     return moves
                 except LogEnded as exc:
                     if exc.match_ended:
                         raise
-                    self._leave_catchup()
+                    await self._leave_catchup(flush_view=False, waiting=actors)
             logged = self._sync(None, waiting=actors)
             if logged is not None:
                 return {int(logged.actor_seat): logged}
+            await self._flush_deferred_dms(actors)
+            timeout_seconds = self._bound_timeout(timeout_seconds)
             moves = await self._host()._request_inputs(
                 view,
                 actors=actors,
@@ -221,16 +285,18 @@ class LiveContext:
             try:
                 caught, remaining = self._log.take_inputs_all_partial(actors)
                 results.update(caught)
+                for seat in caught:
+                    self._drop_deferred_dm(seat)
                 if remaining:
-                    self._leave_catchup()
+                    await self._leave_catchup(flush_view=False, waiting=remaining)
                 else:
-                    self._after_catchup_consume()
+                    await self._after_catchup_consume()
                     self._touch()
                     return results
             except LogEnded as exc:
                 if exc.match_ended:
                     raise
-                self._leave_catchup()
+                await self._leave_catchup(flush_view=False, waiting=remaining)
         while remaining:
             logged = self._sync(None, waiting=remaining)
             if logged is None:
@@ -238,6 +304,8 @@ class LiveContext:
             results[int(logged.actor_seat)] = logged
             remaining.discard(int(logged.actor_seat))
         if remaining:
+            await self._flush_deferred_dms(remaining)
+            timeout_seconds = self._bound_timeout(timeout_seconds)
             moves = await self._host()._request_inputs(
                 view,
                 actors=remaining,
@@ -259,6 +327,7 @@ class LiveContext:
     async def send_private(self, seat: int, view: LayoutView) -> None:
         self._touch()
         if self._catching_up:
+            self._deferred_dms[seat] = view
             return
         await self._host()._send_private(seat, view)
 
@@ -268,12 +337,12 @@ class LiveContext:
             assert self._log is not None
             try:
                 self._log.take_event(source, arguments)
-                self._after_catchup_consume()
+                await self._after_catchup_consume()
                 return
             except LogEnded as exc:
                 if exc.match_ended:
                     raise
-                self._leave_catchup()
+                await self._leave_catchup()
         self._sync(None)
         self._host().log.event(source, arguments)
 
