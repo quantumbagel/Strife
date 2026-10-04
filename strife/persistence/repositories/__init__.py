@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -8,6 +9,46 @@ import asyncpg
 
 from strife.engine.log import LOG_FORMAT, LogEntryKind
 from strife.engine.players import Move as MoveRecord
+from strife.logging import get_logger
+
+log = get_logger("persistence")
+
+_VALID_PLAYER_RESULTS = frozenset({"win", "loss", "draw"})
+_MATCH_CODE_UNIQUE = "matches_code_key"
+_LIVE_THREAD_UNIQUE = "matches_live_thread_uidx"
+
+
+class MatchNotLive(Exception):
+    """Moves can only be appended while the match row is ``live``."""
+
+    def __init__(self, match_id: int, status: str | None = None) -> None:
+        self.match_id = match_id
+        self.status = status
+        if status is None:
+            message = f"Match {match_id} does not exist"
+        else:
+            message = f"Match {match_id} is {status!r}, not live"
+        super().__init__(message)
+
+
+class MoveConflict(Exception):
+    """A row already exists at this turn_index with different content."""
+
+    def __init__(self, match_id: int, turn_index: int) -> None:
+        self.match_id = match_id
+        self.turn_index = turn_index
+        super().__init__(
+            f"Move at turn {turn_index} for match {match_id} "
+            "already exists with different content"
+        )
+
+
+class LiveThreadConflict(Exception):
+    """Another live match already occupies this Discord thread."""
+
+    def __init__(self, thread_id: int) -> None:
+        self.thread_id = thread_id
+        super().__init__(f"A live match already exists for thread {thread_id}")
 
 
 @dataclass
@@ -51,6 +92,7 @@ class MatchDetail(MatchSummary):
     log_format: int
     players: list[MatchPlayer] = field(default_factory=list)
     game_version: str | None = None
+    game_build: str | None = None
     board_message_id: int | None = None
     header_message_id: int | None = None
     lobby_channel_id: int | None = None
@@ -110,6 +152,7 @@ class LiveMatchStart:
     turn_timeout_consequence: str | None = None
     lobby_private: bool = False
     lobby_creator_id: int | None = None
+    game_build: str | None = None
 
 
 @dataclass
@@ -134,7 +177,7 @@ def _status_rowcount(status: str) -> int:
     parts = status.split()
     try:
         return int(parts[-1])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         return 0
 
 
@@ -218,6 +261,7 @@ class MatchRepository:
             None,
             LOG_FORMAT,
             record.game_version,
+            record.game_build,
             record.board_message_id,
             record.header_message_id,
             record.lobby_channel_id,
@@ -288,7 +332,11 @@ class MatchRepository:
         players: list[MatchPlayer],
     ) -> None:
         stats_rows = [
-            player for player in players if player.user_id and not player.is_bot and player.result
+            player
+            for player in players
+            if player.user_id
+            and not player.is_bot
+            and player.result in _VALID_PLAYER_RESULTS
         ]
         if not stats_rows:
             return
@@ -304,6 +352,50 @@ class MatchRepository:
             game_key,
             conn=conn,
         )
+
+    def _stored_player_result(self, player: MatchPlayer) -> str | None:
+        if player.result in _VALID_PLAYER_RESULTS:
+            return player.result
+        if player.result:
+            log.warning(
+                "Invalid match result %r for user_id=%s seat=%s; storing NULL",
+                player.result,
+                player.user_id,
+                player.seat_index,
+            )
+        return None
+
+    async def _reject_move_conflicts(
+        self,
+        conn: asyncpg.Connection,
+        match_id: int,
+        moves: list[MoveRecord],
+    ) -> None:
+        indices = [move.turn_index for move in moves]
+        stored = await conn.fetch(
+            """
+            SELECT turn_index, actor_seat, source, arguments, kind
+            FROM moves
+            WHERE match_id = $1 AND turn_index = ANY($2)
+            """,
+            match_id,
+            indices,
+        )
+        by_index = {row["turn_index"]: row for row in stored}
+        for move in moves:
+            row = by_index.get(move.turn_index)
+            if row is None:
+                continue
+            stored_args = row["arguments"] or {}
+            # Compare in stored form: JSON turns tuples into lists and int keys into strings.
+            submitted_args = json.loads(json.dumps(move.args or {}))
+            if (
+                row["source"] != move.source
+                or row["actor_seat"] != move.actor_seat
+                or row["kind"] != move.kind.value
+                or stored_args != submitted_args
+            ):
+                raise MoveConflict(match_id, move.turn_index)
 
     async def start_live(self, record: LiveMatchStart) -> tuple[int, str]:
         import random
@@ -323,11 +415,11 @@ class MatchRepository:
                             INSERT INTO matches(
                                 code, game_key, guild_id, thread_id, seed, settings,
                                 status, outcome, total_turns, started_at, ended_at, log_format,
-                                game_version, board_message_id, header_message_id,
+                                game_version, game_build, board_message_id, header_message_id,
                                 lobby_channel_id, lobby_message_id,
                                 turn_timeout_seconds, turn_timeout_max_strikes,
                                 turn_timeout_consequence, lobby_private, lobby_creator_id
-                            ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+                            ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
                             RETURNING id, code
                             """,
                             *self._match_insert_params(record),
@@ -336,7 +428,11 @@ class MatchRepository:
                         final_code = row["code"]
                         await self._insert_players(conn, match_id, record.players)
                     break
-                except asyncpg.UniqueViolationError:
+                except asyncpg.UniqueViolationError as exc:
+                    if exc.constraint_name == _LIVE_THREAD_UNIQUE:
+                        raise LiveThreadConflict(record.thread_id) from exc
+                    if exc.constraint_name != _MATCH_CODE_UNIQUE:
+                        raise
                     code = None
             if match_id is None or final_code is None:
                 raise RuntimeError("Failed to generate unique match code")
@@ -346,7 +442,15 @@ class MatchRepository:
         if not moves:
             return
         async with self._pool.acquire() as conn:
-            await self._insert_moves(conn, match_id, moves)
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    "SELECT status FROM matches WHERE id = $1 FOR UPDATE",
+                    match_id,
+                )
+                if row is None or row["status"] != "live":
+                    raise MatchNotLive(match_id, None if row is None else row["status"])
+                await self._insert_moves(conn, match_id, moves)
+                await self._reject_move_conflicts(conn, match_id, moves)
 
     async def set_board_message(self, match_id: int, board_message_id: int) -> None:
         async with self._pool.acquire() as conn:
@@ -365,6 +469,14 @@ class MatchRepository:
             raise ValueError("finish() requires FinishedMatch.match_id")
         async with self._pool.acquire() as conn:
             async with conn.transaction():
+                locked = await conn.fetchrow(
+                    "SELECT status FROM matches WHERE id = $1 FOR UPDATE",
+                    match_id,
+                )
+                if locked is None or locked["status"] != "live":
+                    raise RuntimeError(
+                        f"Live match {match_id} is not available to finish"
+                    )
                 row = await conn.fetchrow(
                     """
                     UPDATE matches SET
@@ -382,7 +494,9 @@ class MatchRepository:
                     record.ended_at or datetime.now(timezone.utc),
                 )
                 if row is None:
-                    raise RuntimeError(f"Live match {match_id} is not available to finish")
+                    raise RuntimeError(
+                        f"Live match {match_id} is not available to finish"
+                    )
                 # Backfill any rows the live writer failed to persist.
                 await self._insert_moves(conn, match_id, record.moves)
                 if record.players:
@@ -406,7 +520,7 @@ class MatchRepository:
                                 player.bot_difficulty,
                                 player.display_name,
                                 player.role_key,
-                                player.result,
+                                self._stored_player_result(player),
                             )
                             for player in record.players
                         ],
@@ -414,12 +528,16 @@ class MatchRepository:
                 await self._apply_player_stats(conn, record.game_key, record.players)
             return row["id"], row["code"]
 
-    async def get(self, ref: str | int, *, guild_id: int | None = None) -> MatchDetail | None:
+    async def get(
+        self, ref: str | int, *, guild_id: int | None = None, include_live: bool = False
+    ) -> MatchDetail | None:
         """Look up a match by internal id (int) or 6-character code (str).
 
         User input is always a code; ids only come from signed custom_ids.
         ``guild_id`` limits the lookup to matches played in that server.
+        Live matches are skipped unless ``include_live``.
         """
+        status_filter = "TRUE" if include_live else _NOT_LIVE
         if isinstance(ref, int):
             column, key = "id", ref
         else:
@@ -430,12 +548,12 @@ class MatchRepository:
         async with self._pool.acquire() as conn:
             if guild_id is None:
                 row = await conn.fetchrow(
-                    f"SELECT * FROM matches WHERE {column} = $1 AND {_NOT_LIVE}",
+                    f"SELECT * FROM matches WHERE {column} = $1 AND {status_filter}",
                     key,
                 )
             else:
                 row = await conn.fetchrow(
-                    f"SELECT * FROM matches WHERE {column} = $1 AND guild_id = $2 AND {_NOT_LIVE}",
+                    f"SELECT * FROM matches WHERE {column} = $1 AND guild_id = $2 AND {status_filter}",
                     key,
                     guild_id,
                 )
@@ -493,7 +611,9 @@ class MatchRepository:
             )
             return [self._to_summary(row) for row in rows]
 
-    async def count_for_user(self, user_id: int, game_key: str | None, *, guild_id: int) -> int:
+    async def count_for_user(
+        self, user_id: int, game_key: str | None, *, guild_id: int
+    ) -> int:
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
@@ -539,7 +659,9 @@ class MatchRepository:
             player_count=row.get("player_count"),
         )
 
-    def _to_detail(self, row: asyncpg.Record, players: list[asyncpg.Record]) -> MatchDetail:
+    def _to_detail(
+        self, row: asyncpg.Record, players: list[asyncpg.Record]
+    ) -> MatchDetail:
         return MatchDetail(
             id=row["id"],
             code=row["code"],
@@ -556,6 +678,7 @@ class MatchRepository:
             started_at=row["started_at"],
             ended_at=row["ended_at"],
             game_version=row.get("game_version"),
+            game_build=row.get("game_build"),
             board_message_id=row.get("board_message_id"),
             header_message_id=row.get("header_message_id"),
             lobby_channel_id=row.get("lobby_channel_id"),
@@ -588,18 +711,39 @@ class MatchRepository:
                 ORDER BY started_at NULLS LAST, id
                 """
             )
-            details: list[MatchDetail] = []
-            for row in rows:
-                players = await conn.fetch(
-                    "SELECT * FROM match_players WHERE match_id = $1 ORDER BY seat_index",
-                    row["id"],
-                )
-                details.append(self._to_detail(row, players))
-            return details
+            if not rows:
+                return []
+            match_ids = [row["id"] for row in rows]
+            player_rows = await conn.fetch(
+                """
+                SELECT * FROM match_players
+                WHERE match_id = ANY($1)
+                ORDER BY match_id, seat_index
+                """,
+                match_ids,
+            )
+            by_match: dict[int, list[asyncpg.Record]] = {row["id"]: [] for row in rows}
+            for player in player_rows:
+                by_match[player["match_id"]].append(player)
+            return [self._to_detail(row, by_match[row["id"]]) for row in rows]
+
+    async def count_live(self, game_key: str) -> int:
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT count(*) AS total
+                FROM matches
+                WHERE status = 'live' AND game_key = $1
+                """,
+                game_key,
+            )
+            return int(row["total"]) if row else 0
 
     async def delete_for_game(self, game_key: str) -> int:
         async with self._pool.acquire() as conn:
-            status = await conn.execute("DELETE FROM matches WHERE game_key = $1", game_key)
+            status = await conn.execute(
+                "DELETE FROM matches WHERE game_key = $1", game_key
+            )
         return _status_rowcount(status)
 
 
@@ -633,7 +777,9 @@ class UserRepository:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
 
-    async def touch(self, user_id: int, display_name: str, *, conn: asyncpg.Connection | None = None) -> None:
+    async def touch(
+        self, user_id: int, display_name: str, *, conn: asyncpg.Connection | None = None
+    ) -> None:
         query = """
             INSERT INTO users(user_id, display_name)
             VALUES($1, $2)
@@ -656,13 +802,17 @@ class UserRepository:
         async def _write(connection: asyncpg.Connection) -> None:
             for result in results:
                 await self.touch(result.user_id, result.display_name, conn=connection)
-                wins = losses = draws = 0
-                if result.result == "win":
-                    wins = 1
-                elif result.result == "loss":
-                    losses = 1
-                elif result.result == "draw":
-                    draws = 1
+                if result.result not in _VALID_PLAYER_RESULTS:
+                    log.warning(
+                        "Skipping stats for invalid result %r (user_id=%s game=%s)",
+                        result.result,
+                        result.user_id,
+                        game_key,
+                    )
+                    continue
+                wins = int(result.result == "win")
+                losses = int(result.result == "loss")
+                draws = int(result.result == "draw")
                 await connection.execute(
                     """
                     INSERT INTO user_game_stats(user_id, game_key, wins, losses, draws, played)
@@ -687,11 +837,14 @@ class UserRepository:
             async with owned.transaction():
                 await _write(owned)
 
-    async def get_stats(self, user_id: int, game_key: str | None, *, guild_id: int) -> UserStats:
+    async def get_stats(
+        self, user_id: int, game_key: str | None, *, guild_id: int
+    ) -> UserStats:
         """W/L/D for matches played in one server.
 
         ``user_game_stats`` is global, so count the stored seats instead, with
-        the same rows ``apply_results`` counts: human seats that have a result.
+        the same rows ``apply_results`` counts: human seats whose result is
+        ``win``, ``loss``, or ``draw``.
         AFK seats a bot finished are stored as a human loss.
         """
         async with self._pool.acquire() as conn:
@@ -705,7 +858,7 @@ class UserRepository:
                 JOIN matches m ON m.id = mp.match_id
                 WHERE mp.user_id = $1
                   AND NOT mp.is_bot
-                  AND COALESCE(mp.result, '') <> ''
+                  AND mp.result IN ('win', 'loss', 'draw')
                   AND m.status <> 'live'
                   AND m.guild_id = $2
                   AND ($3::text IS NULL OR m.game_key = $3)
