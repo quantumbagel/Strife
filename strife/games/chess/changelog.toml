@@ -1,4 +1,13 @@
 [[release]]
+version = "1.1.2"
+date = "2026-10-04"
+summary = "Clock losses read the same either way."
+fixed = [
+  "Running out of clock always reads as a loss on time, whichever timer fires first",
+  "The description points to /chess move instead of typing moves in the thread",
+]
+
+[[release]]
 version = "1.1.1"
 date = "2026-10-03"
 summary = "Illegal moves no longer reset the clock."

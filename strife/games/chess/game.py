@@ -153,7 +153,7 @@ def _pocket_text(pocket: chess.variant.CrazyhousePocket) -> str:
     key="chess",
     name="Chess",
     summary="Chess with variants and optional clocks.",
-    description="Two players. Type moves: e4, Nf3, or e2e4. Variants and clocks are lobby settings.",
+    description="Two players. Use /chess move: e4, Nf3, or e2e4. Variants and clocks are lobby settings.",
     tags=("classic", "strategy", "2p"),
     author="Strife",
     author_link=None,
@@ -378,6 +378,21 @@ class Chess(TurnBasedGame):
         check_str = " (in check)" if self.board.is_check() else ""
         return f"{color} ({player.mention}) to act{check_str}"
 
+    def _clock_loss_outcome(self, loser_seat: int) -> GameOutcome:
+        winner = 1 - loser_seat
+        winner_mention = str(self.players[winner])
+        return GameOutcome(
+            results={winner: "win", loser_seat: "loss"},
+            summary={"winner": winner, "reason": "timeout"},
+            description=f"{winner_mention} won on time",
+            player_descriptions={winner: "Won on time", loser_seat: "Lost on time"},
+        )
+
+    def forfeit_end_outcome(self, forfeiter_seat: int, reason: str = "forfeit") -> GameOutcome:
+        if reason == "timeout" and self.time_control_active:
+            return self._clock_loss_outcome(forfeiter_seat)
+        return super().forfeit_end_outcome(forfeiter_seat, reason=reason)
+
     def _outcome(self) -> GameOutcome | None:
         result = self.board.outcome(claim_draw=True)
         if result is None:
@@ -416,15 +431,7 @@ class Chess(TurnBasedGame):
 
             seat = self.current
             if self.time_control_active and self.clocks[seat] <= 0:
-                winner = 1 - seat
-                loser = seat
-                winner_mention = str(self.players[winner])
-                return GameOutcome(
-                    results={winner: "win", loser: "loss"},
-                    summary={"winner": winner, "reason": "timeout"},
-                    description=f"{winner_mention} won on time",
-                    player_descriptions={winner: "Won on time", loser: "Lost on time"},
-                )
+                return self._clock_loss_outcome(seat)
 
             if turn_seat != seat:
                 turn_seat = seat
