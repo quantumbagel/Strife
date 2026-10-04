@@ -9,10 +9,12 @@ added = [
   "FormSpec and BotRequest.form_fields — legal values plus cardinality; the host merges a bot's omitted form defaults like a human submit",
   "TurnBasedGame.advance() and is_active(seat); on_timeout and on_forfeit default to advance()",
   "check_timeout_consequence accepts several seats' resolved sources; AUTO_PASS is valid if any one includes pass",
+  "MockContext and scripts/run_game.py take live-host logs, including seatless rows, window timeouts and game_end",
 ]
 changed = [
   "BotRequest.sources is the resolved set (frozenset, possibly empty), never \"any\"",
   "Bots must return kind GAME moves and never system sources; a crash or invalid move is a system timeout for that turn",
+  "Bot form values are coerced like a human submit: str for a single select, list[str] for a multi-select",
   "record_event args must be JSON-serializable (TypeError otherwise)",
   "A game without play() is skipped; a replay whose log ends before the match does is unavailable",
   "timeout_strike is a host system row; a non-removed forfeit can be a pending seat's answer",

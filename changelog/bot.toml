@@ -26,6 +26,11 @@ fixed = [
   "Abandoned matches no longer read as a draw",
   "Profile page jump and last page work",
   "Forfeit results show on the profile",
+  "Clicking a board right after a restart no longer ends a match that is still resuming",
+  "Lobby buttons respond even while another player's click is being handled",
+  "A bot that fails right after taking over an AFK seat skips the turn instead of ending the match",
+  "Players who left a match can't peek at it, and a seat a bot took over stops getting DMs",
+  "Deleting a game thread ends its match and frees the players",
 ]
 
 [[release]]
