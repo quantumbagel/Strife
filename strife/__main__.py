@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import signal
 
 from strife.bot import StrifeBot
@@ -7,16 +8,28 @@ from strife.logging import configure_logging
 from strife.settings import get_settings
 
 
-def main() -> None:
+async def _run() -> None:
     settings = get_settings()
     configure_logging(settings.log_level)
     bot = StrifeBot(settings)
 
-    def _handle_signal(_signum: int, _frame: object) -> None:
-        raise KeyboardInterrupt
+    async with bot:
+        loop = asyncio.get_running_loop()
+        shutdown_tasks: set[asyncio.Task] = set()
 
-    signal.signal(signal.SIGTERM, _handle_signal)
-    bot.run(settings.discord_token, log_handler=None)
+        def _shutdown() -> None:
+            if any(not task.done() for task in shutdown_tasks):
+                return
+            task = asyncio.create_task(bot.close())
+            shutdown_tasks.add(task)
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, _shutdown)
+        await bot.start(settings.discord_token)
+
+
+def main() -> None:
+    asyncio.run(_run())
 
 
 if __name__ == "__main__":

@@ -7,7 +7,10 @@ from pathlib import Path
 import discord
 from discord.ext import commands
 
-from strife.commands.game_commands import register_slash_group_for_game, remove_slash_group_for_game
+from strife.commands.game_commands import (
+    register_slash_group_for_game,
+    remove_slash_group_for_game,
+)
 from strife.logging import get_logger
 from strife.persistence.migrator import Migrator
 from strife.persistence.repositories import MatchRepository, UserRepository
@@ -84,7 +87,9 @@ class AdminCommands(commands.Cog):
             pass
         return None
 
-    async def _dispatch(self, cmd: str, args: list[str], message: discord.Message) -> None:
+    async def _dispatch(
+        self, cmd: str, args: list[str], message: discord.Message
+    ) -> None:
         handlers = {
             "sync": self._sync,
             "clear": self._clear,
@@ -129,8 +134,8 @@ class AdminCommands(commands.Cog):
             await self._add_reaction_with_fallback(message, "error", "❌")
             try:
                 await message.reply(
-                    f"`strife/{cmd}` failed: {type(exc).__name__}: {exc}"[:1900]
-                    + "\nFull traceback is in the bot log."
+                    f"`strife/{cmd}` failed: {type(exc).__name__}. "
+                    "See the bot log for details."
                 )
             except discord.HTTPException:
                 log.exception("Could not report strife/%s failure", cmd)
@@ -157,13 +162,15 @@ class AdminCommands(commands.Cog):
     async def _sync(self, args: list[str], message: discord.Message) -> None:
         guild, label = self._guild_target(args, message, _SYNC_USAGE)
         if guild is None:
-            synced = await self.bot.tree.sync()
+            synced = await _sync_global_tree(self.bot)
             await message.reply(f"Globally synced {len(synced)} commands.")
             return
         self.bot.tree.copy_global_to(guild=guild)
         synced = await self.bot.tree.sync(guild=guild)
         reply = f"Synced {len(synced)} commands to {label}."
-        clear_cmd = "strife/clear local" if args[0] == "local" else f"strife/clear {args[0]}"
+        clear_cmd = (
+            "strife/clear local" if args[0] == "local" else f"strife/clear {args[0]}"
+        )
         try:
             global_count = len(await self.bot.tree.fetch_commands())
         except discord.HTTPException:
@@ -198,7 +205,10 @@ class AdminCommands(commands.Cog):
         guild = message.guild
         remote = await self.bot.tree.fetch_commands(guild=guild)
         local = {c.name: c for c in self.bot.tree.get_commands(guild=guild)}
-        lines = [f"Remote: {len(remote)} commands", f"Local top-level: {len(local)} commands"]
+        lines = [
+            f"Remote: {len(remote)} commands",
+            f"Local top-level: {len(local)} commands",
+        ]
         remote_names = {c.name for c in remote}
         local_names = set(local)
         added = local_names - remote_names
@@ -225,7 +235,9 @@ class AdminCommands(commands.Cog):
         migrator = Migrator(self.bot.pool, self.settings.migrations_dir)  # type: ignore[attr-defined]
         await migrator.reset()
         _clear_replay_caches(getattr(self.bot, "replay", None))
-        await message.reply("Database reset and migrations re-applied. Replay cache cleared.")
+        await message.reply(
+            "Database reset and migrations re-applied. Replay cache cleared."
+        )
 
     async def _emoji(self, args: list[str], message: discord.Message) -> None:
         resolver = self.bot.emoji  # type: ignore[attr-defined]
@@ -237,7 +249,9 @@ class AdminCommands(commands.Cog):
             await resolver.sync(self.bot)
         except discord.HTTPException:
             log.exception("Emoji sync after re-upload failed")
-        reply = f"Uploaded {result.uploaded} application emoji(s) and updated emoji.yaml."
+        reply = (
+            f"Uploaded {result.uploaded} application emoji(s) and updated emoji.yaml."
+        )
         if result.failed:
             shown = "\n".join(f"- {name}: {why}" for name, why in result.failed[:15])
             more = len(result.failed) - 15
@@ -261,6 +275,7 @@ class AdminCommands(commands.Cog):
     async def _install(self, args: list[str], message: discord.Message) -> None:
         if not args or len(args) > 2:
             raise PluginError("Usage: strife/install <builtin-key | git-url> [ref]")
+        await self.bot.wait_until_live_resumed()  # type: ignore[attr-defined]
         target = args[0]
         ref = args[1] if len(args) > 1 else None
         manager = self.bot.plugin_manager  # type: ignore[attr-defined]
@@ -297,6 +312,7 @@ class AdminCommands(commands.Cog):
         manager.confirm_install(key)
         enabled = _sync_game_overlay(self.bot, key)
         _refresh_changelog(self.bot, key)
+        extra += await _sync_tree_after_plugin_change(self.bot)
         if kind == "git":
             extra += " Run `strife/emoji` if the plugin shipped an emoji/ folder."
         if not enabled:
@@ -306,23 +322,31 @@ class AdminCommands(commands.Cog):
     async def _update(self, args: list[str], message: discord.Message) -> None:
         if not args or len(args) > 2:
             raise PluginError("Usage: strife/update <key> [ref]")
+        await self.bot.wait_until_live_resumed()  # type: ignore[attr-defined]
         key = args[0]
         ref = args[1] if len(args) > 1 else None
-        n_sessions, n_lobbies = _count_live(self.bot, key)
-        if n_sessions or n_lobbies:
-            raise PluginError(
-                f"Cannot update `{key}` while {n_sessions} match(es) and {n_lobbies} "
-                f"lobby(ies) are live. Finish them first, or uninstall."
-            )
+        await _require_no_live(self.bot, key, action="update")
         manager = self.bot.plugin_manager  # type: ignore[attr-defined]
         registry = self.bot.game_registry  # type: ignore[attr-defined]
         update = await asyncio.to_thread(manager.update_from_git, key, ref)
         try:
             extra = _load_or_advise_restart(self.bot, registry, key, reload=True)
+            if not registry.contains(key):
+                raise PluginError(f"Plugin '{key}' did not register after update")
         except Exception as exc:
-            log.exception("Plugin %s failed to reload after update; restoring old files", key)
+            log.exception(
+                "Plugin %s failed to reload after update; restoring old files", key
+            )
+            try:
+                missing = missing_dependencies(update.manifest.dependencies)
+            except PluginError:
+                missing = []
             try:
                 await asyncio.to_thread(manager.revert_update, update)
+                try:
+                    manager.reload_one(registry, key)
+                except Exception:
+                    log.exception("Failed to re-import restored plugin %s", key)
             except Exception as rb_exc:
                 log.exception("Could not restore %s after a failed update", key)
                 raise PluginError(
@@ -330,12 +354,20 @@ class AdminCommands(commands.Cog):
                     f"Restoring the previous files also failed ({rb_exc}). The old version keeps "
                     f"running until restart; the backup is at `{update.backup}`."
                 ) from exc
+            if missing:
+                raise PluginError(
+                    f"**{key}** v{update.manifest.version} was not applied; these packages must "
+                    f"be installed first: {', '.join(missing)}. "
+                    f"Run `python -m strife.plugins sync-deps` or restart with "
+                    f"`STRIFE_SYNC_PLUGIN_DEPS`, then retry `strife/update {key}`."
+                ) from exc
             raise PluginError(
                 f"**{key}** v{update.manifest.version} failed to load, so the previous files "
                 f"and ref were restored (the running version was not replaced):\n{exc}"
             ) from exc
         await asyncio.to_thread(manager.finish_update, update)
         extra += _register_slash(self.bot, registry, key)
+        extra += await _sync_tree_after_plugin_change(self.bot)
         _refresh_changelog(self.bot, key)
         extra += " Run `strife/emoji` if the plugin shipped an emoji/ folder."
         await message.reply(
@@ -354,6 +386,8 @@ class AdminCommands(commands.Cog):
                 f"Run `strife/uninstall {key} confirm` to proceed."
             )
             return
+
+        await self.bot.wait_until_live_resumed()  # type: ignore[attr-defined]
 
         manager = self.bot.plugin_manager  # type: ignore[attr-defined]
         registry = self.bot.game_registry  # type: ignore[attr-defined]
@@ -401,8 +435,8 @@ class AdminCommands(commands.Cog):
         await message.reply(
             f"Uninstalled **{key}** ({result.origin}). "
             f"Stopped {n_sessions} live match(es) and {n_lobbies} lobby(ies). "
-            f"Deleted {n_matches} match(es) and {n_stats} stat row(s). "
-            f"Run `strife/sync` if it had slash commands."
+            f"Deleted {n_matches} match(es) and {n_stats} stat row(s)."
+            f"{await _sync_tree_after_plugin_change(self.bot)}"
         )
 
 
@@ -459,17 +493,23 @@ def _load_or_advise_restart(bot, registry, key: str, *, reload: bool = False) ->
     """Load the plugin now, or tell the operator to restart so extras can install at boot.
 
     Does not register slash commands; call ``_register_slash`` after.
+    Reload after an update must not keep the new files when extras are missing.
     """
     manager = bot.plugin_manager
     record = manager.record_for(key)
-    missing = missing_dependencies(record.dependencies) if record is not None else []
+    try:
+        missing = (
+            missing_dependencies(record.dependencies) if record is not None else []
+        )
+    except PluginError:
+        missing = []
     try:
         if reload:
             manager.reload_one(registry, key)
         else:
             manager.load_one(registry, key)
     except PluginError:
-        if missing:
+        if missing and not reload:
             return (
                 f" Restart the bot to install extras ({', '.join(missing)}) "
                 "and load the plugin."
@@ -482,18 +522,64 @@ def _register_slash(bot, registry, key: str) -> str:
     extra = ""
     if not registry.contains(key):
         return extra
+    remove_slash_group_for_game(bot.tree, key)
+    games = getattr(getattr(bot, "config", None), "games", None)
+    if games is not None and not games.for_game(key).enabled:
+        return extra
     meta = registry.metadata(key)
     lobby = getattr(bot, "lobby", None)
-    remove_slash_group_for_game(bot.tree, key)
-    if lobby is not None and register_slash_group_for_game(
-        bot.tree,
-        meta,
-        bot.sessions,
-        lobby.user_errors,
-        lobby.user_success,
-    ):
-        extra = " Run `strife/sync` so slash commands go live."
+    if lobby is not None:
+        register_slash_group_for_game(
+            bot.tree,
+            meta,
+            bot.sessions,
+            lobby.user_errors,
+            lobby.user_success,
+        )
     return extra
+
+
+async def _sync_global_tree(bot) -> list:
+    return await bot.tree.sync()
+
+
+async def _sync_tree_after_plugin_change(bot) -> str:
+    """Publish the local command tree when the bot syncs globally at boot."""
+    settings = getattr(bot, "settings", None)
+    if settings is None or not settings.sync_on_start:
+        return " Run `strife/sync` so slash commands go live."
+    try:
+        synced = await _sync_global_tree(bot)
+    except Exception:
+        log.exception("Command tree sync after plugin change failed")
+        return " Run `strife/sync` so slash commands go live."
+    return f" Synced {len(synced)} command(s)."
+
+
+_STOP_LIVE_WAIT_SECONDS = 15.0
+
+
+async def _require_no_live(bot, game_key: str, *, action: str) -> None:
+    n_sessions, n_lobbies = _count_live(bot, game_key)
+    n_db = await _count_live_db(bot, game_key)
+    if not n_sessions and not n_lobbies and not n_db:
+        return
+    db_note = f" ({n_db} live match(es) stored)" if n_db else ""
+    suffix = " Finish them first, or uninstall."
+    raise PluginError(
+        f"Cannot {action} `{game_key}` while {n_sessions} match(es) and {n_lobbies} "
+        f"lobby(ies) are live{db_note}.{suffix}"
+    )
+
+
+async def _count_live_db(bot, game_key: str) -> int:
+    matches = getattr(bot, "matches", None)
+    if matches is not None:
+        return await matches.count_live(game_key)
+    pool = getattr(bot, "pool", None)
+    if pool is None:
+        return 0
+    return await MatchRepository(pool).count_live(game_key)
 
 
 def _count_live(bot, game_key: str) -> tuple[int, int]:
@@ -501,9 +587,13 @@ def _count_live(bot, game_key: str) -> tuple[int, int]:
     if sessions is None:
         return 0, 0
     n_sessions = sum(
-        1 for session in sessions.active_games.values() if getattr(session, "game_key", None) == game_key
+        1
+        for session in sessions.active_games.values()
+        if getattr(session, "game_key", None) == game_key
     )
-    n_lobbies = sum(1 for lobby in sessions.lobbies.values() if lobby.game_key == game_key)
+    n_lobbies = sum(
+        1 for lobby in sessions.lobbies.values() if lobby.game_key == game_key
+    )
     return n_sessions, n_lobbies
 
 
@@ -519,7 +609,24 @@ async def _stop_live(bot, game_key: str) -> tuple[int, int]:
         try:
             await session.cancel("uninstalled")
         except Exception:
-            log.exception("Failed to cancel session %s while uninstalling %s", session.id, game_key)
+            log.exception(
+                "Failed to cancel session %s while uninstalling %s",
+                session.id,
+                game_key,
+            )
+        # A match already ending may still be saving; let it finish before its rows go.
+        task = getattr(session, "task", None)
+        if task is not None and not task.done():
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(task), timeout=_STOP_LIVE_WAIT_SECONDS
+                )
+            except Exception:
+                log.warning(
+                    "Session %s still finishing while uninstalling %s",
+                    session.id,
+                    game_key,
+                )
         n_sessions += 1
     for lobby in list(sessions.lobbies.values()):
         if lobby.game_key != game_key:
@@ -531,6 +638,8 @@ async def _stop_live(bot, game_key: str) -> tuple[int, int]:
             try:
                 await lobby.surface.delete()
             except Exception:
-                log.exception("Failed to delete lobby surface while uninstalling %s", game_key)
+                log.exception(
+                    "Failed to delete lobby surface while uninstalling %s", game_key
+                )
         n_lobbies += 1
     return n_sessions, n_lobbies

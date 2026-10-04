@@ -27,7 +27,12 @@ from strife.matchmaking.registries import SessionRegistries
 from strife.matchmaking.service import LobbyService, SessionFinalizer
 from strife.persistence.migrator import Migrator
 from strife.persistence.pool import create_pool
-from strife.persistence.repositories import GuildRepository, MatchRepository, MoveRepository, UserRepository
+from strife.persistence.repositories import (
+    GuildRepository,
+    MatchRepository,
+    MoveRepository,
+    UserRepository,
+)
 from strife.presentation.compiler import Compiler
 from strife.presentation.emoji import EmojiResolver
 from strife.presentation.mentions import install_discord_mentions
@@ -46,6 +51,8 @@ log = get_logger("bot")
 # docker compose stop_grace_period is 30s; leave room for pool/gateway close.
 _SHUTDOWN_GAMES_TIMEOUT_SECONDS = 15.0
 _SHUTDOWN_OFFERS_TIMEOUT_SECONDS = 5.0
+_SHUTDOWN_TASKS_TIMEOUT_SECONDS = 5.0
+_SHUTDOWN_WORKERS_TIMEOUT_SECONDS = 5.0
 
 
 class StrifeCommandTree(app_commands.CommandTree):
@@ -86,6 +93,7 @@ class StrifeBot(commands.AutoShardedBot):
         self.changelogs: ChangelogCatalog | None = None
         self.about: AboutService | None = None
         self._background_tasks: list[asyncio.Task] = []
+        self._strife_close_task: asyncio.Task | None = None
         self._live_resume_done = asyncio.Event()
         self.matches: MatchRepository | None = None
         self.moves: MoveRepository | None = None
@@ -113,7 +121,9 @@ class StrifeBot(commands.AutoShardedBot):
         self.game_registry = GameRegistry()
         if self.settings.sync_plugin_deps:
             try:
-                installed = await asyncio.to_thread(self.plugin_manager.ensure_dependencies)
+                installed = await asyncio.to_thread(
+                    self.plugin_manager.ensure_dependencies
+                )
                 if installed:
                     log.info("Installed plugin extras: %s", ", ".join(installed))
             except Exception:
@@ -132,17 +142,49 @@ class StrifeBot(commands.AutoShardedBot):
         encoder = CustomIdEncoder(cache, signing_key=signing_key)
         compiler = Compiler(self.emoji, encoder)
         self.sessions = SessionRegistries()
-        user_errors = UserErrorPresenter(compiler, self.emoji, self.config.text, self.sessions)
+        user_errors = UserErrorPresenter(
+            compiler, self.emoji, self.config.text, self.sessions
+        )
         user_success = UserSuccessPresenter(compiler, self.emoji, self.config.text)
 
         @self.tree.error
         async def on_app_command_error(
             interaction: discord.Interaction, error: app_commands.AppCommandError
         ) -> None:
-            if isinstance(error, app_commands.CheckFailure) and interaction.response.is_done():
+            original = (
+                error.original
+                if isinstance(error, app_commands.CommandInvokeError)
+                else error
+            )
+            if isinstance(error, app_commands.CheckFailure):
+                if not interaction.response.is_done():
+                    code = (
+                        "errors.guild_only"
+                        if isinstance(error, app_commands.NoPrivateMessage)
+                        else "common.forbidden"
+                    )
+                    try:
+                        await user_errors.send(interaction, code)
+                    except discord.HTTPException:
+                        pass
+                    except Exception:
+                        log.exception(
+                            "Failed to send application command error feedback"
+                        )
                 return
-            original = error.original if isinstance(error, app_commands.CommandInvokeError) else error
+            if isinstance(original, discord.InteractionResponded):
+                return
+            already_visible = (
+                interaction.response.is_done()
+                and interaction.response.type
+                not in (
+                    discord.InteractionResponseType.deferred_channel_message,
+                    discord.InteractionResponseType.deferred_message_update,
+                )
+            )
             log.exception("Application command error", exc_info=original)
+            if already_visible:
+                return
             try:
                 await user_errors.send(interaction, "common.error")
             except discord.HTTPException:
@@ -185,16 +227,36 @@ class StrifeBot(commands.AutoShardedBot):
         finalizer.lifecycle = self.lifecycle
 
         self.replay = ReplayService(
-            self.matches, self.moves, self.game_registry, compiler, self.config.text, user_errors
+            self.matches,
+            self.moves,
+            self.game_registry,
+            compiler,
+            self.config.text,
+            user_errors,
         )
         self.profile = ProfileService(
-            users, self.matches, compiler, self.config.text, self.game_registry, self.replay
+            users,
+            self.matches,
+            compiler,
+            self.config.text,
+            self.game_registry,
+            self.replay,
         )
         self.catalog = CatalogService(
-            self.game_registry, self.config, compiler, self.emoji, self.config.text, self.changelogs
+            self.game_registry,
+            self.config,
+            compiler,
+            self.emoji,
+            self.config.text,
+            self.changelogs,
         )
         self.about = AboutService(
-            compiler, self.emoji, self.config.text, self.changelogs, self.game_registry, self.config
+            compiler,
+            self.emoji,
+            self.config.text,
+            self.changelogs,
+            self.game_registry,
+            self.config,
         )
         self.server_settings = ServerSettingsService(
             guilds, compiler, self.emoji, self.config.text, user_errors, user_success
@@ -227,6 +289,7 @@ class StrifeBot(commands.AutoShardedBot):
             registry=self.game_registry,
         )
         from strife.commands.game_commands import register_game_slash_commands
+
         register_game_slash_commands(
             self.tree,
             self.game_registry,
@@ -246,7 +309,9 @@ class StrifeBot(commands.AutoShardedBot):
             except Exception:
                 log.exception("Failed to sync application commands")
         else:
-            log.info("Skipping command tree sync (set STRIFE_SYNC_ON_START=true or run strife/sync)")
+            log.info(
+                "Skipping command tree sync (set STRIFE_SYNC_ON_START=true or run strife/sync)"
+            )
         log.info("Strife subsystems wired")
 
     async def on_ready(self) -> None:
@@ -297,7 +362,9 @@ class StrifeBot(commands.AutoShardedBot):
             try:
                 await session.cancel("restart")
             except Exception:
-                log.exception("Failed to abandon session %s during shutdown", session.id)
+                log.exception(
+                    "Failed to abandon session %s during shutdown", session.id
+                )
         if session.task and not session.task.done():
             try:
                 await session.task
@@ -310,46 +377,128 @@ class StrifeBot(commands.AutoShardedBot):
         if interaction.type is discord.InteractionType.component and self.router:
             await self.router.dispatch(interaction)
 
-    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
+    async def on_raw_message_delete(
+        self, payload: discord.RawMessageDeleteEvent
+    ) -> None:
         if self.lobby:
             await self.lobby.handle_message_deleted(payload.message_id)
 
-    async def close(self) -> None:
-        for task in self._background_tasks:
-            task.cancel()
-        if self.lifecycle:
-            await self.lifecycle.stop()
-        # Drop open rematch offers first so none turns into a new lobby mid-shutdown.
-        await self._close_rematch_offers()
+    async def on_raw_bulk_message_delete(
+        self, payload: discord.RawBulkMessageDeleteEvent
+    ) -> None:
         if self.lobby:
-            close_lobbies = getattr(self.lobby, "close_all_lobbies", None)
-            if close_lobbies is not None:
-                try:
-                    await close_lobbies()
-                except Exception:
-                    log.exception("Failed to close lobbies during shutdown")
-        if self.sessions:
-            sessions = list(self.sessions.active_games.values())
-            if sessions:
-                # Each finalize is several Discord calls; run them side by side
-                # so they fit in the container's stop grace period.
-                try:
-                    await asyncio.wait_for(
-                        asyncio.gather(
-                            *(self._shutdown_session(s) for s in sessions),
-                            return_exceptions=True,
-                        ),
-                        timeout=_SHUTDOWN_GAMES_TIMEOUT_SECONDS,
+            for message_id in payload.message_ids:
+                await self.lobby.handle_message_deleted(message_id)
+
+    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel) -> None:
+        await self._cancel_live_sessions_for_deleted_channel(channel.id)
+        if self.lobby:
+            await self.lobby.handle_channel_deleted(channel.id)
+
+    async def on_raw_thread_delete(self, payload: discord.RawThreadDeleteEvent) -> None:
+        await self._cancel_live_sessions_for_deleted_channel(payload.thread_id)
+        if self.lobby:
+            await self.lobby.handle_channel_deleted(payload.thread_id)
+
+    async def _cancel_live_sessions_for_deleted_channel(self, channel_id: int) -> None:
+        sessions = self.sessions
+        if sessions is None:
+            return
+        to_cancel = []
+        session = sessions.get_game(channel_id)
+        if session is not None:
+            to_cancel.append(session)
+        for game in list(sessions.active_games.values()):
+            if session is not None and game is session:
+                continue
+            if getattr(game, "lobby_channel_id", None) == channel_id:
+                to_cancel.append(game)
+        for session in to_cancel:
+            try:
+                await session.cancel("thread_deleted")
+            except Exception:
+                log.exception(
+                    "Failed to cancel session %s after channel/thread delete",
+                    session.id,
+                )
+
+    async def _cancel_and_await(
+        self, tasks: list[asyncio.Task], *, timeout: float
+    ) -> None:
+        pending = [task for task in tasks if not task.done()]
+        for task in pending:
+            task.cancel()
+        if not pending:
+            return
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*pending, return_exceptions=True),
+                timeout=timeout,
+            )
+        except TimeoutError:
+            log.warning(
+                "Timed out waiting for %s cancelled task(s) during shutdown",
+                len(pending),
+            )
+
+    async def close(self) -> None:
+        current = asyncio.current_task()
+        if self._strife_close_task is not None:
+            if self._strife_close_task is not current:
+                await self._strife_close_task
+            return
+        self._strife_close_task = current
+
+        try:
+            await self._cancel_and_await(
+                list(self._background_tasks), timeout=_SHUTDOWN_TASKS_TIMEOUT_SECONDS
+            )
+            if self.lobby is not None:
+                lobby_tasks = getattr(self.lobby, "_background_tasks", None)
+                if lobby_tasks:
+                    await self._cancel_and_await(
+                        list(lobby_tasks), timeout=_SHUTDOWN_TASKS_TIMEOUT_SECONDS
                     )
-                except TimeoutError:
-                    log.warning(
-                        "Timed out pausing %s session(s) during shutdown; "
-                        "live rows stay in the database for the next boot",
-                        len(sessions),
-                    )
-            # Abandoned matches just registered offers of their own.
+            if self.lifecycle:
+                await self.lifecycle.stop()
+            # Drop open rematch offers first so none turns into a new lobby mid-shutdown.
             await self._close_rematch_offers()
-        if self.pool:
-            await self.pool.close()
-        shutdown_workers()
-        await super().close()
+            if self.lobby:
+                close_lobbies = getattr(self.lobby, "close_all_lobbies", None)
+                if close_lobbies is not None:
+                    try:
+                        await close_lobbies()
+                    except Exception:
+                        log.exception("Failed to close lobbies during shutdown")
+            if self.sessions:
+                sessions = list(self.sessions.active_games.values())
+                if sessions:
+                    # Each finalize is several Discord calls; run them side by side
+                    # so they fit in the container's stop grace period.
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.gather(
+                                *(self._shutdown_session(s) for s in sessions),
+                                return_exceptions=True,
+                            ),
+                            timeout=_SHUTDOWN_GAMES_TIMEOUT_SECONDS,
+                        )
+                    except TimeoutError:
+                        log.warning(
+                            "Timed out pausing %s session(s) during shutdown; "
+                            "live rows stay in the database for the next boot",
+                            len(sessions),
+                        )
+                # Abandoned matches just registered offers of their own.
+                await self._close_rematch_offers()
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(shutdown_workers, wait=True),
+                    timeout=_SHUTDOWN_WORKERS_TIMEOUT_SECONDS,
+                )
+            except TimeoutError:
+                log.warning("Timed out shutting down CPU workers")
+            if self.pool:
+                await self.pool.close()
+        finally:
+            await super().close()
