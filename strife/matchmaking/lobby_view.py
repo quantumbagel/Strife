@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from strife.config.text import TextConfig
-from strife.engine.metadata import GameMetadata, format_settings_rules
+from strife.engine.metadata import GameMetadata
+from strife.presentation.settings import format_settings_rules
 from strife.matchmaking.lobby import Lobby
 from strife.presentation.components import (
     ActionRow,

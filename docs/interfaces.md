@@ -187,6 +187,7 @@ Games type against the protocol. They never construct a host.
 | `ctx.emoji` | Emoji keys |
 | `ctx.started_at`, `ctx.is_replay`, `ctx.is_bot(seat)` | Clock, hide controls, skip DMs |
 | `ctx.turn_timeout_seconds` | Host per-turn budget (`float`); `None` on CLI/replay (no clock) |
+| `ctx.turn_deadline(seconds)` | One clock across several `request_input` calls (no-op on replay/CLI) |
 | `await ctx.update(view)` | Refresh the board |
 | `await ctx.request_input(...)` | One actor |
 | `await ctx.request_inputs(...)` | Simultaneous / first-to-act. `until="any"` returns `{}` if its window times out with nobody acting (no seat is penalized) |
@@ -194,7 +195,7 @@ Games type against the protocol. They never construct a host.
 | `await ctx.record_event(source, arguments)` | One `game` log row. Rejects system names |
 | `await ctx.respond_query(view)` | Only inside `handle_query` |
 
-`timeout_seconds` / `timeout_consequence` / `per_seat_sources` / `descriptions` are real API. Chess clocks and Coup skip-on-timeout use them. Replay answers `request_*` from the log.
+`timeout_seconds` / `timeout_consequence` / `per_seat` (`SeatPrompt`) / `ctx.turn_deadline` are real API. Chess clocks and Coup skip-on-timeout use them. Replay answers `request_*` from the log.
 
 Optional: `handle_query`, `final_view`, `active_seats()` (timeout/forfeit — override if seats can leave).
 
@@ -249,7 +250,7 @@ Compiler limits fail in the host. CLI should surface the same `LayoutError`.
 ## 7. Still open
 
 - `/strife lobby *` still exists as a parallel surface. Deleting duplicates is optional (`/strife lobby join` stays).
-- Live matches persist only at finalize (kill -9 loses the in-progress game). `active_games` tracks live threads so the next boot posts an “interrupted” notice and locks them.
+- Live matches are a `matches` row with `status = 'live'` from the start; moves are appended as they're logged. Graceful shutdown pauses them, and the next boot resumes them (or posts an “interrupted” notice and locks the thread if the plugin is gone, its version changed, or catch-up fails). A kill -9 can lose at most the last few unflushed rows.
 - Profile `list_recent` still uses a per-row count subquery.
 - `config/emoji.yaml` may keep leftover cache keys until the next `strife/emoji`.
 - `errors.not_on_whitelist` is unused copy.
@@ -261,7 +262,7 @@ Dual lobby UI (`lobby_flow`, `settings_view`, `lobby_commands`) still implements
 
 Member cache is off, so join/ready may fetch while holding the lobby lock. Match start no longer holds that lock across thread create.
 
-Repos are one module. A match row exists only at finalize. Intended: insert on start, append moves, mark status on end.
+Repos are one module. A match row is inserted on start (`live`), moves are appended as they're logged, and finalize marks the status and backfills any missing moves.
 
 `strife/emoji` still deletes every application emoji before upload.
 

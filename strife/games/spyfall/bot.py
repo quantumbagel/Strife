@@ -10,11 +10,11 @@ if TYPE_CHECKING:
 def choose_move(game: Spyfall, difficulty: str, seat: int) -> Move:
     if game.accused_player is not None:
         if seat == game.accused_player:
-            return Move(actor_seat=seat, source="vote", args={"value": "innocent"})
+            return Move(actor_seat=seat, source="vote_innocent", args={})
         if seat == game.spy:
-            return Move(actor_seat=seat, source="vote", args={"value": "guilty"})
-        val = "guilty" if game.bot_rng.random() < 0.6 else "innocent"
-        return Move(actor_seat=seat, source="vote", args={"value": val})
+            return Move(actor_seat=seat, source="vote_guilty", args={})
+        source = "vote_guilty" if game.bot_rng.random() < 0.6 else "vote_innocent"
+        return Move(actor_seat=seat, source=source, args={})
 
     is_spy = seat == game.spy
     pressure = 0.2 if difficulty == "easy" else 0.35 if difficulty == "medium" else 0.5
@@ -24,7 +24,6 @@ def choose_move(game: Spyfall, difficulty: str, seat: int) -> Move:
         others = [s for s in game.alive if s != seat]
         if others:
             target = game.bot_rng.choice(others)
-            game.pending_accuse[seat] = target
-            return Move(actor_seat=seat, source="accuse", args={})
+            return Move(actor_seat=seat, source="accuse", args={"target": str(target)})
 
     return Move(actor_seat=seat, source="pass", args={})

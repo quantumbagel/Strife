@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from strife.config.text import TextConfig
 from strife.engine.players import GameOutcome, Player
 from strife.presentation.components import (
@@ -50,6 +52,7 @@ def build_results_view(
     match_status: str = "completed",
     removed_seats: set[int] | frozenset[int] = frozenset(),
     taken_over_seats: set[int] | frozenset[int] = frozenset(),
+    role_keys: Mapping[int, str | None] | None = None,
 ) -> LayoutView:
     view = LayoutView()
     container = Container()
@@ -91,7 +94,10 @@ def build_results_view(
     lines = []
     for player in players:
         result = outcome.results.get(player.seat, "—")
-        role = f" ({player.role_key})" if player.role_key else ""
+        role_key = (
+            role_keys.get(player.seat) if role_keys is not None else player.role_key
+        )
+        role = f" ({role_key})" if role_key else ""
 
         if player.seat in taken_over_seats and outcome.results.get(player.seat):
             # Matches the stored row: a bot finished this AFK seat, so the

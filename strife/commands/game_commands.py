@@ -8,7 +8,7 @@ from discord import app_commands
 
 from strife.commands.autocomplete import notice_choices
 from strife.config.games import GamesConfig
-from strife.engine.errors import SessionError
+from strife.session.errors import SessionError
 from strife.engine.metadata import MoveParam, ParamType, SlashMove
 from strife.engine.registry import GameRegistry
 from strife.logging import get_logger

@@ -11,7 +11,7 @@ from strife.engine.game import Game
 from strife.engine.requests import TimeoutConsequence
 from strife.engine.match_log import MatchLog
 from strife.engine.players import GameOutcome, Move, Player
-from strife.persistence.repositories import FinishedMatch
+from strife.persistence.repositories import FinishedMatch, LiveMatchStart
 from strife.presentation.message import ViewSurface
 from strife.session.context import LiveContext
 from strife.session.input import SessionInputMixin
@@ -24,6 +24,7 @@ from strife.session.types import (
     guard_bot_move,
     log,
 )
+from strife.session.writer import MoveWriter
 
 __all__ = [
     "BOT_MOVE_TIMEOUT_SECONDS",
@@ -35,9 +36,15 @@ __all__ = [
 
 
 class MatchFinalizer(Protocol):
-    async def persist(
+    async def finish(
         self, finished: FinishedMatch, outcome: GameOutcome
     ) -> tuple[int, str]: ...
+
+    async def start_live(self, record: LiveMatchStart) -> tuple[int, str]: ...
+
+    async def append_moves(self, match_id: int, moves: list[Move]) -> None: ...
+
+    async def set_board_message(self, match_id: int, message_id: int) -> None: ...
 
     def notify_match_end(
         self,
@@ -100,17 +107,25 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
         self._bot = None
         self._finalized = False
         self._ending = False
+        self._pausing = False
+        self._resuming = False
         self._timeout_warned: dict[int, float] = {}
         self._timeout_inflight: set[int] = set()
         self._timeout_generation: dict[int, int] = {}
         self.lobby_surface = None
         self.lobby_private = False
         self.lobby_creator_id: int | None = None
+        self.lobby_channel_id: int | None = None
+        self.lobby_message_id: int | None = None
         self._dm_failure_notified: set[int] = set()
         # Seats that forfeited or timed out of a still-running match.
         self._removed_seats: set[int] = set()
         self.timeout_strikes: dict[int, int] = {}
         self.taken_over: set[int] = set()
+        self._phase_timeout_index: int | None = None
+        self._move_writer: MoveWriter | None = None
+        self._board_message_saved = False
+        self.game_version: str | None = None
 
     @property
     def started_at(self) -> datetime:
@@ -123,8 +138,10 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
     def mark_progress(self) -> None:
         self.last_progress_at = time.monotonic()
 
-    def _on_log_append(self, _move: Move) -> None:
+    def _on_log_append(self, move: Move) -> None:
         self.last_move_at = time.monotonic()
+        if self._move_writer is not None:
+            self._move_writer.submit(move)
 
     def _owner_ids(self) -> frozenset[int]:
         settings = getattr(self._bot, "settings", None) if self._bot is not None else None
@@ -132,29 +149,31 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
             return frozenset()
         return frozenset(getattr(settings, "owner_ids", ()) or ())
 
-    def _active_games(self):
-        """Crash-recovery tracker from the bot, if persistence is wired."""
-        return getattr(self._bot, "active_games", None) if self._bot is not None else None
+    def _start_writer(self) -> None:
+        if self._match_id is None:
+            return
+        self._move_writer = MoveWriter(self._finalizer.append_moves, self._match_id)
+        self._move_writer.start()
 
-    async def start(self) -> None:
-        # Record the thread before play begins so a hard crash leaves a trace
-        # the next boot can clean up. Tracking is best effort.
-        tracker = self._active_games()
-        if tracker is not None:
-            try:
-                await tracker.add(self.thread_id, self.guild_id, self.game_key)
-            except Exception:
-                log.exception("Failed to record active game thread %s", self.thread_id)
-        self.task = asyncio.create_task(self._run())
-
-    async def _untrack(self) -> None:
-        tracker = self._active_games()
-        if tracker is None:
+    async def _stop_writer(self) -> None:
+        writer = self._move_writer
+        self._move_writer = None
+        if writer is None:
             return
         try:
-            await tracker.remove(self.thread_id)
+            await writer.stop()
         except Exception:
-            log.exception("Failed to clear active game thread %s", self.thread_id)
+            log.exception("Failed to flush move writer for thread %s", self.thread_id)
+
+    async def start(self, *, resume: bool = False) -> None:
+        self._start_writer()
+        if resume:
+            self._resuming = True
+            self._board_message_saved = True
+            self.ctx.begin_catchup(list(self.log.entries))
+        self.task = asyncio.create_task(self._run())
+        if resume:
+            await self._notify_thread(self.text.get("match.session_resumed"))
 
     async def _run(self) -> None:
         from strife.presentation.emoji_context import bind_emoji, reset_emoji
@@ -165,6 +184,8 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
                 outcome = await self.game.play(self.ctx)
                 await self._finalize(outcome, status="completed")
             except asyncio.CancelledError:
+                if self._pausing:
+                    return
                 if not self._finalized and not self._ending:
                     self.log.system(
                         "game_end",
@@ -183,6 +204,31 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
                     )
                 return
             except Exception:
+                catching_up = self._resuming and self.ctx._catching_up
+                if catching_up:
+                    log.exception(
+                        "Catch-up failed for session %s",
+                        self.id,
+                        extra={"match_id": self.id},
+                    )
+                    await self._notify_thread(self.text.get("match.interrupted"))
+                    if not self._finalized and not self._ending:
+                        self.log.system(
+                            "game_end",
+                            {"reason": "interrupted", "cancelled": True},
+                        )
+                        await self._finalize(
+                            GameOutcome(
+                                results={},
+                                summary={"reason": "interrupted"},
+                                description=self.text.get("match.interrupted"),
+                                player_descriptions={
+                                    player.seat: "Abandoned" for player in self.players
+                                },
+                            ),
+                            status="abandoned",
+                        )
+                    return
                 log.exception("Game session crashed", extra={"match_id": self.id})
                 await self._notify_thread(self.text.get("match.session_crashed"))
                 if not self._finalized and not self._ending:

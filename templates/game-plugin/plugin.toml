@@ -6,7 +6,7 @@
 
 key = "my_game"
 version = "1.0.0"
-platform_version = "2.0.0"
+platform_version = "3.0.0"
 dependencies = []
 # Example extras (PEP 508). The host pip-installs them at boot / sync-deps,
 # never from game code and never during a live strife/install:

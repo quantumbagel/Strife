@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import discord
 
 from strife.config.text import TextConfig
-from strife.engine.errors import SessionError
+from strife.session.errors import SessionError
 from strife.lifecycle.results import build_results_view, rematch_eligible
 from strife.logging import get_logger
 from strife.matchmaking.lobby import Lobby, LobbyMember, QueuedBot
@@ -50,6 +50,7 @@ class RematchOffer:
     result_players: list = field(default_factory=list)
     removed_seats: frozenset[int] = frozenset()
     taken_over_seats: frozenset[int] = frozenset()
+    role_keys: dict[int, str | None] = field(default_factory=dict)
 
 
 class RematchManager:
@@ -110,6 +111,9 @@ class RematchManager:
             result_players=list(session.players),
             removed_seats=removed,
             taken_over_seats=taken_over,
+            role_keys={
+                p.seat: session.game.players[p.seat].role_key for p in session.players
+            },
         )
 
     async def expire_stale(self) -> None:
@@ -153,6 +157,7 @@ class RematchManager:
                 players=offer.result_players,
                 removed_seats=offer.removed_seats,
                 taken_over_seats=offer.taken_over_seats,
+                role_keys=offer.role_keys,
                 thread_id=thread_id,
                 match_id=offer.match_id,
                 text=self.text,
@@ -174,6 +179,7 @@ class RematchManager:
             players=offer.result_players,
             removed_seats=offer.removed_seats,
             taken_over_seats=offer.taken_over_seats,
+            role_keys=offer.role_keys,
             thread_id=thread_id,
             match_id=offer.match_id,
             text=self.text,
@@ -244,6 +250,10 @@ class RematchManager:
         if not members:
             raise SessionError("rematch_unavailable")
 
+        wait = getattr(self.lobby.bot, "wait_until_live_resumed", None)
+        if wait is not None:
+            await wait()
+
         busy = [
             m
             for m in members
@@ -275,6 +285,7 @@ class RematchManager:
                     players=offer.result_players,
                     removed_seats=offer.removed_seats,
                     taken_over_seats=offer.taken_over_seats,
+                    role_keys=offer.role_keys,
                     thread_id=thread_id,
                     match_id=offer.match_id,
                     text=self.text,

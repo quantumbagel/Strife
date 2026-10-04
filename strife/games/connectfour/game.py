@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from strife.engine import BotRequest, GameContext, GameOutcome, Move, TurnBasedGame, run_cpu
+from strife.engine import BotRequest, GameContext, GameOutcome, Move, Result, TurnBasedGame, run_cpu
 from strife.games.connectfour.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -106,21 +106,21 @@ class ConnectFour(TurnBasedGame):
             self.board[row * 7 + col] = move.actor_seat
             self.current = 1 - move.actor_seat
 
+    def on_timeout(self, move: Move) -> None:
+        self.current = 1 - self.current
+
     async def play(self, ctx: GameContext) -> GameOutcome:
         while True:
             seat = self.current
             sources = {f"col_{c}" for c in self.get_valid_moves()}
             move = await self.take_turn(ctx, sources)
-            if move.source == "timeout":
-                self.current = 1 - seat
-                continue
             if not move.source.startswith("col_"):
                 continue
             line = self._winning_line(seat)
             if line is not None:
                 winner_mention = str(self.players[seat])
                 return GameOutcome(
-                    results={seat: "win", 1 - seat: "loss"},
+                    results={seat: Result.WIN, 1 - seat: Result.LOSS},
                     summary={"winner": seat, "line": line},
                     description=f"{winner_mention} won!",
                     player_descriptions={seat: "Won", 1 - seat: "Lost"},
@@ -128,7 +128,7 @@ class ConnectFour(TurnBasedGame):
 
             if all(v is not None for v in self.board):
                 return GameOutcome(
-                    results={0: "draw", 1: "draw"},
+                    results={0: Result.DRAW, 1: Result.DRAW},
                     summary={"winner": None},
                     description="Draw",
                     player_descriptions={0: "Draw", 1: "Draw"},

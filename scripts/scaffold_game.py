@@ -54,6 +54,7 @@ from strife.engine import (
     Move,
     PlayerCount,
     PlayerOrder,
+    Result,
     TurnBasedGame,
     game_metadata_from,
 )
@@ -101,7 +102,7 @@ class {cls}(TurnBasedGame):
             if move.source == "pass":
                 opponent = 1 - seat
                 return GameOutcome(
-                    results={{seat: "win", opponent: "loss"}},
+                    results={{seat: Result.WIN, opponent: Result.LOSS}},
                     summary={{"winner": seat}},
                     description=f"{{self.players[seat]}} wins",
                     player_descriptions={{seat: "Won", opponent: "Lost"}},

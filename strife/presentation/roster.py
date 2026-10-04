@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from strife.engine.players import Player
 from strife.presentation.emoji import EmojiResolver
+from strife.presentation.mentions import format_discord_mention
 
 
 def player_mention(
@@ -11,14 +13,16 @@ def player_mention(
     bot_difficulty: str | None = None,
     emoji: EmojiResolver | None = None,
 ) -> str:
-    from strife.engine.players import Player
-    return Player(
-        seat=-1,
-        user_id=user_id,
-        display_name=display_name,
-        is_bot=is_bot,
-        bot_difficulty=bot_difficulty,
-    ).mention_for(emoji)
+    return format_discord_mention(
+        Player(
+            seat=-1,
+            user_id=user_id,
+            display_name=display_name,
+            is_bot=is_bot,
+            bot_difficulty=bot_difficulty,
+        ),
+        emoji,
+    )
 
 
 def bot_label(
@@ -47,7 +51,6 @@ def member_line(
     creator_id: int | None = None,
     suffix: str | None = None,
 ) -> str:
-    from strife.engine.players import Player
     p = Player(
         seat=-1,
         user_id=user_id,
@@ -60,7 +63,7 @@ def member_line(
         prefix += f"{emoji.get('creator', base=True)} "
     if owner_ids is not None and user_id is not None and user_id in owner_ids:
         prefix += f"{emoji.get('admin', base=True)} "
-    line = f"{prefix}{p.mention_for(emoji)}"
+    line = f"{prefix}{format_discord_mention(p, emoji)}"
     if suffix:
         line = f"{line} {suffix}"
     return line

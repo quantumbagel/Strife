@@ -2,6 +2,31 @@
 # Bump when GameContext or types games import change.
 
 [[release]]
+version = "3.0.0"
+date = "2026-10-04"
+summary = "Live matches survive restarts; forms, turn deadlines, typed results."
+added = [
+  "ctx.turn_deadline(seconds=None) — one clock across several request_input / request_inputs calls, so re-asking after an invalid submit does not reset it",
+  "Select(..., form=True) form fields: not moves, not logged; the pick rides on the seat's next move as args[source]. BotRequest.form lists the legal values",
+  "SeatPrompt and request_inputs(per_seat=...) for per-seat sources and descriptions",
+  "Result enum (WIN / LOSS / DRAW) for GameOutcome.results, and Move.interrupt (Interrupt.FORFEIT / TIMEOUT)",
+  "TurnBasedGame.on_timeout(move), called by take_turn on a timeout instead of apply_move",
+]
+changed = [
+  "Live matches are stored as they run and resume after a restart by re-running play() against the log; a plugin removed or updated mid-match abandons it at the next boot",
+  "Seat events (bot takeovers, mid-match removals) are applied by the engine at their log position; the engine calls remove_player exactly once and games must not call it",
+  "Games get their own copies of Player; Player.mention is the plain display name until the host installs mention markup",
+  "AUTO_PASS timeouts require \"pass\" in the allowed sources; otherwise the host injects a system timeout",
+  "plugin.toml platform_version is required",
+  "Log format 3: matches from before platform 3.0 cannot be replayed",
+]
+removed = [
+  "per_seat_sources and descriptions on request_inputs — use per_seat",
+  "Registry.discover(package) — plugins load only through plugin.toml",
+  "Settings formatting helpers from strife.engine.metadata (moved to the host); strife.engine.roles and strife.engine.errors (moved out of the game API)",
+]
+
+[[release]]
 version = "2.0.0"
 date = "2026-10-04"
 summary = "Replays re-run play(); bots get the request; one input core."

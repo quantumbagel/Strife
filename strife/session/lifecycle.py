@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import discord
 
 from strife.engine.log import LogEntryKind
-from strife.engine.players import GameOutcome
+from strife.engine.players import GameOutcome, Result
 from strife.lifecycle.results import build_results_view
 from strife.persistence.repositories import FinishedMatch, MatchPlayer
 from strife.session.header import build_game_thread_header_view
@@ -45,6 +45,23 @@ class SessionLifecycleMixin:
         await self._finalize(outcome, status="abandoned")
         return True
 
+    async def pause(self) -> bool:
+        """Stop play without ending the match so the next boot can resume it."""
+        async with self.lock:
+            if self._finalized or self._ending or self._pausing:
+                return False
+            self._pausing = True
+        task = self.task
+        if task is not None and not task.done() and task is not asyncio.current_task():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        await self._stop_writer()
+        await self._notify_thread(self.text.get("match.session_paused"))
+        return True
+
 
     async def _finalize(self, outcome: GameOutcome, *, status: str) -> None:
         async with self.lock:
@@ -55,9 +72,17 @@ class SessionLifecycleMixin:
         match_id = 0
         persist_ok = False
         released = False
-        untracked = False
-        interrupted = False
         try:
+            for seat, value in outcome.results.items():
+                try:
+                    Result(value)
+                except (ValueError, TypeError):
+                    log.error(
+                        "Invalid GameOutcome result %r for seat %s (thread %s)",
+                        value,
+                        seat,
+                        self.thread_id,
+                    )
             finished = FinishedMatch(
                 code=self._match_code,
                 game_key=self.game_key,
@@ -82,6 +107,19 @@ class SessionLifecycleMixin:
                 ),
                 started_at=self._started_at,
                 ended_at=datetime.now(timezone.utc),
+                match_id=self._match_id,
+                game_version=self.game_version,
+                board_message_id=self.surface.message_id,
+                header_message_id=(
+                    self.header_surface.message_id if self.header_surface is not None else None
+                ),
+                lobby_channel_id=self.lobby_channel_id,
+                lobby_message_id=self.lobby_message_id,
+                turn_timeout_seconds=self.turn_timeout_seconds,
+                turn_timeout_max_strikes=self.turn_timeout_max_strikes,
+                turn_timeout_consequence=self.turn_timeout_consequence.value,
+                lobby_private=self.lobby_private,
+                lobby_creator_id=self.lobby_creator_id,
                 players=[
                     MatchPlayer(
                         seat_index=p.seat,
@@ -89,10 +127,10 @@ class SessionLifecycleMixin:
                         is_bot=p.is_bot and p.seat not in self.taken_over,
                         bot_difficulty=p.bot_difficulty,
                         display_name=p.display_name,
-                        role_key=p.role_key,
+                        role_key=self.game.players[p.seat].role_key,
                         # A bot finished an AFK player's seat; its result isn't theirs.
                         result=(
-                            "loss"
+                            Result.LOSS
                             if p.seat in self.taken_over and outcome.results.get(p.seat)
                             else outcome.results.get(p.seat)
                         ),
@@ -101,8 +139,13 @@ class SessionLifecycleMixin:
                 ],
                 moves=list(self.recorded_moves),
             )
+
             try:
-                match_id, code = await self._finalizer.persist(finished, outcome)
+                await self._stop_writer()
+            except Exception:
+                log.exception("Failed to flush moves for thread %s", self.thread_id)
+            try:
+                match_id, code = await self._finalizer.finish(finished, outcome)
                 persist_ok = True
             except Exception:
                 log.exception("Failed to persist match for thread %s", self.thread_id)
@@ -159,6 +202,9 @@ class SessionLifecycleMixin:
                     match_status=status,
                     removed_seats=frozenset(getattr(self, "_removed_seats", ())),
                     taken_over_seats=frozenset(self.taken_over),
+                    role_keys={
+                        p.seat: self.game.players[p.seat].role_key for p in self.players
+                    },
                 )
                 if hasattr(self, "lobby_surface") and self.lobby_surface is not None:
                     await self.lobby_surface.update(results_view)
@@ -177,18 +223,9 @@ class SessionLifecycleMixin:
                         await thread.edit(locked=True)
                     except Exception:
                         log.exception("Failed to lock game thread %s", self.thread_id)
-            # Last, so a crash or shutdown before the thread is locked leaves the
-            # row for the next boot to clean up.
-            await self._untrack()
-            untracked = True
-        except asyncio.CancelledError:
-            interrupted = True
-            raise
         finally:
             encoder = getattr(self.surface.compiler, "encoder", None)
             if encoder is not None:
                 encoder.invalidate_resource(self.thread_id)
             if not released:
                 await self._finalizer.session_complete(self)
-            if not untracked and not interrupted:
-                await self._untrack()

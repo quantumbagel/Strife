@@ -12,7 +12,7 @@ Replace `TODO` / `my_game` everywhere, and put your name in `LICENSE`:
 
 | File | Change |
 |------|--------|
-| `plugin.toml` | `key`, `version`, `platform_version`, `dependencies` |
+| `plugin.toml` | `key`, `version`, `platform_version` (`3.0.0`), `dependencies` |
 | `game.py` | `@game_metadata_from(...)` (`key` matches `plugin.toml`) and the class name |
 | `__init__.py` | `GAME =` that class |
 | `changelog.toml` | First `[[release]]` — `version` matches `plugin.toml`; set `date` |
@@ -22,7 +22,7 @@ Replace `TODO` / `my_game` everywhere, and put your name in `LICENSE`:
 
 ## 2. Implement
 
-Import from `strife.engine` and `strife.presentation` only.
+Import from `strife.engine` and `strife.presentation` only. `GameOutcome.results` uses `Result` (`WIN` / `LOSS` / `DRAW`). Per-seat `request_inputs` overrides go in `per_seat={seat: SeatPrompt(...)}`. `player.mention` is a plain name until the Discord host installs markup.
 
 Art goes in `emoji/`. Catalog uses **`emoji/game.webp`** (`{key}_game`). Extra stems become `{key}_{stem}`. In `play()`, `ctx.emoji.get("token")` is your file. Platform chrome uses `ctx.emoji.get("loading", base=True)`. After install, `strife/emoji` if you shipped `emoji/`.
 
@@ -34,6 +34,7 @@ Optional:
 
 - Lobby knobs: `SettingOption`, read with `self.setting("key")`
 - Peek: `Button(..., query=True)` and `handle_query` → `ctx.respond_query`
+- Form select: `Select(..., form=True)`; values attach to the next move
 - Text moves: `slash_moves=` on metadata, then `strife/sync`
 - Heavier bots: a `bot.py` used from `bot_move`
 

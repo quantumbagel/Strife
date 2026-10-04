@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
 
 
 
@@ -91,6 +92,14 @@ class SelectChoice:
     default: bool = False
 
 
+@dataclass(frozen=True)
+class FormField:
+    source: str
+    choices: tuple[str, ...]
+    multi: bool
+    default: str | tuple[str, ...] | None
+
+
 @dataclass
 class Select:
     source: str
@@ -103,6 +112,7 @@ class Select:
     route_prefix: str | None = None
     resource_id: int | None = None
     query: bool = False
+    form: bool = False
 
 
 @dataclass
@@ -290,6 +300,10 @@ def _is_query_control(item: Button | Select | ChannelSelect | UserSelect) -> boo
     return bool(getattr(item, "query", False))
 
 
+def _is_form_select(item: Button | Select | ChannelSelect | UserSelect) -> bool:
+    return isinstance(item, Select) and item.form
+
+
 def query_sources(view: LayoutView) -> set[str]:
     """Sources marked as query (or link) controls — never submitted as moves."""
     sources: set[str] = set()
@@ -299,10 +313,49 @@ def query_sources(view: LayoutView) -> set[str]:
     return sources
 
 
+def form_fields(view: LayoutView) -> dict[str, FormField]:
+    """Form selects: stored per seat until the next real move."""
+    fields: dict[str, FormField] = {}
+    for item in walk_interactive(view):
+        if not isinstance(item, Select) or not item.form or not item.source:
+            continue
+        multi = item.max_values != 1
+        defaults = tuple(choice.value for choice in item.choices if choice.default)
+        if not defaults:
+            default: str | tuple[str, ...] | None = None
+        elif multi:
+            default = defaults
+        else:
+            default = defaults[0]
+        fields[item.source] = FormField(
+            source=item.source,
+            choices=tuple(choice.value for choice in item.choices),
+            multi=multi,
+            default=default,
+        )
+    return fields
+
+
+def default_form_values(fields: dict[str, FormField]) -> dict[str, Any]:
+    values: dict[str, Any] = {}
+    for name, field in fields.items():
+        if field.default is None:
+            continue
+        if field.multi:
+            values[name] = (
+                list(field.default)
+                if isinstance(field.default, tuple)
+                else [field.default]
+            )
+        else:
+            values[name] = field.default
+    return values
+
+
 def move_sources(view: LayoutView) -> set[str]:
     """Interactive sources that should resolve ``request_input``."""
     sources: set[str] = set()
     for item in walk_interactive(view):
-        if item.source and not _is_query_control(item):
+        if item.source and not _is_query_control(item) and not _is_form_select(item):
             sources.add(item.source)
     return sources

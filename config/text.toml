@@ -27,7 +27,7 @@ forbidden = "You do not have permission for this action in the current context."
 error = "Try the action again. If it keeps failing, report the problem and try again later."
 match_not_found = "Double-check the 6-character code. Replays only open in the server where the match was played. Your profile lists recent matches."
 replay_unavailable = "Updates to games and the bot can break old replays."
-replay_old_format = "Matches played before platform 2.0 can't be replayed."
+replay_old_format = "Matches played before platform 3.0 can't be replayed."
 replay_load_failed = "The recorded moves could not be replayed. This can happen after game updates or if the match data is incomplete."
 
 [lobby]
@@ -375,6 +375,8 @@ strike_title = "{player} timed out"
 strike_body = "Strike {current}/{max}."
 turn_warning = "{player}, about **{seconds}s** left to act."
 interrupted = "This game was interrupted when Strife restarted and can't be resumed. Start a new game from the catalog."
+session_paused = "Strife is restarting. This match is paused and will resume when the bot is back."
+session_resumed = "Strife is back — this match has resumed."
 
 [match_success]
 forfeited = "Results have been saved. Start a new game from the catalog whenever you are ready."

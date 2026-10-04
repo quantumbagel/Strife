@@ -7,7 +7,7 @@ import discord
 from strife.config.text import TextConfig
 from strife.logging import get_logger
 from strife.routing import prefixes as P
-from strife.engine.errors import SessionError
+from strife.session.errors import SessionError
 from strife.routing.custom_id import CustomIdEncoder, CustomIdError, PayloadExpired
 from strife.presentation.feedback import disable_feedback_actions
 from strife.presentation.user_error import ErrorContext, UserErrorPresenter

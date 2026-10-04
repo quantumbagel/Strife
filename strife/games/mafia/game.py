@@ -6,10 +6,13 @@ from collections import Counter
 from strife.engine import (
     BotRequest,
     Game,
+    Interrupt,
     GameContext,
     GameOutcome,
     Move,
     Player,
+    Result,
+    SeatPrompt,
     forfeit_outcome,
     run_cpu,
     select_value,
@@ -244,7 +247,7 @@ class Mafia(Game):
         await ctx.record_event("night_start", {"day": self.day})
         source_map = {"mafia": "kill", "doctor": "protect", "detective": "investigate"}
         private_views: dict[int, LayoutView] = {}
-        per_seat_sources: dict[int, set[str]] = {}
+        per_seat: dict[int, SeatPrompt] = {}
         for seat in acting:
             role = self.role[seat]
             choices = [
@@ -274,7 +277,7 @@ class Mafia(Game):
                 )
             private.add_container(container)
             private_views[seat] = private
-            per_seat_sources[seat] = {source}
+            per_seat[seat] = SeatPrompt(sources={source})
 
         self._night_views = private_views
         await asyncio.gather(
@@ -289,11 +292,13 @@ class Mafia(Game):
             public,
             actors=set(acting),
             sources=None,
-            per_seat_sources=per_seat_sources,
+            per_seat=per_seat,
             until="all",
-                    )
+        )
         self._night_views = {}
         for move in moves.values():
+            if move.interrupt is not None:
+                continue
             self._normalize_target(move)
 
         victim = None
@@ -301,14 +306,14 @@ class Mafia(Game):
             kills = [
                 seat_target
                 for seat, m in moves.items()
-                if self.role[seat] == "mafia"
+                if m.interrupt is None and self.role[seat] == "mafia"
                 for seat_target in [self._parse_alive_target(self._normalize_target(m))]
                 if seat_target is not None
             ]
             protects = [
                 seat_target
                 for seat, m in moves.items()
-                if self.role[seat] == "doctor"
+                if m.interrupt is None and self.role[seat] == "doctor"
                 for seat_target in [self._parse_alive_target(self._normalize_target(m))]
                 if seat_target is not None
             ]
@@ -333,6 +338,8 @@ class Mafia(Game):
         })
 
         for seat, move in moves.items():
+            if move.interrupt is not None:
+                continue
             target = self._parse_alive_target(self._normalize_target(move))
             if self.role[seat] == "detective" and target is not None:
                 alignment = "mafia" if self.role.get(target) == "mafia" else "town"
@@ -358,6 +365,8 @@ class Mafia(Game):
         votes = await ctx.request_inputs(day_view, actors=set(self.alive), sources={"vote"}, until="all")
         tally: Counter[int] = Counter()
         for seat, move in votes.items():
+            if move.interrupt is not None:
+                continue
             target = self._normalize_target(move)
             if target == "skip":
                 continue
@@ -489,9 +498,9 @@ class Mafia(Game):
         results = {}
         for player in self.players:
             if self.role[player.seat] == "mafia":
-                results[player.seat] = "win" if winner == "mafia" else "loss"
+                results[player.seat] = Result.WIN if winner == "mafia" else Result.LOSS
             else:
-                results[player.seat] = "win" if winner == "town" else "loss"
+                results[player.seat] = Result.WIN if winner == "town" else Result.LOSS
         role_map = {player.seat: self.role[player.seat] for player in self.players}
 
         mafia_mentions = [str(p) for p in self.players if self.role[p.seat] == "mafia"]
@@ -531,7 +540,7 @@ class Mafia(Game):
             player_descriptions[player.seat] = desc
 
         for seat in self.forfeited:
-            results[seat] = "loss"
+            results[seat] = Result.LOSS
             player_descriptions[seat] = "Forfeited"
 
         return GameOutcome(

@@ -11,7 +11,7 @@ Every game is a plugin: builtins in `strife/games/`, third-party clones in `plug
 ```toml
 key = "chess"
 version = "1.1.1"
-platform_version = "1.0.0"
+platform_version = "3.0.0"
 dependencies = [
   "chess>=1.11.2",
   "resvg-py>=0.3.3",
@@ -20,7 +20,7 @@ dependencies = [
 
 `dependencies` are PEP 508 extras for that game only — not the Strife `pyproject.toml`. Boot / `python -m strife.plugins sync-deps` installs them; `check_dependencies` only skips the plugin if they’re missing.
 
-`key` must match `GameMetadata.key`. `version` and `platform_version` are stamped from this file. `platform_version` must match this host (same major, host ≥ target).
+`key` must match `GameMetadata.key`. `version` and `platform_version` are stamped from this file. `platform_version` is required and must match this host (same major, host ≥ target).
 
 `changelog.toml` is optional to load. Newest `[[release]]` first; latest `version` should match `plugin.toml`. Shown in `/strife about` → Changes.
 

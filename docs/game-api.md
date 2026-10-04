@@ -13,7 +13,13 @@ Import from `strife.engine` and `strife.presentation` only — not persistence, 
 
 Live clicks and replay log rows are the same `Move` (`args`, `source`, `kind`).
 
-Talk to the host through `GameContext`: input, board updates, DMs, `record_event`, query replies. `ctx.turn_timeout_seconds` is the host’s per-turn budget when the match has a clock (`None` on CLI and replay).
+Talk to the host through `GameContext`: input, board updates, DMs, `record_event`, query replies. `ctx.turn_timeout_seconds` is the host’s per-turn budget when the match has a clock (`None` on CLI and replay). `async with ctx.turn_deadline(seconds=None)` spans that budget (or an explicit `seconds`) across several `request_input` / `request_inputs` calls — re-asking after an invalid submit does not reset the clock. Replay and CLI are no-ops.
+
+`GameOutcome.results` is `dict[int, Result]` (`WIN` / `LOSS` / `DRAW`). `Result` is a `StrEnum`, so string comparisons still work.
+
+`player.mention` / `str(player)` is the display name (bots append ` (difficulty)`). The Discord host installs mention markup at startup.
+
+`request_inputs(..., per_seat={seat: SeatPrompt(...)})` overrides `sources` / `description` per seat. A `None` field falls back to the request-wide value.
 
 ## Randomness
 
@@ -28,14 +34,14 @@ All rules randomness must come from `self.rng`. `play()` must not read wall-cloc
 
 ## Versions
 
-This host is **platform 2.0.0**.
+This host is **platform 3.0.0**.
 
 | Field | Meaning |
 |-------|---------|
 | `version` | This plugin’s semver (Tic-Tac-Toe 1.0.0 vs Coup 1.0.0 are unrelated) |
 | `platform_version` | The game API this plugin was written for |
 
-The game loads if major versions match and the host is ≥ the target. A 1.0.0 game runs on 1.2.0; a 1.2.0 game does not run on 1.0.0.
+The game loads if major versions match and the host is ≥ the target. A 3.0.0 game runs on 3.2.0; a 3.2.0 game does not run on 3.0.0.
 
 `changelog.toml` is not a load gate. Players see it in `/strife about` → Changes. Keep the latest `[[release]].version` in sync with `plugin.toml`. Host notes: `changelog/bot.toml`, `changelog/platform.toml`.
 
@@ -43,9 +49,9 @@ The game loads if major versions match and the host is ≥ the target. A 1.0.0 g
 
 | Method | When | Does |
 |--------|------|------|
-| `play(ctx)` | Always | Game loop; return `GameOutcome` when finished |
-| `bot_move(request)` | `metadata.bots` | Pick a move for a bot (`BotRequest`: seat, difficulty, allowed sources) |
-| `remove_player(seat)` | Inferred when you override this method | Update state when someone leaves |
+| `play(ctx)` | Always | Game loop; return `GameOutcome` (`results: dict[int, Result]`) when finished |
+| `bot_move(request)` | `metadata.bots` | Pick a move for a bot (`BotRequest`: `seat`, `difficulty`, `sources`, `description`, `form`) |
+| `remove_player(seat)` | Inferred when you override this method | Engine calls this **once** per mid-match removal. Do not call it from `play()` |
 
 Missing a required method **skips the game** (error log).
 
@@ -58,12 +64,13 @@ Missing a required method **skips the game** (error log).
 | `final_view(ctx, outcome)` | End-state UI |
 | `handle_query(seat, source, ctx)` | Peek / extra UI. Return `True` if handled |
 | `forfeit_end_outcome(seat, reason)` | Results when the host ends the match on a forfeit |
+| `on_timeout(move)` | `TurnBasedGame`: called by `take_turn` on `Interrupt.TIMEOUT` instead of `apply_move`. Default: no-op |
 
 ## Replay
 
-Replays **re-run `play()`** against a `GameContext` that answers `request_input`, `request_inputs`, and `record_event` from the stored log (same seed and players). The engine snapshots frames at `update` / `request_*` boundaries via `render_replay`. Divergence between what `play()` asks for and the log raises `ReplayDivergence`.
+Replays **re-run `play()`** against a `GameContext` that answers `request_input`, `request_inputs`, and `record_event` from the stored log (same seed and players). The engine snapshots frames at `update` / `request_*` boundaries via `render_replay`. Divergence between what `play()` asks for and the log raises `ReplayDivergence`. Live matches resume the same way after a restart (catch-up, then continue); they are not replayable until they end. Plugin updates while a match is live abandon it at the next boot.
 
-Matches persisted before log format 2 (`log_format < 2`) cannot be replayed.
+Matches persisted before log format 3 / platform 3.0 cannot be replayed.
 
 ## Moves vs queries vs links
 
@@ -71,6 +78,7 @@ Matches persisted before log format 2 (`log_format < 2`) cannot be replayed.
 |------|-----|-------------|---------|
 | Solo move | `request_input(..., sources={...})` | Yes (`game`) | Yes |
 | Group input | `request_inputs(...)` then one `record_event` | One event per input + one event row | Yes |
+| Form select | `Select(..., form=True)` | No (value rides on the next move) | No |
 | Query | `Button(..., query=True)` + `handle_query` | No | No |
 | Link | `Button(style=ButtonStyle.LINK, url=...)` | No | No |
 
@@ -101,6 +109,8 @@ Button(label="Rules", style=ButtonStyle.LINK, url="https://example.com/rules")
 | `game` | Every `request_input` / `request_inputs` answer, plus `record_event` | tile click, `day_outcome` | Consumed in order by replay |
 | `system` | Host | `forfeit`, `game_end`, `bot_takeover`, `timeout` | Metadata, banners, early end |
 
+Seat events (system `bot_takeover`, and system `forfeit` with `args.removed`) are applied by the engine at the position of their log row — when `play()` next calls `request_input` / `request_inputs` / `record_event`, or before the move that follows them is returned. The game owns its own `Player` copies (`role_key`, `is_bot`); the session keeps a separate list.
+
 Games only emit **`game`** via `record_event`. `record_event` rejects the four system names.
 
 Every player input is logged exactly once by the host. `record_event` rows are checkpoints your `play()` must emit identically on replay (`source` + `args`). `total_turns` counts **game** rows with `actor_seat is not None` (player inputs only).
@@ -128,6 +138,31 @@ Stable names and keys so replay can validate them. Ignore sources that were neve
 | Button | `{}` |
 | Single select | `{"value": "choice_id"}` |
 | Multi select | `{"values": ["a", "b"]}` |
+| Form select (`form=True`) | Not a move. Next move gets `args[select.source]`: `str` if `max_values == 1`, else `list[str]` |
+
+## Forms
+
+`Select(..., form=True)` only stores a pick for that seat. The host attaches it to that seat’s next real move as `args[select.source]`. Form clicks are not logged. `move_sources` omits them; `resolve_sources` subtracts them even if listed in `sources`.
+
+`form_fields(view)` → `{source: FormField}`. `FormField`: `source`, `choices` (tuple of values), `multi`, `default` (from choices with `default=True`).
+
+Invalid submit (missing target, etc.): set a notice and `request_input` again. Wrap the loop in `ctx.turn_deadline` so the clock does not reset. Bots skip the clicks and return one move whose args use the form source names.
+
+## BotRequest
+
+| Field | Meaning |
+|-------|---------|
+| `seat` | Seat to move |
+| `difficulty` | Declared bot difficulty |
+| `sources` | Resolved allowed move sources (`None` = any) |
+| `description` | Text from `request_input(s)` |
+| `form` | Field source → legal choice values (empty if the view has no form selects) |
+
+`validate_bot_move` rejects a form-field arg whose value is not in `form[source]`.
+
+## GameContext
+
+`async with ctx.turn_deadline(seconds=None):` — every inner `request_input` / `request_inputs` that omits `timeout_seconds` uses time remaining until the deadline set on entry (`seconds=None` → host turn timeout). An explicit `timeout_seconds` uses the smaller of the two. Floor 1 second. Replay and CLI: no-op.
 
 ## Settings
 
@@ -143,10 +178,17 @@ The lobby does not deal roles. Declare `RoleSpec` for catalog copy and DMs. Assi
 
 ## Host-injected sources
 
-- `forfeit` — when the game overrides `remove_player`, a seat that forfeits or times out mid-match is removed, and a pending input for that seat resolves with this `Move`. The host always logs one **system** row `forfeit` (`actor_seat` = the seat, `args` = `{"reason": "forfeit" | "timeout", "removed": true}`). Apply your side effects (e.g. drop the seat from `alive`) when you receive the move
-- `timeout` — live move when the consequence is skip/strike
+Use `move.interrupt` (`Interrupt.FORFEIT` / `Interrupt.TIMEOUT`), not `move.source` string checks.
+
+Seat events are applied by the engine (see Move log). `remove_player` is called by the engine exactly once; games must not call it.
+
+- `forfeit` — mid-match removal (override `remove_player`). A pending input for that seat resolves with this `Move` (`interrupt` is `Interrupt.FORFEIT`). System row: `actor_seat` = the seat, `args` = `{"reason": "forfeit" | "timeout", "removed": true}`
+- `timeout` — skip/strike, or AUTO_PASS when `pass` is not in allowed sources (`Interrupt.TIMEOUT`)
+- `pass` — AUTO_PASS (requires `"pass"` in `sources`) and strike when `pass` is allowed
 - `game_end` — cancelled or timed out
 - `bot_takeover` — **system** row, then the bot’s **game** move
+
+`TurnBasedGame.take_turn` calls `on_timeout(move)` on `Interrupt.TIMEOUT` instead of `apply_move`. Override it to advance the turn.
 
 Banner metadata for removals and bot takeover uses `system_replay_info()` from `strife.engine.replay` (read-only; does not mutate players).
 

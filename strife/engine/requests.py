@@ -1,7 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from enum import StrEnum
+
+
+@dataclass(frozen=True)
+class SeatPrompt:
+    """Per-seat overrides for ``request_inputs``. ``None`` fields use the request-wide value."""
+
+    sources: frozenset[str] | set[str] | None = None
+    description: str | None = None
 
 
 @dataclass(frozen=True)
@@ -10,6 +19,7 @@ class BotRequest:
     difficulty: str
     sources: frozenset[str] | None  # resolved allowed sources; None = any
     description: str | None = None  # description from request_input(s)
+    form: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 class TimeoutConsequence(StrEnum):

@@ -5,7 +5,7 @@ import asyncio
 import discord
 
 from strife.config import AppConfig
-from strife.engine.errors import SessionError
+from strife.session.errors import SessionError
 from strife.engine.metadata import GameMetadata
 from strife.engine.registry import GameRegistry
 from strife.logging import get_logger

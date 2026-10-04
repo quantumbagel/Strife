@@ -15,7 +15,8 @@ import discord
 from discord import app_commands
 
 from strife.config.text import TextConfig
-from strife.engine.metadata import GameMetadata, OptionType, int_setting_bounds
+from strife.engine.metadata import GameMetadata, OptionType
+from strife.presentation.settings import int_setting_bounds
 from strife.matchmaking.lobby import Lobby
 
 CHOICE_NAME_MAX = 100

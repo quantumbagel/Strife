@@ -65,7 +65,7 @@ Override `render_replay(ctx, live_view)` to reveal hidden information in replays
 
 Attach metadata with `@game_metadata_from(...)` or `@game_metadata(META)`.
 
-In `plugin.toml`: `version` is this game’s semver; `platform_version` is the API it targets (now `1.0.1`). The host copies both onto metadata and skips the game if the platform doesn’t match. See [game-api.md](game-api.md#versions).
+In `plugin.toml`: `version` is this game’s semver; `platform_version` is the API it targets (now `3.0.0`). The host copies both onto metadata and skips the game if the platform doesn’t match. See [game-api.md](game-api.md#versions).
 
 `changelog.toml` sits next to `plugin.toml`. Newest `[[release]]` first. Bump it when you bump `version`. Players see it in `/strife about` → Changes.
 
@@ -96,7 +96,8 @@ Capabilities:
 | Call | When |
 |------|------|
 | `ctx.request_input(view, actor=seat, sources={...})` | One player |
-| `ctx.request_inputs(view, actors={...}, until="all"\|"any")` | Several players |
+| `ctx.request_inputs(view, actors={...}, until="all"\|"any", per_seat=...)` | Several players. `SeatPrompt` overrides `sources` / `description` per seat |
+| `ctx.turn_deadline(seconds=None)` | One clock across several requests (no-op on replay/CLI) |
 | `ctx.update(view)` | Refresh the board |
 | `ctx.send_private(seat, view)` | DM hidden info |
 | `ctx.record_event(source, arguments)` | Log a non-input event |
@@ -107,6 +108,7 @@ Capabilities:
 | Button | `{}` |
 | Single select | `{"value": "id"}` |
 | Multi select | `{"values": ["a", "b"]}` |
+| Form select | Next move: `args[select.source]` (`str` or `list[str]`) |
 
 ## Buttons
 
@@ -115,6 +117,19 @@ Capabilities:
 ```python
 row.add_button(Button(source="vote_guilty", label="Guilty", style=ButtonStyle.DANGER))
 move = await ctx.request_input(view, actor=seat, sources={"vote_guilty", "vote_innocent"})
+```
+
+**Forms** (`Select(..., form=True)`) store a pick on that seat. They are not moves and are not logged. The value is attached to the next move as `args[select.source]`. Bots return that submit move with the form args already filled.
+
+```python
+row.add_select(Select(source="action", choices=choices, form=True))
+row.add_button(Button(source="submit", label="Submit", style=ButtonStyle.PRIMARY))
+async with ctx.turn_deadline(30.0):
+    while True:
+        move = await ctx.request_input(view, actor=seat, sources={"submit"})
+        if move.args.get("action"):
+            break
+        self._notice = "Select an action."
 ```
 
 **Queries** (`query=True`) are peeks, help, or a private panel. They are not moves, even if you list them in `sources`. Handle them in `handle_query`:
@@ -140,7 +155,7 @@ Return `True` if you handled it. Use `query_panel` for peeks and query errors �
 Button(label="How to Play", style=ButtonStyle.LINK, url="https://en.wikipedia.org/wiki/Example")
 ```
 
-**Ephemeral then act** (Coup): a query button opens a private panel; the control *inside* that panel is the real move (`sources={"exchange_select"}`). See [`strife/games/coup/`](../strife/games/coup/).
+**Ephemeral then act** (Coup): a query button opens a private panel; the control *inside* that panel is the real move (`sources={"exchange_select"}`). Form selects on that panel attach `keep` to the submit. See [`strife/games/coup/`](../strife/games/coup/).
 
 ## Recording and replay
 
@@ -161,7 +176,7 @@ votes = await ctx.request_inputs(
 await ctx.record_event("day_outcome", {"lynched": lynched, "votes": {...}})
 ```
 
-Replays re-run `play()` via `run_replay` (same seed, log-driven context). `render_replay(ctx, live_view)` defaults to the live board; override to show secrets. Matches stored with `log_format < 2` cannot be replayed.
+Replays re-run `play()` via `run_replay` (same seed, log-driven context). `render_replay(ctx, live_view)` defaults to the live board; override to show secrets. Matches stored with `log_format < 3` cannot be replayed.
 
 Don’t record peeks. Don’t emit `forfeit` / `game_end` / `bot_takeover` / `timeout` — the host does that.
 
@@ -169,7 +184,7 @@ Test with `python scripts/run_game.py <key> --replay`.
 
 ## Bots
 
-`async def bot_move(self, request: BotRequest) -> Move` — use `request.seat`, `request.difficulty`, and optionally `request.sources` (resolved allowed move sources). Same `source` strings as your buttons. The host caps the call at 10s and validates the returned move against the request.
+`async def bot_move(self, request: BotRequest) -> Move` — use `request.seat`, `request.difficulty`, optionally `request.sources` (resolved allowed move sources), and `request.form` (field source → legal values). Same `source` strings as your buttons. Form-select games: return one submit move with `args[field]`. The host caps the call at 10s and validates the returned move against the request.
 
 `self.rng` is **rules-only** and seeded from the match seed (replays stay deterministic). Bot heuristics use `self.bot_rng` (unseeded). The live host uses its own RNG for “which bot acts” in `until="any"` windows — never `self.rng`.
 
@@ -200,17 +215,19 @@ Helpers in [`game_ui.py`](../strife/presentation/game_ui.py): `action_status`, `
 
 The host injects `forfeit` and `game_end`. Use `forfeit_outcome()` from [`outcomes.py`](../strife/engine/outcomes.py). When you override `remove_player(seat)`, the host may remove forfeiting seats mid-match. Faction games should override `forfeit_end_outcome(seat, reason)` so a timeout doesn't award every other seat.
 
+`player.mention` / `str(player)` is the display name by default. Discord mention markup is installed by the host.
+
 ## Checklist
 
 - [ ] Name, summary, player count, tags. Versions live in `plugin.toml`
 - [ ] `__init__.py` exports `GAME`
 - [ ] `changelog.toml` latest version matches `plugin.toml`
-- [ ] `play()` returns `GameOutcome` with per-seat `results` and `player_descriptions`
+- [ ] `play()` returns `GameOutcome` with per-seat `Result` values and `player_descriptions`
 - [ ] Bots for every declared difficulty
 - [ ] Replays work, including forfeits and bot takeovers
 - [ ] Query buttons have `query=True` and a `handle_query` handler
 - [ ] Replay views hide action rows (`add_controls` or `if not ctx.is_replay`)
-- [ ] Rules randomness only from `self.rng`; no wall-clock time or query side effects in rules
+- [ ] Rules randomness only from `self.rng`; no wall-clock time or query side effects in rules. Use `ctx.turn_deadline` (not `time.monotonic`) when a clock should span re-asks
 - [ ] Hidden-info games override `render_replay` to reveal what live play hid
 - [ ] Art in `<package>/emoji/` (`game.webp`, pieces, roles)
 - [ ] `python scripts/run_game.py <key>`

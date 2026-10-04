@@ -1,10 +1,23 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 
 from strife.engine.log import LogEntryKind
+
+
+class Interrupt(StrEnum):
+    FORFEIT = "forfeit"
+    TIMEOUT = "timeout"
+
+
+class Result(StrEnum):
+    WIN = "win"
+    LOSS = "loss"
+    DRAW = "draw"
 
 
 @dataclass
@@ -16,20 +29,10 @@ class Player:
     bot_difficulty: str | None = None
     role_key: str | None = None
 
-    def _base_name(self) -> str:
-        if self.user_id is not None and not self.is_bot:
-            return f"<@{self.user_id}>"
-        difficulty = f" ({self.bot_difficulty})" if self.bot_difficulty else ""
-        return f"**{self.display_name}**{difficulty}"
-
     def mention_for(self, emoji: Any = None) -> str:
-        from strife.presentation.emoji_context import active_emoji
-
-        resolver = emoji or active_emoji()
-        base = self._base_name()
-        if (self.is_bot or self.user_id is None) and resolver is not None:
-            return f"{resolver.get('bot_indicator', base=True)} {base}"
-        return base
+        if _mention_formatter is not None:
+            return _mention_formatter(self, emoji)
+        return _plain_mention(self)
 
     @property
     def mention(self) -> str:
@@ -39,9 +42,24 @@ class Player:
         return self.mention
 
 
+_mention_formatter: Callable[[Player, Any], str] | None = None
+
+
+def set_mention_formatter(fn: Callable[[Player, Any], str] | None) -> None:
+    """Install host mention markup. ``None`` restores plain display names."""
+    global _mention_formatter
+    _mention_formatter = fn
+
+
+def _plain_mention(player: Player) -> str:
+    if player.is_bot and player.bot_difficulty:
+        return f"{player.display_name} ({player.bot_difficulty})"
+    return player.display_name
+
+
 @dataclass
 class GameOutcome:
-    results: dict[int, str]
+    results: dict[int, Result]
     summary: dict[str, Any]
     description: str
     player_descriptions: dict[int, str]
@@ -69,6 +87,16 @@ class Move:
     @property
     def is_system(self) -> bool:
         return self.kind == LogEntryKind.SYSTEM
+
+    @property
+    def interrupt(self) -> Interrupt | None:
+        if self.kind != LogEntryKind.SYSTEM:
+            return None
+        if self.source == Interrupt.FORFEIT:
+            return Interrupt.FORFEIT
+        if self.source == Interrupt.TIMEOUT:
+            return Interrupt.TIMEOUT
+        return None
 
 
 def select_value(move: Move, *keys: str) -> Any:

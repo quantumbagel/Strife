@@ -46,7 +46,8 @@ def will_removal_end_game(session: object, seat: int) -> bool:
     the game itself decides when a faction or seat count has lost.
     """
     game = session.game  # type: ignore[attr-defined]
-    after = game.active_seats() - {seat}
+    removed = getattr(session, "_removed_seats", set())
+    after = game.active_seats() - removed - {seat}
     remaining_humans = [
         player
         for player in session.players  # type: ignore[attr-defined]

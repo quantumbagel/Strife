@@ -1,21 +1,30 @@
 from __future__ import annotations
 
-import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from datetime import datetime
 from typing import Any, Literal
 
-from strife.engine.context import ReplayFrame
+from strife.engine.context import ReplayFrame, noop_turn_deadline
 from strife.engine.game import Game
 from strife.engine.log import LogEntryKind
+from strife.engine.log_cursor import LogCursor, LogEnded, ReplayDivergence
 from strife.engine.players import Move, Player
-from strife.engine.requests import TimeoutConsequence
+from strife.engine.requests import SeatPrompt, TimeoutConsequence
 from strife.logging import get_logger
 from strife.presentation.components import LayoutView, disable_all
 from strife.presentation.emoji import EmojiResolver
 
 log = get_logger("engine.replay")
+
+__all__ = [
+    "LogEnded",
+    "ReplayContext",
+    "ReplayDivergence",
+    "freeze_view",
+    "run_replay",
+    "system_replay_info",
+]
 
 
 def freeze_view(view: LayoutView) -> LayoutView:
@@ -59,22 +68,6 @@ def system_replay_info(players: Sequence[Player], move: Move) -> dict | None:
     return None
 
 
-class ReplayDivergence(RuntimeError):
-    """log and the re-run play() disagree"""
-
-
-class _ReplayEnded(Exception):
-    """Normal end of replay log while play() is still unwinding."""
-
-
-def _norm_args(args: dict[str, Any]) -> str:
-    return json.dumps(args, sort_keys=True, default=str)
-
-
-def _args_equal(a: dict[str, Any], b: dict[str, Any]) -> bool:
-    return _norm_args(a) == _norm_args(b)
-
-
 class ReplayContext:
     """``GameContext`` that answers from a stored match log."""
 
@@ -88,11 +81,10 @@ class ReplayContext:
         frames: list[ReplayFrame],
     ) -> None:
         self._game = game
-        self._moves = sorted(moves, key=lambda m: m.turn_index)
+        self._log = LogCursor(moves, game, on_metadata=self._on_metadata)
         self.emoji = emoji
         self._started_at = started_at
         self._frames = frames
-        self._cursor = 0
         self._step = 0
         self._last_view: LayoutView | None = None
         self._last_frozen: LayoutView | None = None
@@ -112,91 +104,16 @@ class ReplayContext:
     def turn_timeout_seconds(self) -> float | None:
         return None
 
+    def turn_deadline(self, seconds: float | None = None):
+        return noop_turn_deadline(seconds)
+
     def is_bot(self, seat: int) -> bool:
         return self._game.players[seat].is_bot
 
-    def _diverge(self, message: str) -> None:
-        raise ReplayDivergence(f"at log index {self._cursor}: {message}")
-
-    def _check_end(self, move: Move) -> None:
-        if move.is_system and move.source == "game_end":
-            raise _ReplayEnded()
-        if move.is_system and move.source == "forfeit" and not move.args.get("removed"):
-            raise _ReplayEnded()
-
-    def _at_end(self) -> bool:
-        return self._cursor >= len(self._moves)
-
-    def _peek(self) -> Move | None:
-        if self._at_end():
-            return None
-        return self._moves[self._cursor]
-
-    def _consume(self) -> Move:
-        if self._at_end():
-            raise _ReplayEnded()
-        move = self._moves[self._cursor]
-        self._cursor += 1
-        self._check_end(move)
-        return move
-
-    def _apply_metadata(self, move: Move, waiting: set[int]) -> bool:
-        """Apply one metadata row. Returns True if consumed."""
-        if move.source == "bot_takeover" and move.is_system:
-            seat = move.args.get("seat")
-            if seat is not None:
-                self._game.players[int(seat)].is_bot = True
-                diff = move.args.get("bot_difficulty")
-                if diff is not None:
-                    self._game.players[int(seat)].bot_difficulty = str(diff)
-            info = system_replay_info(self._game.players, move)
-            if info:
-                self._pending_banner = info
-            return True
-        if (
-            move.is_system
-            and move.source == "forfeit"
-            and move.args.get("removed")
-        ):
-            seat = move.actor_seat
-            if seat is not None and int(seat) in waiting:
-                return False
-            if seat is not None:
-                self._game.remove_player(int(seat))
-            info = system_replay_info(self._game.players, move)
-            if info:
-                self._pending_banner = info
-            return True
-        return False
-
-    def _consume_metadata(self, waiting: set[int]) -> None:
-        while not self._at_end():
-            move = self._peek()
-            assert move is not None
-            if move.is_system and move.source == "game_end":
-                self._consume()
-                raise _ReplayEnded()
-            if move.is_system and move.source == "forfeit" and not move.args.get("removed"):
-                self._consume()
-                raise _ReplayEnded()
-            if self._apply_metadata(move, waiting):
-                self._consume()
-                continue
-            break
-
-    def _matches_input(self, move: Move, actor: int) -> bool:
-        if move.is_system and move.source in ("forfeit", "timeout"):
-            return move.actor_seat == actor
-        if not move.is_game:
-            return False
-        return move.actor_seat == actor
-
-    def _consume_answer_row(self, seat: int) -> Move:
-        move = self._consume()
-        if move.is_system and move.source == "forfeit" and move.args.get("removed"):
-            self._game.remove_player(seat)
-        self._note_answer(move)
-        return move
+    def _on_metadata(self, move: Move) -> None:
+        info = system_replay_info(self._game.players, move)
+        if info:
+            self._pending_banner = info
 
     def _note_answer(self, move: Move) -> None:
         self._last_answer_actor = move.actor_seat
@@ -282,17 +199,9 @@ class ReplayContext:
         timeout_consequence: TimeoutConsequence | None = None,
     ) -> Move:
         self._maybe_frame(view)
-        self._consume_metadata({actor})
-        if self._at_end():
-            raise _ReplayEnded()
-        move = self._peek()
-        assert move is not None
-        if not self._matches_input(move, actor):
-            self._diverge(
-                f"expected input for seat {actor}, got {move.source!r} "
-                f"(actor_seat={move.actor_seat})"
-            )
-        return self._consume_answer_row(actor)
+        move = self._log.take_input(actor)
+        self._note_answer(move)
+        return move
 
     async def request_inputs(
         self,
@@ -301,63 +210,25 @@ class ReplayContext:
         actors: set[int],
         sources: set[str] | None = None,
         until: Literal["all", "any"] = "all",
-        per_seat_sources: dict[int, set[str]] | None = None,
+        per_seat: Mapping[int, SeatPrompt] | None = None,
         description: str | None = None,
-        descriptions: dict[int, str] | None = None,
         timeout_seconds: float | None = None,
         timeout_consequence: TimeoutConsequence | None = None,
     ) -> dict[int, Move]:
         self._maybe_frame(view)
         if until == "any":
-            self._consume_metadata(actors)
-            if self._at_end():
-                raise _ReplayEnded()
-            move = self._peek()
-            assert move is not None
-            if move.is_system and move.source == "timeout" and move.actor_seat is None:
-                if move.args.get("until") == "any":
-                    move = self._consume()
-                    return {}
-            for seat in actors:
-                if self._matches_input(move, seat):
-                    return {seat: self._consume_answer_row(seat)}
-            self._diverge(f"expected until=any input for one of {actors}")
-
-        results: dict[int, Move] = {}
-        remaining = set(actors)
-        while remaining:
-            self._consume_metadata(remaining)
-            if self._at_end():
-                raise _ReplayEnded()
-            peek = self._peek()
-            assert peek is not None
-            matched: int | None = None
-            for seat in remaining:
-                if self._matches_input(peek, seat):
-                    matched = seat
-                    break
-            if matched is None:
-                self._diverge(
-                    f"expected input for one of {remaining}, got {peek.source!r}"
-                )
-            results[matched] = self._consume_answer_row(matched)
-            remaining.discard(matched)
+            results = self._log.take_inputs_any(actors)
+        else:
+            results = self._log.take_inputs_all(actors)
+        for move in results.values():
+            self._note_answer(move)
         return results
 
     async def send_private(self, seat: int, view: LayoutView) -> None:
         return
 
     async def record_event(self, source: str, arguments: dict[str, Any]) -> None:
-        self._consume_metadata(set())
-        if self._at_end():
-            raise _ReplayEnded()
-        move = self._consume()
-        if not move.is_game or move.actor_seat is not None:
-            self._diverge(f"expected record_event row for {source!r}")
-        if move.source != source or not _args_equal(move.args, arguments):
-            self._diverge(
-                f"record_event {source!r} args mismatch: log={move.args!r} live={arguments!r}"
-            )
+        self._log.take_event(source, arguments)
 
     async def respond_query(self, view: LayoutView) -> None:
         raise RuntimeError("respond_query() is not available during replay")
@@ -376,13 +247,13 @@ async def run_replay(
     outcome = None
     try:
         outcome = await game.play(ctx)
-    except _ReplayEnded:
+    except LogEnded:
         pass
-    if ctx._cursor < len(ctx._moves):
+    if ctx._log.position < ctx._log.total:
         log.warning(
             "Replay for %s ended with %d log row(s) unconsumed",
             type(game).__name__,
-            len(ctx._moves) - ctx._cursor,
+            ctx._log.total - ctx._log.position,
         )
     await ctx._finish(outcome)
     return frames

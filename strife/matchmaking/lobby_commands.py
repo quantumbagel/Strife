@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import discord
 
-from strife.engine.metadata import OptionType, int_setting_bounds
+from strife.engine.metadata import OptionType
+from strife.presentation.settings import int_setting_bounds
 from strife.matchmaking.lobby import Lobby, LobbyGone, QueuedBot, allocate_bot_name, lobby_action
 from strife.presentation.roster import bot_label
 from strife.routing import prefixes as P

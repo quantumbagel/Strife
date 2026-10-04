@@ -7,12 +7,12 @@ import secrets
 import discord
 
 from strife.engine.players import Player
-from strife.engine.roles import order_players
+from strife.matchmaking.seating import order_players
 from strife.session import GameSession
 from strife.logging import get_logger
 from strife.matchmaking.lobby import Lobby, LobbyGone, LobbyMember, QueuedBot, lobby_action
 from strife.matchmaking.registries import UserLocation
-from strife.persistence.repositories import generate_match_code
+from strife.persistence.repositories import LiveMatchStart, MatchPlayer, generate_match_code
 from strife.presentation.compiler import LayoutError
 from strife.presentation.components import Container, LayoutView, TextDisplay, TextSize
 from strife.session.header import build_game_thread_header_view
@@ -62,6 +62,9 @@ class LobbyFlowMixin:
         if game_key not in {meta.key for meta in self.registry.all()}:
             await self._error(interaction, "errors.unknown_game")
             return
+        wait = getattr(self.bot, "wait_until_live_resumed", None)
+        if wait is not None:
+            await wait()
         game_cfg = self.config.games.for_game(game_key)
         if not game_cfg.enabled:
             await self._error(interaction, "errors.game_disabled")
@@ -806,13 +809,56 @@ class LobbyFlowMixin:
             session.lobby_surface = lobby.surface
             session.lobby_private = lobby.private
             session.lobby_creator_id = snapshot_creator
+            session.lobby_channel_id = lobby.channel_id
+            session.lobby_message_id = lobby.surface.message_id if lobby.surface else None
+            session.game_version = meta.version
             session.set_bot(self.bot)
+            match_id, code = await self.finalizer.start_live(
+                LiveMatchStart(
+                    code=match_code,
+                    game_key=lobby.game_key,
+                    guild_id=lobby.guild_id,
+                    thread_id=thread.id,
+                    seed=seed,
+                    settings=game_settings,
+                    players=[
+                        MatchPlayer(
+                            seat_index=p.seat,
+                            user_id=p.user_id,
+                            is_bot=p.is_bot,
+                            bot_difficulty=p.bot_difficulty,
+                            display_name=p.display_name,
+                            role_key=p.role_key,
+                            result=None,
+                        )
+                        for p in players
+                    ],
+                    started_at=session.started_at,
+                    game_version=meta.version,
+                    board_message_id=None,
+                    header_message_id=header_surface.message_id,
+                    lobby_channel_id=lobby.channel_id,
+                    lobby_message_id=lobby.surface.message_id if lobby.surface else None,
+                    turn_timeout_seconds=game_cfg.turn_timeout_seconds,
+                    turn_timeout_max_strikes=game_cfg.turn_timeout_max_strikes,
+                    turn_timeout_consequence=game_cfg.turn_timeout_consequence.value,
+                    lobby_private=lobby.private,
+                    lobby_creator_id=snapshot_creator,
+                )
+            )
+            session._match_id = match_id
+            session._match_code = code
             await self.registries.promote(lobby.thread_id, session)
             promoted = True
             await session.start()
         except Exception:
             log.exception("Failed to start lobby %s", lobby.thread_id)
-            if session is not None:
+            if session is not None and session._match_id is not None and not session._finalized:
+                try:
+                    await session.cancel("error")
+                except Exception:
+                    log.exception("Failed to abandon live match after start failure")
+            elif session is not None:
                 session._ending = True
                 session._finalized = True
                 if session.task is not None and not session.task.done():

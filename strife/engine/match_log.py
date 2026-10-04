@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 
 from strife.engine.log import SYSTEM_SOURCES, LogEntryKind, reject_system_source
@@ -35,6 +35,14 @@ class MatchLog:
         if self._on_append is not None:
             self._on_append(logged)
         return logged
+
+    def preload(self, entries: Sequence[Move]) -> None:
+        """Load stored rows without firing ``on_append`` (they are already persisted)."""
+        self.entries = list(entries)
+        if self.entries:
+            self._turn_index = max(move.turn_index for move in self.entries) + 1
+        else:
+            self._turn_index = 0
 
     def record(self, move: Move, *, kind: LogEntryKind | None = None) -> Move:
         entry_kind = kind or (

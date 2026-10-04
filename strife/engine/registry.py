@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import dataclasses
-import importlib
-import pkgutil
 import random
 from typing import Any
 
@@ -115,39 +113,16 @@ class GameRegistry:
     def unregister(self, key: str) -> bool:
         return self._games.pop(key, None) is not None
 
-    def discover(self, package: str = "strife.games") -> None:
-        """Load plugins. Default path uses plugin.toml via PluginManager."""
-        if package == "strife.games":
-            from pathlib import Path
+    def discover(self) -> None:
+        """Load plugins via PluginManager (plugin.toml)."""
+        from pathlib import Path
 
-            from strife.plugins.manager import PluginManager
+        from strife.plugins.manager import PluginManager
 
-            PluginManager.from_paths(
-                config_dir=Path("config"),
-                plugins_dir=Path("plugins"),
-            ).load(self)
-            return
-        pkg = importlib.import_module(package)
-        for _finder, name, is_pkg in pkgutil.iter_modules(pkg.__path__, pkg.__name__ + "."):
-            if not is_pkg:
-                continue
-            try:
-                module = importlib.import_module(name)
-            except Exception:
-                log.exception("Failed to import game package %s", name)
-                continue
-            from strife.plugins.errors import PluginError
-            from strife.plugins.loader import game_class
-
-            try:
-                game_cls = game_class(module)
-            except PluginError as exc:
-                log.error("%s", exc)
-                continue
-            if game_cls is None:
-                log.error("Package %s did not export GAME", name)
-                continue
-            self.register(game_cls)
+        PluginManager.from_paths(
+            config_dir=Path("config"),
+            plugins_dir=Path("plugins"),
+        ).load(self)
 
     def contains(self, key: str) -> bool:
         return key in self._games
@@ -174,4 +149,4 @@ class GameRegistry:
     ) -> Game:
         game_cls = self.get(key)
         rng = random.Random(seed)
-        return game_cls(players, settings, rng)
+        return game_cls([dataclasses.replace(p) for p in players], settings, rng)

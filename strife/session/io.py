@@ -68,8 +68,21 @@ class SessionIOMixin:
                         pass
                 if thread is not None:
                     await self.surface.send(thread, view)
+                    await self._persist_board_message()
         else:
             await self.surface.update(view)
+
+    async def _persist_board_message(self) -> None:
+        if self._board_message_saved or self._match_id is None:
+            return
+        message_id = self.surface.message_id
+        if message_id is None:
+            return
+        try:
+            await self._finalizer.set_board_message(self._match_id, message_id)
+            self._board_message_saved = True
+        except Exception:
+            log.exception("Failed to persist board message for thread %s", self.thread_id)
 
 
     async def refresh_header(self) -> None:

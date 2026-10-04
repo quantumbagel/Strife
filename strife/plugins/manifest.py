@@ -16,8 +16,8 @@ Origin = Literal["builtin", "installed"]
 @dataclass(frozen=True)
 class PluginManifest:
     key: str
-    version: str = "0.1.0"
-    platform_version: str = "1.0.0"
+    version: str
+    platform_version: str
     dependencies: tuple[str, ...] = ()
     path: Path | None = None
 
@@ -67,7 +67,9 @@ def load_manifest(path: Path) -> PluginManifest:
             raise PluginError(f"{path}: 'dependencies' must be a list of requirement strings") from exc
 
     version = str(data.get("version") or "0.1.0").strip()
-    platform_version = str(data.get("platform_version") or "1.0.0").strip()
+    platform_version = str(data.get("platform_version") or "").strip()
+    if not platform_version:
+        raise PluginError(f"{path}: 'platform_version' is required")
     return PluginManifest(
         key=key,
         version=version,

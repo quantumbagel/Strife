@@ -10,8 +10,11 @@ Typical imports::
         TurnBasedGame,
         GameContext,
         Move,
+        Interrupt,
         GameOutcome,
+        Result,
         Player,
+        SeatPrompt,
         game_metadata_from,
         PlayerCount,
         PlayerOrder,
@@ -41,8 +44,8 @@ from strife.engine.metadata import (
 )
 from strife.engine.outcomes import forfeit_outcome
 from strife.engine.platform import PLATFORM_VERSION, parse_version, platform_satisfies
-from strife.engine.requests import BotRequest, TimeoutConsequence
-from strife.engine.players import GameOutcome, Move, Player, select_value
+from strife.engine.requests import BotRequest, SeatPrompt, TimeoutConsequence
+from strife.engine.players import GameOutcome, Interrupt, Move, Player, Result, select_value
 from strife.engine.replay import (
     ReplayDivergence,
     freeze_view,
@@ -59,6 +62,7 @@ __all__ = [
     "GameContext",
     "GameMetadata",
     "GameOutcome",
+    "Interrupt",
     "Move",
     "MoveParam",
     "OptionType",
@@ -69,7 +73,9 @@ __all__ = [
     "PlayerOrder",
     "ReplayDivergence",
     "ReplayFrame",
+    "Result",
     "RoleSpec",
+    "SeatPrompt",
     "SettingOption",
     "SlashMove",
     "TimeoutConsequence",

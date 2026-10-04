@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any, Literal
 
 import discord
 
-from strife.engine.errors import SessionError
-from strife.engine.inputs import make_bot_request, resolve_sources
-from strife.engine.requests import TimeoutConsequence
+from strife.session.errors import SessionError
+from strife.engine.inputs import check_timeout_consequence, make_bot_request, resolve_sources
+from strife.engine.requests import SeatPrompt, TimeoutConsequence
 from strife.engine.log import LogEntryKind
 from strife.engine.players import Move
-from strife.presentation.components import LayoutView
+from strife.presentation.components import LayoutView, default_form_values, form_fields
 from strife.routing.router import InteractionInput
 from strife.session.types import PendingInput, QUERY_TIMEOUT_SECONDS, log
 
@@ -20,6 +21,15 @@ _UNTIL_ANY_BOT_DELAY_SECONDS = 8.0
 
 
 class SessionInputMixin:
+    def _select_values(self, inp: InteractionInput) -> list[str]:
+        if inp.values:
+            return [str(v) for v in inp.values]
+        if inp.args.get("values"):
+            return [str(v) for v in inp.args["values"]]
+        if inp.args.get("value") is not None:
+            return [str(inp.args["value"])]
+        return []
+
     async def submit(self, inp: InteractionInput) -> bool:
         """Record a click. Returns True when other humans still have to act."""
         async with self.lock:
@@ -29,12 +39,19 @@ class SessionInputMixin:
             pending = self.pending.get(seat)
             if pending is None or seat not in pending.allowed_actors:
                 raise SessionError("cannot_act")
+            field = pending.form.get(inp.source)
+            if field is not None:
+                values = self._select_values(inp)
+                if not values or any(value not in field.choices for value in values):
+                    raise SessionError("invalid_action")
+                pending.form_values[inp.source] = values if field.multi else values[0]
+                return False
             if pending.allowed_sources is not None and inp.source not in pending.allowed_sources:
                 raise SessionError("invalid_action")
             move = Move(
                 actor_seat=seat,
                 source=inp.source,
-                args=inp.args,
+                args={**pending.form_values, **inp.args},
                 created_at=datetime.now(timezone.utc),
             )
             if not pending.future.done():
@@ -166,6 +183,8 @@ class SessionInputMixin:
         timeout_seconds: float | None = None,
         timeout_consequence: TimeoutConsequence | None = None,
     ) -> Move:
+        allowed = resolve_sources(view, sources)
+        check_timeout_consequence(timeout_consequence, allowed)
         if self.players[actor].is_bot:
             request = make_bot_request(
                 self.players,
@@ -177,9 +196,9 @@ class SessionInputMixin:
             move = await self.game.bot_move(request)
             await self._update_surface(view)
             async with self.lock:
-                self.log.record(move)
-            return move
+                return self.log.record(move)
 
+        fields = form_fields(view)
         loop = asyncio.get_running_loop()
         future: asyncio.Future[Move] = loop.create_future()
         now = time.monotonic()
@@ -187,7 +206,6 @@ class SessionInputMixin:
         self._timeout_generation[actor] = generation
         seconds = timeout_seconds if timeout_seconds is not None else self.turn_timeout_seconds
         deadline = now + seconds
-        allowed = resolve_sources(view, sources)
         async with self.lock:
             self.pending[actor] = PendingInput(
                 {actor},
@@ -198,6 +216,8 @@ class SessionInputMixin:
                 timeout_consequence=timeout_consequence,
                 deadline_at=deadline,
                 timeout_generation=generation,
+                form=fields,
+                form_values=default_form_values(fields),
             )
             self.last_move_at = now
             self._timeout_warned.pop(actor, None)
@@ -206,8 +226,7 @@ class SessionInputMixin:
         await self.refresh_header()
         move = await future
         async with self.lock:
-            self.log.record(move)
-        return move
+            return self.log.record(move)
 
 
     async def _request_inputs(
@@ -217,15 +236,24 @@ class SessionInputMixin:
         actors: set[int],
         sources: set[str] | None,
         until: Literal["all", "any"],
-        per_seat_sources: dict[int, set[str]] | None = None,
+        per_seat: Mapping[int, SeatPrompt] | None = None,
         description: str | None = None,
-        descriptions: dict[int, str] | None = None,
         timeout_seconds: float | None = None,
         timeout_consequence: TimeoutConsequence | None = None,
     ) -> dict[int, Move]:
         results: dict[int, Move] = {}
+        self._phase_timeout_index = None
         humans = {seat for seat in actors if not self.players[seat].is_bot}
         bots = actors - humans
+        fields = form_fields(view)
+
+        for seat in actors:
+            check_timeout_consequence(
+                timeout_consequence,
+                resolve_sources(
+                    view, sources, per_seat=per_seat, seat=seat
+                ),
+            )
 
         if until == "any" and not humans:
             # All actors are bots: pick one at random and return only that move.
@@ -235,11 +263,11 @@ class SessionInputMixin:
                 view,
                 bot_seat,
                 sources=sources,
+                per_seat=per_seat,
                 description=description,
             )
             move = await self.game.bot_move(request)
-            self.log.record(move)
-            return {bot_seat: move}
+            return {bot_seat: self.log.record(move)}
 
         loop = asyncio.get_running_loop()
         futures: dict[int, asyncio.Future[Move]] = {}
@@ -255,24 +283,25 @@ class SessionInputMixin:
                 future: asyncio.Future[Move] = loop.create_future()
                 futures[seat] = future
                 seat_sources = resolve_sources(
-                    view, sources, per_seat_sources=per_seat_sources, seat=seat
+                    view, sources, per_seat=per_seat, seat=seat
                 )
                 generation = self._timeout_generation.get(seat, 0) + 1
                 self._timeout_generation[seat] = generation
+                prompt = per_seat.get(seat) if per_seat is not None else None
                 self.pending[seat] = PendingInput(
                     {seat},
                     seat_sources,
                     future,
                     description=description,
-                    line_description=(
-                        descriptions.get(seat) if descriptions is not None else None
-                    ),
+                    line_description=prompt.description if prompt is not None else None,
                     timeout_seconds=timeout_seconds,
                     timeout_consequence=timeout_consequence,
                     deadline_at=deadline,
                     timeout_generation=generation,
                     until=until,
                     phase_timeout=phase_timeout,
+                    form=fields,
+                    form_values=default_form_values(fields),
                 )
                 self._timeout_inflight.discard(seat)
             self.last_move_at = now
@@ -294,7 +323,7 @@ class SessionInputMixin:
                         view,
                         bot_seat,
                         sources=sources,
-                        per_seat_sources=per_seat_sources,
+                        per_seat=per_seat,
                         description=description,
                     )
                     move = await self.game.bot_move(request)
@@ -317,8 +346,7 @@ class SessionInputMixin:
                         # firing and this lock, and was already accepted.
                         if future.done() and not future.cancelled():
                             move = future.result()
-                            results[seat] = move
-                            self.log.record(move)
+                            results[seat] = self.log.record(move)
                         elif not future.done():
                             future.cancel()
                         self.pending.pop(seat, None)
@@ -331,8 +359,7 @@ class SessionInputMixin:
                         exc = bot_waiter.exception()
                         if exc is None:
                             bot_seat, move = bot_waiter.result()
-                            results[bot_seat] = move
-                            self.log.record(move)
+                            results[bot_seat] = self.log.record(move)
                         else:
                             log.exception(
                                 "until=any bot move failed",
@@ -340,10 +367,11 @@ class SessionInputMixin:
                             )
                     if not results and phase_timeout is not None and phase_timeout in done:
                         # The window closed with nobody acting; no seat is to blame.
-                        self.log.system(
+                        logged = self.log.system(
                             "timeout",
                             {"reason": "timeout", "until": "any", "seats": sorted(humans)},
                         )
+                        self._phase_timeout_index = logged.turn_index
             finally:
                 if phase_timeout is not None and not phase_timeout.done():
                     phase_timeout.cancel()
@@ -363,21 +391,17 @@ class SessionInputMixin:
                 view,
                 seat,
                 sources=sources,
-                per_seat_sources=per_seat_sources,
-                description=(
-                    descriptions.get(seat) if descriptions is not None else description
-                ),
+                per_seat=per_seat,
+                description=description,
             )
             move = await self.game.bot_move(request)
-            results[seat] = move
             async with self.lock:
-                self.log.record(move)
+                results[seat] = self.log.record(move)
 
         for seat, future in futures.items():
             move = await future
             async with self.lock:
-                results[seat] = move
-                self.log.record(move)
+                results[seat] = self.log.record(move)
                 self.pending.pop(seat, None)
         await self.refresh_header()
         return results

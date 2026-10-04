@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-PLATFORM_VERSION = "2.0.0"
+PLATFORM_VERSION = "3.0.0"
 
 
 def parse_version(value: str) -> tuple[int, int, int] | None:
@@ -24,8 +24,8 @@ def platform_satisfies(required: str, host: str = PLATFORM_VERSION) -> bool:
     """Return True when *host* can run a plugin that targets *required*.
 
     Same major, and host is greater than or equal to the required minor/patch.
-    A 1.0.0 game runs on 1.2.0; a 1.2.0 game does not run on 1.0.0; a 2.0.0
-    game does not run on 1.x.
+    A 3.0.0 game runs on 3.2.0; a 3.2.0 game does not run on 3.0.0; a 4.0.0
+    game does not run on 3.x.
     """
     need = parse_version(required)
     have = parse_version(host)

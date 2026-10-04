@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import time
 from collections import Counter
 from typing import Any, Mapping
 
-from strife.engine import BotRequest, TimeoutConsequence
+from strife.engine import BotRequest, Interrupt, TimeoutConsequence
 from strife.engine.context import GameContext
 from strife.engine.game import Game
 from strife.engine.workers import run_cpu
-from strife.engine.players import GameOutcome, Move, Player
+from strife.engine.players import GameOutcome, Move, Player, Result
 from strife.games.coup.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -56,10 +55,7 @@ class Coup(Game):
         self.current_block_claim: str | None = None
         self.current_loser: int | None = None
         self.exchange_options: dict[int, list[str]] = {}
-
-        # Interactive form selection state
-        self.selected_action: str | None = None
-        self.selected_target: str | None = None
+        self._notice: str | None = None
 
     def active_seats(self) -> set[int]:
         return set(self.alive)
@@ -118,7 +114,7 @@ class Coup(Game):
         human = None
         bot = None
         for seat, move in moves.items():
-            if move.source in ("forfeit", "timeout"):
+            if move.interrupt is not None:
                 continue
             if move.source != "challenge":
                 continue
@@ -134,7 +130,7 @@ class Coup(Game):
         human = None
         bot = None
         for seat, move in moves.items():
-            if move.source in ("forfeit", "timeout"):
+            if move.interrupt is not None:
                 continue
             if move.source not in valid:
                 continue
@@ -246,13 +242,6 @@ class Coup(Game):
         return False, False
 
     def _timeout_coup_target(self, actor: int) -> int | None:
-        if self.selected_target not in (None, "none"):
-            try:
-                target = int(self.selected_target)
-            except (TypeError, ValueError):
-                target = None
-            if target is not None and target in self.alive and target != actor:
-                return target
         others = [seat for seat in self.alive if seat != actor]
         if not others:
             return None
@@ -380,7 +369,6 @@ class Coup(Game):
             "coins": dict(self.coins),
         })
         last_actor = None
-        turn_deadline: float | None = None
         while len(self.alive) > 1:
             actor = self.current
             if actor not in self.alive:
@@ -394,95 +382,79 @@ class Coup(Game):
                 self.current_blocker = None
                 self.current_block_claim = None
                 self.current_loser = None
-                self.selected_action = None
-                self.selected_target = None
                 last_actor = actor
-                turn_deadline = time.monotonic() + 30.0
 
             action_type = None
             target = None
 
-            while True:
-                forced_coup = (self.coins[actor] >= 10)
-                if forced_coup:
-                    self.selected_action = "coup"
+            async with ctx.turn_deadline(30.0):
+                while True:
+                    forced_coup = (self.coins[actor] >= 10)
 
-                view = self._public_board_view(ctx)
-                # Submit stays allowed even before a valid selection: bots (and
-                # takeover bots) pick the action and target in one submit_action.
-                sources = {"action_select", "target_select", "submit_action"}
-                is_valid = False
-                if self.selected_action is not None:
-                    if self.selected_action in ("income", "foreign_aid", "tax", "exchange"):
-                        is_valid = True
-                    elif self.selected_action in ("coup", "assassinate", "steal"):
-                        if self.selected_target is not None and self.selected_target != "none":
-                            is_valid = True
-
-                remaining =max(1.0, turn_deadline - time.monotonic()) if turn_deadline is not None else 30.0
-                move = await ctx.request_input(
-                    view,
-                    actor=actor,
-                    sources=sources,
-                                        description=self._turn_wait_description(forced_coup=forced_coup),
-                    timeout_seconds=remaining,
-                    timeout_consequence=TimeoutConsequence.SKIP,
-                )
-
-                if move.source == "forfeit":
-                    self.remove_player(move.actor_seat if move.actor_seat is not None else actor)
-                    action_type = "forfeited"
-                    break
-
-                if move.source == "timeout":
-                    if forced_coup:
-                        coup_target = self._timeout_coup_target(actor)
-                        if coup_target is not None:
-                            self.history.append(
-                                f"{ctx.emoji.get('timer', base=True)} {self.players[actor].mention} "
-                                "timed out and was forced to coup."
-                            )
-                            action_type = "coup"
-                            target = coup_target
-                            break
-                    penalty = False
-                    if self.coins[actor] > 0:
-                        self.coins[actor] -= 1
-                        penalty = True
-                    msg = f"{ctx.emoji.get('timer', base=True)} {self.players[actor].mention} timed out."
-                    if penalty:
-                        msg += " Action skipped and 1 coin lost."
-                    else:
-                        msg += " Action skipped."
-                    self.history.append(msg)
-                    action_type = "skipped"
-                    await ctx.record_event(
-                        "turn_skip",
-                        {"player": actor, "penalty": penalty, "coins": dict(self.coins)},
+                    view = self._public_board_view(ctx)
+                    move = await ctx.request_input(
+                        view,
+                        actor=actor,
+                        sources={"submit_action"},
+                        description=self._turn_wait_description(forced_coup=forced_coup),
+                        timeout_consequence=TimeoutConsequence.SKIP,
                     )
-                    break
 
-                if move.source == "submit_action" and not ctx.is_bot(actor) and not is_valid:
-                    continue
-                if ctx.is_bot(actor) or move.source == "submit_action":
-                    if ctx.is_bot(actor):
-                        action_type = move.args.get("action") or self.selected_action or "income"
-                        target_val = move.args.get("target")
-                        target = int(target_val) if target_val is not None else None
-                    else:
-                        action_type = self.selected_action
-                        target = None if self.selected_target in (None, "none") else int(self.selected_target)
+                    if move.interrupt is Interrupt.FORFEIT:
+                        action_type = "forfeited"
+                        break
+
+                    if move.interrupt is Interrupt.TIMEOUT:
+                        if forced_coup:
+                            coup_target = self._timeout_coup_target(actor)
+                            if coup_target is not None:
+                                self.history.append(
+                                    f"{ctx.emoji.get('timer', base=True)} {self.players[actor].mention} "
+                                    "timed out and was forced to coup."
+                                )
+                                action_type = "coup"
+                                target = coup_target
+                                break
+                        penalty = False
+                        if self.coins[actor] > 0:
+                            self.coins[actor] -= 1
+                            penalty = True
+                        msg = f"{ctx.emoji.get('timer', base=True)} {self.players[actor].mention} timed out."
+                        if penalty:
+                            msg += " Action skipped and 1 coin lost."
+                        else:
+                            msg += " Action skipped."
+                        self.history.append(msg)
+                        action_type = "skipped"
+                        await ctx.record_event(
+                            "turn_skip",
+                            {"player": actor, "penalty": penalty, "coins": dict(self.coins)},
+                        )
+                        break
+
+                    action_type = move.args.get("action")
+                    if forced_coup:
+                        action_type = "coup"
+                    target_val = move.args.get("target")
+                    try:
+                        target = int(target_val) if target_val not in (None, "none", "") else None
+                    except (TypeError, ValueError):
+                        target = None
+
+                    if action_type is None:
+                        self._notice = "Select an action."
+                        continue
+                    if action_type in ("coup", "assassinate", "steal"):
+                        if target is None or target not in self.alive or target == actor:
+                            self._notice = "Choose a target."
+                            continue
+                    if action_type == "coup" and self.coins[actor] < 7:
+                        self._notice = "Coup costs 7 coins."
+                        continue
+                    if action_type == "assassinate" and self.coins[actor] < 3:
+                        self._notice = "Assassinate costs 3 coins."
+                        continue
                     break
-                if move.source == "action_select":
-                    self.selected_action = move.args.get("value")
-                    if self.selected_action in ("income", "foreign_aid", "tax", "exchange"):
-                        self.selected_target = "none"
-                    elif self.selected_target == "none":
-                        self.selected_target = None
-                    continue
-                if move.source == "target_select":
-                    self.selected_target = move.args.get("value")
-                    continue
 
             if action_type == "forfeited":
                 if len(self.alive) <= 1:
@@ -495,15 +467,6 @@ class Coup(Game):
                 continue
 
             if actor not in self.alive:
-                continue
-
-            if action_type in ("coup", "assassinate", "steal"):
-                if target is None or target not in self.alive or target == actor:
-                    continue  # Invalid target choice, force retry
-
-            if action_type == "coup" and self.coins[actor] < 7:
-                continue
-            if action_type == "assassinate" and self.coins[actor] < 3:
                 continue
 
             self.current_action = action_type
@@ -621,12 +584,12 @@ class Coup(Game):
                         timeout_consequence=TimeoutConsequence.SKIP,
                                             )
 
-                    if keep_move.source == "forfeit":
+                    if keep_move.interrupt is Interrupt.FORFEIT:
                         # remove_player already revealed their hand; only the drawn cards go back.
                         self.deck.extend(drawn)
                         self.rng.shuffle(self.deck)
                         self.exchange_options.pop(actor, None)
-                    elif keep_move.source == "timeout":
+                    elif keep_move.interrupt is Interrupt.TIMEOUT:
                         # Exchange Timeout: auto-keep original cards
                         keep_cards = list(self.hands[actor])
                         leftover = Counter(self.exchange_options[actor]) - Counter(keep_cards)
@@ -634,11 +597,9 @@ class Coup(Game):
                             f"{ctx.emoji.get('timer', base=True)} {self.players[actor].mention} timed out exchanging cards. Original cards kept."
                         )
                     else:
-                        raw_keep = keep_move.args.get("values", [])
-                        if not raw_keep and keep_move.args.get("value") is not None:
-                            raw_keep = [keep_move.args.get("value")]
-                        if not raw_keep and keep_move.args.get("keep"):
-                            raw_keep = keep_move.args.get("keep")
+                        raw_keep = keep_move.args.get("keep") or []
+                        if isinstance(raw_keep, str):
+                            raw_keep = [raw_keep]
 
                         options = self.exchange_options[actor]
                         keep_cards = []
@@ -659,7 +620,7 @@ class Coup(Game):
                             keep_cards = list(self.hands[actor])
                             leftover = Counter(options) - Counter(keep_cards)
 
-                    if keep_move.source != "forfeit":
+                    if keep_move.interrupt is not Interrupt.FORFEIT:
                         returned = list(leftover.elements())
                         if len(keep_cards) == prior_count:
                             self.hands[actor] = keep_cards
@@ -683,14 +644,14 @@ class Coup(Game):
         # Match over
         if not self.alive:
             return GameOutcome(
-                results={p.seat: "loss" for p in self.players},
+                results={p.seat: Result.LOSS for p in self.players},
                 summary={"history": list(self.history)},
                 description="Match ended by forfeit.",
                 player_descriptions={p.seat: "Removed from play." for p in self.players},
             )
         winner = next(iter(self.alive))
         winner_mention = self.players[winner].mention
-        results = {p.seat: "win" if p.seat == winner else "loss" for p in self.players}
+        results = {p.seat: Result.WIN if p.seat == winner else Result.LOSS for p in self.players}
         player_descriptions = {
             p.seat: "Won the coup!" if p.seat == winner else "Influence eliminated."
             for p in self.players
@@ -748,10 +709,10 @@ class Coup(Game):
             timeout_consequence=TimeoutConsequence.SKIP,
                     )
 
-        if move.source == "forfeit":
+        if move.interrupt is Interrupt.FORFEIT:
             return
 
-        if move.source == "timeout":
+        if move.interrupt is Interrupt.TIMEOUT:
             # Timeout: auto-reveal the first card
             lost_card = cards[0]
             self.history.append(
@@ -831,14 +792,20 @@ class Coup(Game):
         row = ActionRow()
         row.add_select(
             Select(
-                source="exchange_select",
+                source="keep",
                 placeholder="Select cards to keep",
                 choices=choices,
                 min_values=keep_count,
                 max_values=keep_count,
+                form=True,
             )
         )
         container.add_action_row(row)
+        submit_row = ActionRow()
+        submit_row.add_button(
+            Button(source="exchange_select", label="Keep Cards", style=ButtonStyle.PRIMARY)
+        )
+        container.add_action_row(submit_row)
         view.add_container(container)
         return view
 
@@ -847,6 +814,9 @@ class Coup(Game):
         container = Container()
 
         current_status = status or f"{self.players[self.current].mention} to act"
+        if self._notice and not is_replay:
+            current_status = self._notice
+            self._notice = None
         message_lead(container, current_status, emoji=ctx.emoji)
 
         action_desc = ""
@@ -939,21 +909,18 @@ class Coup(Game):
                     value="income",
                     description="Take 1 coin from the Treasury",
                     emoji="success",
-                    default=(self.selected_action == "income")
                 ))
                 action_choices.append(SelectChoice(
                     label="Foreign Aid (+2 coins)",
                     value="foreign_aid",
                     description="Take 2 coins (Can be blocked by Duke)",
                     emoji="public",
-                    default=(self.selected_action == "foreign_aid")
                 ))
                 action_choices.append(SelectChoice(
                     label="Tax (Duke) (+3 coins)",
                     value="tax",
                     description="Take 3 coins claiming Duke",
                     emoji="duke",
-                    default=(self.selected_action == "tax")
                 ))
                 if self.coins[actor] >= 7:
                     action_choices.append(SelectChoice(
@@ -961,7 +928,6 @@ class Coup(Game):
                         value="coup",
                         description="Force another player to lose influence",
                         emoji="explosion",
-                        default=(self.selected_action == "coup")
                     ))
                 if self.coins[actor] >= 3:
                     action_choices.append(SelectChoice(
@@ -969,72 +935,58 @@ class Coup(Game):
                         value="assassinate",
                         description="Assassinate another player (Can be blocked by Contessa)",
                         emoji="assassin",
-                        default=(self.selected_action == "assassinate")
                     ))
                 action_choices.append(SelectChoice(
                     label="Steal (Captain)",
                     value="steal",
                     description="Steal 2 coins from another player (Can be blocked by Captain/Ambassador)",
                     emoji="captain",
-                    default=(self.selected_action == "steal")
                 ))
                 action_choices.append(SelectChoice(
                     label="Exchange (Ambassador)",
                     value="exchange",
                     description="Draw 2 cards and choose which to keep",
                     emoji="ambassador",
-                    default=(self.selected_action == "exchange")
                 ))
 
             row_actions = ActionRow()
             row_actions.add_select(
                 Select(
-                    source="action_select",
+                    source="action",
                     placeholder="Select action to perform",
                     choices=action_choices,
+                    form=True,
                 )
             )
             container.add_action_row(row_actions)
 
-            # Target options (Only if selected action requires target)
-            needs_target = self.selected_action in ("coup", "assassinate", "steal")
-            if needs_target:
-                target_choices = [
-                    SelectChoice(
-                        label=f"{p.display_name} · {self.coins[p.seat]} coins · {len(self.hands.get(p.seat, []))} influence",
-                        value=str(p.seat),
-                        default=(str(self.selected_target) == str(p.seat)),
+            others = [p for p in self.players if p.seat != actor and p.seat in self.alive]
+            target_choices = [
+                SelectChoice(
+                    label=f"{p.display_name} · {self.coins[p.seat]} coins · {len(self.hands.get(p.seat, []))} influence",
+                    value=str(p.seat),
+                    default=(len(others) == 1),
+                )
+                for p in others
+            ]
+            if target_choices:
+                row_targets = ActionRow()
+                row_targets.add_select(
+                    Select(
+                        source="target",
+                        placeholder="Select target player",
+                        choices=target_choices,
+                        form=True,
                     )
-                    for p in self.players
-                    if p.seat != actor and p.seat in self.alive
-                ]
-                if len(target_choices) == 1 and self.selected_target in (None, "none"):
-                    target_choices[0].default = True
-                    self.selected_target = target_choices[0].value
-                if target_choices:
-                    row_targets = ActionRow()
-                    row_targets.add_select(
-                        Select(
-                            source="target_select",
-                            placeholder="Select target player",
-                            choices=target_choices,
-                        )
-                    )
-                    container.add_action_row(row_targets)
-                else:
-                    add_body(container, "-# No valid targets remain.")
+                )
+                container.add_action_row(row_targets)
 
-            # Submit action button
-            is_valid = not needs_target or (
-                self.selected_target is not None and self.selected_target != "none"
-            )
             row_submit = ActionRow()
             row_submit.add_button(
                 Button(
                     source="submit_action",
                     label="Submit Move",
                     style=ButtonStyle.PRIMARY,
-                    disabled=not is_valid
                 )
             )
             container.add_action_row(row_submit)
@@ -1138,7 +1090,7 @@ class Coup(Game):
             return Move(
                 actor_seat=seat,
                 source="submit_action",
-                args={"action": action_type, "target": target_val},
+                args={"action": action_type, **({"target": str(target_val)} if target_val is not None else {})},
             )
         elif move.source == "block":
             claim = move.args.get("claim", "captain")
@@ -1156,7 +1108,7 @@ class Coup(Game):
             for card in keep:
                 if card in options:
                     indices.append(str(options.index(card)))
-            return Move(actor_seat=seat, source="exchange_select", args={"values": indices})
+            return Move(actor_seat=seat, source="exchange_select", args={"keep": indices})
         return move
 
     async def handle_query(self, seat: int, source: str, ctx: GameContext) -> bool:

@@ -40,7 +40,7 @@ On boot, `PluginManager` reads `strife/games/*/plugin.toml` (skip `plugins.yaml`
 
 Skipped (logged, not fatal): missing `GAME`, bad versions, missing extras, capability mismatch (`bots` but no `bot_move`), duplicate key, import error.
 
-`registry.create(key, players, settings, seed)` builds `random.Random(seed)` and constructs the class. Replays use the same seed.
+`registry.create(key, players, settings, seed)` builds `random.Random(seed)` and constructs the class with copies of `players` (the game owns its own `Player` objects; the session keeps the originals). Replays and live resume after a restart use the same seed.
 
 A registered game can still be hidden. `config/games.yaml` `enabled: false` keeps it out of `/play` and the catalog so old replays still load. Uninstall drops the plugin and deletes that game’s history. See [plugins.md](plugins.md).
 
@@ -70,16 +70,18 @@ A loaded game with no row is enabled with the `defaults` tuning (boot logs that 
 | `self.bot_rng` on `Game` | Bot decision jitter (not seeded) |
 | `ctx.emoji` | Emoji keys |
 | `ctx.started_at`, `ctx.is_replay`, `ctx.is_bot(seat)` | Clock, hide controls, skip DMs |
+| `ctx.turn_timeout_seconds` | Host per-turn budget (`None` on CLI/replay) |
+| `ctx.turn_deadline(seconds)` | One clock across several `request_input` calls (no-op on replay/CLI) |
 | `self.setting(key)` | Setting with metadata default (on `Game`, not `ctx`) |
 | `ctx.update(view)` | Edit the board |
-| `ctx.request_input` / `request_inputs` | Wait for a move (or `bot_move`) |
+| `ctx.request_input` / `request_inputs` | Wait for a move (or `bot_move`). `per_seat` takes `SeatPrompt` overrides |
 | `ctx.send_private(seat, view)` | DM (thread notice if DMs fail) |
 | `ctx.record_event` | One `game` log row |
 | `ctx.respond_query(view)` | Peek panel, only inside `handle_query` |
 
 A click becomes `Move(actor_seat, source, args)` after the host checks seat and allowed sources. Attachments are `ViewFile` bytes.
 
-Don’t import `discord`, encode `custom_id`s, set `route_prefix` on board controls, touch the database, or emit system log names (`forfeit`, `game_end`, `bot_takeover`, `timeout`).
+Don’t import `discord`, encode `custom_id`s, set `route_prefix` on board controls, touch the database, or emit system log names (`forfeit`, `game_end`, `bot_takeover`, `timeout`). `Player.mention` is format-agnostic; Discord markup is installed by the host.
 
 Layout is dataclasses (`LayoutView`, `Button`, …), not `discord.ui`. Emoji is a string key. The host compiles, signs `custom_id`s, and sends. Limits (40 components, 4000 chars, 100-char ids) fail in the host.
 
@@ -95,7 +97,13 @@ A live match has two messages: header (`replay_noop:`, clicks do nothing) and bo
 
 Replay builds a fresh game with the stored seed and re-runs `play()` against the log. Frames come from `render_replay` at each `update` / `request_*` boundary.
 
-Timeouts, forfeits, persist, rematch, and thread lock stay in the session.
+Seat events (removals, bot takeovers) are applied by the engine at the position of their log row — when `play()` next calls `request_input` / `request_inputs` / `record_event`, or before the move that follows them is returned. `remove_player` is called by the engine exactly once; games must not call it. `ctx.is_bot(seat)` is the game’s view of that seat (updated at those sync points).
+
+Timeouts, forfeits, persist, rematch, and thread lock stay in the session. `timeout_consequence=AUTO_PASS` requires `"pass"` in allowed sources; otherwise the host injects a system `timeout` instead.
+
+## Restarts
+
+Live matches are written as they run (match row at start, moves as they are logged). After a crash or graceful restart, the host re-runs `play()` against that log until it catches up, then continues live — another reason `play()` must be deterministic given seed, players, settings, and log. If the plugin is gone or its version changed while a match was live, the next boot abandons it instead.
 
 ## Discord exposure
 
@@ -116,7 +124,7 @@ Stale sessions disable the components and report `common.game_ended`.
 
 Lobby start: `registry.create` → public thread `{Game} (#{code})` → header + board → `game.play(ctx)`. Exceptions in `play` abandon that match. Caps: `bot_move` 10s, `handle_query` 5s, `final_view` 5s, `run_replay` 15s. If `play()` yields but never touches `GameContext` for `play_hang_seconds`, the session is cancelled.
 
-A tight CPU loop (no await) still freezes the process. `run_cpu` offloads to a thread pool so the event loop can breathe; pure Python still holds the GIL unless the work releases it (native libs, rendering, I/O). A native crash kills the process; Docker restarts it with no live sessions.
+A tight CPU loop (no await) still freezes the process. `run_cpu` offloads to a thread pool so the event loop can breathe; pure Python still holds the GIL unless the work releases it (native libs, rendering, I/O). A native crash kills the process; Docker restarts it and live matches resume from the stored log.
 
 ## Adding a game (host side)
 

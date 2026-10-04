@@ -59,6 +59,10 @@ class ViewSurface:
     def set_resource_id(self, resource_id: int) -> None:
         self._resource_id = resource_id
 
+    def bind(self, message: discord.Message) -> None:
+        """Attach this surface to an existing Discord message (resume)."""
+        self._message = message
+
     async def send(
         self,
         target: discord.Interaction | discord.abc.Messageable,

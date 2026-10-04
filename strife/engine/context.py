@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, Protocol
 
 from strife.engine.players import Move
-from strife.engine.requests import TimeoutConsequence
+from strife.engine.requests import SeatPrompt, TimeoutConsequence
 from strife.presentation.components import LayoutView
 from strife.presentation.emoji import EmojiResolver
+
+
+@asynccontextmanager
+async def noop_turn_deadline(seconds: float | None = None):
+    yield
 
 
 class GameContext(Protocol):
@@ -22,6 +29,12 @@ class GameContext(Protocol):
     @property
     def turn_timeout_seconds(self) -> float | None:
         """Host's configured per-turn budget; None when the host has no clock."""
+        ...
+
+    def turn_deadline(
+        self, seconds: float | None = None
+    ) -> AbstractAsyncContextManager[None]:
+        """Bound inner ``request_input(s)`` to one clock. ``seconds=None`` is the host turn timeout."""
         ...
 
     def is_bot(self, seat: int) -> bool: ...
@@ -46,9 +59,8 @@ class GameContext(Protocol):
         actors: set[int],
         sources: set[str] | None = None,
         until: Literal["all", "any"] = "all",
-        per_seat_sources: dict[int, set[str]] | None = None,
+        per_seat: Mapping[int, SeatPrompt] | None = None,
         description: str | None = None,
-        descriptions: dict[int, str] | None = None,
         timeout_seconds: float | None = None,
         timeout_consequence: TimeoutConsequence | None = None,
     ) -> dict[int, Move]: ...

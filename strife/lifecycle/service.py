@@ -6,7 +6,7 @@ import time
 import discord
 
 from strife.config.text import TextConfig
-from strife.engine.errors import SessionError
+from strife.session.errors import SessionError
 from strife.engine.log import LogEntryKind
 from strife.engine.players import Move
 from strife.engine.registry import GameRegistry
@@ -229,7 +229,14 @@ class LifecycleService:
             )
 
         elif consequence == ResolvedTimeoutConsequence.AUTO_PASS:
-            await session.force_move(seat, Move(actor_seat=seat, source="pass", args={}))
+            allowed = pending.allowed_sources if pending else None
+            if allowed is not None and "pass" not in allowed:
+                await session.force_move(
+                    seat,
+                    Move(actor_seat=seat, source="timeout", args={}, kind=LogEntryKind.SYSTEM),
+                )
+            else:
+                await session.force_move(seat, Move(actor_seat=seat, source="pass", args={}))
 
         elif consequence == ResolvedTimeoutConsequence.STRIKE:
             session.timeout_strikes[seat] = session.timeout_strikes.get(seat, 0) + 1
@@ -283,7 +290,7 @@ class LifecycleService:
                 session.taken_over.add(seat)
                 player.is_bot = True
                 player.bot_difficulty = difficulty
-                active = session.game.active_seats()
+                active = session.game.active_seats() - session._removed_seats
                 humans_left = any(
                     not p.is_bot and p.seat in active for p in session.players
                 )
@@ -308,14 +315,17 @@ class LifecycleService:
             try:
                 allowed = pending.allowed_sources if pending else None
                 sources = frozenset(allowed) if allowed is not None else None
+                form = {}
                 description = None
                 if pending is not None:
                     description = pending.description or pending.line_description
+                    form = {name: field.choices for name, field in pending.form.items()}
                 request = BotRequest(
                     seat=seat,
                     difficulty=difficulty,
                     sources=sources,
                     description=description,
+                    form=form,
                 )
                 move = await session.game.bot_move(request)
                 await session.force_move(seat, move)
@@ -330,7 +340,6 @@ class LifecycleService:
 
         elif consequence == ResolvedTimeoutConsequence.REMOVED:
             try:
-                session.game.remove_player(seat)
                 session._removed_seats.add(seat)
                 # Logs a system "forfeit" row even when the seat wasn't waiting
                 # on a pending input (request path logs the forfeit row).

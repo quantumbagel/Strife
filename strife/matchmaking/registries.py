@@ -92,6 +92,17 @@ class SessionRegistries:
                         "game", session.thread_id, session.guild_id
                     )
 
+    async def register_session(self, session: GameSession) -> None:
+        """Put a reconstructed session on the game map and occupy its humans."""
+        async with self._lock:
+            self.active_games[session.thread_id] = session
+            removed = getattr(session, "_removed_seats", set())
+            for member in session.players:
+                if member.user_id and not member.is_bot and member.seat not in removed:
+                    self.user_location[member.user_id] = UserLocation(
+                        "game", session.thread_id, session.guild_id
+                    )
+
     async def rollback_promote(self, lobby: Lobby, session: GameSession) -> None:
         """Undo ``promote``: drop the session and restore the lobby occupancy."""
         async with self._lock:

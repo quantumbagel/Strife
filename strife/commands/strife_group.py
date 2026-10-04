@@ -18,7 +18,7 @@ from strife.commands.autocomplete import (
 )
 from strife.commands.catalog import CatalogService
 from strife.commands.server_settings import ServerSettingsService
-from strife.engine.errors import SessionError
+from strife.session.errors import SessionError
 from strife.lifecycle.service import LifecycleService
 from strife.matchmaking.service import LobbyService
 from strife.presentation.user_error import ErrorContext

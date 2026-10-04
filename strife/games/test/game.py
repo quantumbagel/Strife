@@ -4,11 +4,11 @@ import random
 from collections.abc import Mapping
 from typing import Any
 
-from strife.engine import BotRequest
+from strife.engine import BotRequest, Interrupt
 from strife.engine.context import GameContext
 from strife.engine.game import Game
 from strife.engine.outcomes import forfeit_outcome
-from strife.engine.players import GameOutcome, Move, Player
+from strife.engine.players import GameOutcome, Move, Player, Result
 from strife.presentation.game_ui import message_lead
 from strife.presentation.components import (
     ActionRow,
@@ -118,12 +118,13 @@ class TestGame(Game):
         # Test Select component
         container.add_described_select(
             DescribedSelect(
-                description="Multi-select menu with up to two choices.",
+                description="Form select: values attach to the next move (not logged).",
                 select=Select(
                     source="sel_choices",
                     placeholder="Choose options (min 1, max 2)...",
                     min_values=1,
                     max_values=2,
+                    form=True,
                     choices=[
                         SelectChoice(
                             label="Choice 1",
@@ -297,12 +298,11 @@ class TestGame(Game):
                     "btn_secondary",
                     "btn_success",
                     "btn_danger",
-                    "sel_choices",
                     "sel_channel",
                     "btn_next_1",
                 },
             )
-            if move.source == "forfeit":
+            if move.interrupt is Interrupt.FORFEIT:
                 outcome = forfeit_outcome(
                     self.players,
                     move.actor_seat,
@@ -383,10 +383,10 @@ class TestGame(Game):
         player_descriptions = {}
         for p in self.players:
             if p.seat in self.alive:
-                results[p.seat] = "win"
+                results[p.seat] = Result.WIN
                 player_descriptions[p.seat] = "API verification complete!"
             else:
-                results[p.seat] = "loss"
+                results[p.seat] = Result.LOSS
                 player_descriptions[p.seat] = "Removed from play."
 
         return GameOutcome(

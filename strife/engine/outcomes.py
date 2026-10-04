@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from strife.engine.players import GameOutcome, Player
+from strife.engine.players import GameOutcome, Player, Result
 
 
 def forfeit_outcome(
@@ -30,17 +30,17 @@ def forfeit_outcome(
     opponent_label = "Opponent timed out" if timed_out else "Opponent forfeited"
     action_str = "timed out" if timed_out else "forfeited"
 
-    results: dict[int, str] = {}
+    results: dict[int, Result] = {}
     player_descriptions: dict[int, str] = {}
     for player in players:
         if player.seat == forfeiter_seat:
-            results[player.seat] = "loss"
+            results[player.seat] = Result.LOSS
             player_descriptions[player.seat] = forfeiter_label
         elif player.seat in alive:
-            results[player.seat] = "win"
+            results[player.seat] = Result.WIN
             player_descriptions[player.seat] = opponent_label
         else:
-            results[player.seat] = "loss"
+            results[player.seat] = Result.LOSS
             player_descriptions[player.seat] = "Removed from play"
 
     forfeiter_mention = str(players[forfeiter_seat])

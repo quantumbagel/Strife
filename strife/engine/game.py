@@ -55,7 +55,7 @@ class Game(ABC):
         )
 
     def remove_player(self, seat: int) -> None:
-        """Called when a player is removed mid-game. Override to enable removal."""
+        """Engine-called mid-match removal. Override to enable it; do not call it yourself."""
 
     def forfeit_end_outcome(self, forfeiter_seat: int, reason: str = "forfeit") -> GameOutcome:
         """Outcome when the host ends the match because ``forfeiter_seat`` quit.

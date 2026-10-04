@@ -4,7 +4,7 @@ from abc import abstractmethod
 
 from strife.engine.context import GameContext
 from strife.engine.game import Game
-from strife.engine.players import Move
+from strife.engine.players import Interrupt, Move
 from strife.engine.requests import TimeoutConsequence
 from strife.presentation.components import LayoutView
 
@@ -35,6 +35,9 @@ class TurnBasedGame(Game):
         prefix_emoji: str | None = None,
     ) -> LayoutView: ...
 
+    def on_timeout(self, move: Move) -> None:
+        """Called by ``take_turn`` on ``Interrupt.TIMEOUT``. Default: no-op."""
+
     async def take_turn(
         self,
         ctx: GameContext,
@@ -46,7 +49,10 @@ class TurnBasedGame(Game):
         timeout_seconds: float | None = None,
         timeout_consequence: TimeoutConsequence | None = None,
     ) -> Move:
-        """Render, wait for the current seat, and ``apply_move`` the result."""
+        """Render, wait for the current seat, and ``apply_move`` the result.
+
+        Timeouts call ``on_timeout`` instead of ``apply_move``.
+        """
         view = self.render(ctx, lead=lead, prefix_emoji=prefix_emoji)
         move = await ctx.request_input(
             view,
@@ -56,6 +62,8 @@ class TurnBasedGame(Game):
             timeout_seconds=timeout_seconds,
             timeout_consequence=timeout_consequence,
         )
-        if move.is_game:
+        if move.interrupt is Interrupt.TIMEOUT:
+            self.on_timeout(move)
+        elif move.is_game:
             self.apply_move(move)
         return move

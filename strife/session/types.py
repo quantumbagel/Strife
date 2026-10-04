@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from strife.engine.game import Game
 from strife.engine.inputs import InvalidBotMove, validate_bot_move
 from strife.engine.players import Move
 from strife.engine.requests import BotRequest, TimeoutConsequence
 from strife.logging import get_logger
+from strife.presentation.components import FormField
 
 log = get_logger("session")
 
@@ -53,3 +55,5 @@ class PendingInput:
     # Shared by every seat of one until="any" request; resolving it closes the
     # window with no move (see ``SessionInputMixin.expire_phase``).
     phase_timeout: asyncio.Future[None] | None = None
+    form: dict[str, FormField] = field(default_factory=dict)
+    form_values: dict[str, Any] = field(default_factory=dict)

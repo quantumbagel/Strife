@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from strife.engine import BotRequest
+from strife.engine import BotRequest, Interrupt
 from strife.engine.context import GameContext
 from strife.engine.game import Game
 from strife.engine.workers import run_cpu
-from strife.engine.players import GameOutcome, Move
+from strife.engine.players import GameOutcome, Move, Result
 from strife.games.liars_dice.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -32,8 +32,6 @@ class LiarsDice(Game):
         self.current = self.rng.randint(0, len(players) - 1)
         self.alive: set[int] = {p.seat for p in players}
         self.history: list[str] = []
-        self.pending_quantity: int | None = None
-        self.pending_value: int | None = None
         self._notice: str | None = None
         self.last_reveal: dict | None = None
 
@@ -173,8 +171,6 @@ class LiarsDice(Game):
         self.current_bid = (quantity, value)
         self.last_bidder = seat
         self.current = self._next_player(seat)
-        self.pending_quantity = None
-        self.pending_value = None
         await ctx.record_event("bid", {
             "player": seat,
             "quantity": quantity,
@@ -261,13 +257,11 @@ class LiarsDice(Game):
         self.current = loser if loser in self.alive else self._next_player(loser)
         self.current_bid = None
         self.last_bidder = None
-        self.pending_quantity = None
-        self.pending_value = None
 
-    async def _timeout_or_pass(self, ctx: GameContext, seat: int, source: str) -> bool:
+    async def _timeout_or_pass(self, ctx: GameContext, seat: int, timed_out: bool) -> bool:
         """Apply a host-injected timeout/pass. True means the bidding round is over."""
         name = self.players[seat].mention
-        reason = "timed out" if source == "timeout" else "auto-passed"
+        reason = "timed out" if timed_out else "auto-passed"
         if self.last_bidder is not None and self.last_bidder not in self.alive:
             self.current = self._next_player(self.last_bidder)
             return True
@@ -318,8 +312,6 @@ class LiarsDice(Game):
 
             self.current_bid = None
             self.last_bidder = None
-            self.pending_quantity = None
-            self.pending_value = None
             if self.current not in self.alive:
                 self.current = self._next_player(self.current)
 
@@ -344,14 +336,12 @@ class LiarsDice(Game):
                     prefix_emoji=prefix,
                 )
 
-                sources = {"quantity_select", "value_select", "bid", "challenge"}
+                sources = {"bid", "challenge"}
                 move = await ctx.request_input(view, actor=seat, sources=sources)
 
-                if move.source == "forfeit":
+                if move.interrupt is Interrupt.FORFEIT:
                     forfeiter = move.actor_seat if move.actor_seat is not None else seat
                     was_last_bidder = self.last_bidder == forfeiter
-                    if forfeiter in self.alive:
-                        self.remove_player(forfeiter)
                     if len(self.alive) <= 1:
                         break
                     if was_last_bidder or (
@@ -363,26 +353,11 @@ class LiarsDice(Game):
                         self.current = self._next_player(forfeiter)
                     continue
 
-                if move.source in ("timeout", "pass"):
-                    if await self._timeout_or_pass(ctx, seat, move.source):
+                if move.interrupt is Interrupt.TIMEOUT or move.source == "pass":
+                    if await self._timeout_or_pass(
+                        ctx, seat, timed_out=move.interrupt is Interrupt.TIMEOUT
+                    ):
                         break
-                    continue
-
-                if move.source == "quantity_select":
-                    val = move.args.get("value")
-                    if val is not None:
-                        self.pending_quantity = int(val)
-                        if (
-                            self.pending_value is not None
-                            and self.pending_value not in self._bid_values(self.pending_quantity)
-                        ):
-                            self.pending_value = None
-                    continue
-
-                if move.source == "value_select":
-                    val = move.args.get("value")
-                    if val is not None:
-                        self.pending_value = int(val)
                     continue
 
                 if move.source == "challenge":
@@ -396,17 +371,17 @@ class LiarsDice(Game):
                         self._notice = "The bid is already at the maximum. Call Liar!"
                         continue
 
-                    quantity = self.pending_quantity
-                    value = self.pending_value
-                    if quantity is None:
-                        quantity = move.args.get("quantity")
-                    if value is None:
-                        value = move.args.get("value")
+                    quantity = move.args.get("quantity")
+                    value = move.args.get("value")
                     if quantity is None or value is None:
                         self._notice = "Choose both quantity and value."
                         continue
-                    quantity = int(quantity)
-                    value = int(value)
+                    try:
+                        quantity = int(quantity)
+                        value = int(value)
+                    except (TypeError, ValueError):
+                        self._notice = "Choose both quantity and value."
+                        continue
 
                     is_valid, reason = self._validate_bid(quantity, value)
                     if not is_valid:
@@ -418,7 +393,7 @@ class LiarsDice(Game):
         # Game over, final player wins
         final_winner = next(iter(self.alive))
         winner_mention = str(self.players[final_winner])
-        results = {p.seat: "win" if p.seat == final_winner else "loss" for p in self.players}
+        results = {p.seat: Result.WIN if p.seat == final_winner else Result.LOSS for p in self.players}
         player_descriptions = {
             p.seat: "Won the game!" if p.seat == final_winner else "Eliminated"
             for p in self.players
@@ -503,50 +478,33 @@ class LiarsDice(Game):
         container = view.containers[0]
 
         at_max_bid = self._is_max_bid()
+        quantities = self._bid_quantities()
+        faces = self._legal_face_values()
         quantity_choices = [
-            SelectChoice(
-                label=str(q),
-                value=str(q),
-                default=(self.pending_quantity == q),
-            )
-            for q in self._bid_quantities()
+            SelectChoice(label=str(q), value=str(q))
+            for q in quantities
         ]
         value_choices = [
             SelectChoice(
                 label=f"Value {v}",
                 value=str(v),
                 emoji=f"die_{v}",
-                default=(self.pending_value == v),
             )
-            for v in self._bid_values(self.pending_quantity)
+            for v in faces
         ]
 
-        pending_text = ""
         if at_max_bid:
-            pending_text = "**Max bid — Call Liar!**"
-        elif self.pending_quantity is not None and self.pending_value is not None:
-            valid, reason = self._validate_bid(self.pending_quantity, self.pending_value)
-            if valid:
-                pending_text = (
-                    f"**Pending bid:** {self.pending_quantity} × "
-                    f"{self._die_emoji(ctx, self.pending_value)}"
-                )
-            else:
-                pending_text = f"**Invalid bid:** {reason}"
-        elif self.pending_quantity is not None or self.pending_value is not None:
-            pending_text = "**Pending bid:** choose both quantity and value."
-
-        if pending_text:
-            add_body(container, pending_text)
+            add_body(container, "**Max bid — Call Liar!**")
 
         if quantity_choices:
             row1 = ActionRow()
             row1.add_select(
                 Select(
-                    source="quantity_select",
+                    source="quantity",
                     placeholder="Choose quantity",
                     choices=quantity_choices,
                     disabled=at_max_bid,
+                    form=True,
                 )
             )
             container.add_action_row(row1)
@@ -555,27 +513,22 @@ class LiarsDice(Game):
             row2 = ActionRow()
             row2.add_select(
                 Select(
-                    source="value_select",
+                    source="value",
                     placeholder="Choose die value",
                     choices=value_choices,
                     disabled=at_max_bid,
+                    form=True,
                 )
             )
             container.add_action_row(row2)
 
-        can_submit = (
-            not at_max_bid
-            and self.pending_quantity is not None
-            and self.pending_value is not None
-            and self._validate_bid(self.pending_quantity, self.pending_value)[0]
-        )
         row3 = ActionRow()
         row3.add_button(
             Button(
                 source="bid",
                 label="Submit Bid",
                 style=ButtonStyle.PRIMARY,
-                disabled=not can_submit,
+                disabled=at_max_bid,
             )
         )
         row3.add_button(
@@ -620,11 +573,7 @@ class LiarsDice(Game):
         return view
 
     async def bot_move(self, request: BotRequest) -> Move:
-        move = await run_cpu(choose_move, self, request.difficulty, request.seat)
-        if move.source == "bid":
-            self.pending_quantity = move.args.get("quantity")
-            self.pending_value = move.args.get("value")
-        return move
+        return await run_cpu(choose_move, self, request.difficulty, request.seat)
 
     async def handle_query(self, seat: int, source: str, ctx: GameContext) -> bool:
         if source == "peek":

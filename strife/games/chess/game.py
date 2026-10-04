@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import random
-import time
-
 import chess
 import chess.svg
 import chess.variant
@@ -15,6 +13,7 @@ from strife.engine import (
     TimeoutConsequence,
     GameContext,
     GameOutcome,
+    Result,
     Move,
     MoveParam,
     OptionType,
@@ -28,7 +27,7 @@ from strife.engine import (
     game_metadata_from,
     run_cpu,
 )
-from datetime import datetime, timezone
+from datetime import timezone
 from strife.presentation.components import (
     Container,
     LayoutView,
@@ -379,7 +378,7 @@ class Chess(TurnBasedGame):
         winner = 1 - loser_seat
         winner_mention = str(self.players[winner])
         return GameOutcome(
-            results={winner: "win", loser_seat: "loss"},
+            results={winner: Result.WIN, loser_seat: Result.LOSS},
             summary={"winner": winner, "reason": "timeout"},
             description=f"{winner_mention} won on time",
             player_descriptions={winner: "Won on time", loser_seat: "Lost on time"},
@@ -398,7 +397,7 @@ class Chess(TurnBasedGame):
         reason = _termination_label(result.termination, self._variant())
         if result.winner is None:
             return GameOutcome(
-                results={0: "draw", 1: "draw"},
+                results={0: Result.DRAW, 1: Result.DRAW},
                 summary={"winner": None, "reason": reason},
                 description=f"Draw by {reason}",
                 player_descriptions={0: f"Draw ({reason})", 1: f"Draw ({reason})"},
@@ -408,7 +407,7 @@ class Chess(TurnBasedGame):
         loser = 1 - winner
         winner_mention = str(self.players[winner])
         return GameOutcome(
-            results={winner: "win", loser: "loss"},
+            results={winner: Result.WIN, loser: Result.LOSS},
             summary={"winner": winner, "reason": reason},
             description=f"{winner_mention} won by {reason}",
             player_descriptions={winner: f"Won by {reason}", loser: "Lost"},
@@ -416,16 +415,11 @@ class Chess(TurnBasedGame):
 
     async def play(self, ctx: GameContext) -> GameOutcome:
         error_msg = None
-        if self.time_control_active and self.last_move_time is None:
-            if ctx.started_at is not None:
-                stamped = ctx.started_at
-                if stamped.tzinfo is not None:
-                    stamped = stamped.astimezone(timezone.utc).replace(tzinfo=None)
-                self.last_move_time = stamped
-            else:
-                self.last_move_time = datetime.now(timezone.utc).replace(tzinfo=None)
-        turn_deadline: float | None = None
-        turn_seat: int | None = None
+        if self.time_control_active and self.last_move_time is None and ctx.started_at is not None:
+            stamped = ctx.started_at
+            if stamped.tzinfo is not None:
+                stamped = stamped.astimezone(timezone.utc).replace(tzinfo=None)
+            self.last_move_time = stamped
 
         while True:
             outcome = self._outcome()
@@ -436,67 +430,56 @@ class Chess(TurnBasedGame):
             if self.time_control_active and self.clocks[seat] <= 0:
                 return self._clock_loss_outcome(seat)
 
-            if turn_seat != seat:
-                turn_seat = seat
-                if self.time_control_active:
-                    turn_deadline = time.monotonic() + self.clocks[seat]
-                else:
-                    host_timeout = ctx.turn_timeout_seconds
-                    budget = float(host_timeout) if host_timeout else 90.0
-                    turn_deadline = time.monotonic() + budget
-
-            lead = self._action_status(ctx, seat)
-            if error_msg:
-                lead = f"**{error_msg}**\n{lead}"
-
-            view = await run_cpu(
-                self.render,
-                ctx,
-                lead=lead,
-                status_emoji="loading",
-            )
-
-            # Accept both UCI and SAN notation, and the slash command "move"
-            sources = {m.uci() for m in self.board.legal_moves} | {
-                self.board.san(m) for m in self.board.legal_moves
-            }
-            sources.add("move")
-
-            remaining = max(0.01, turn_deadline - time.monotonic()) if turn_deadline is not None else None
-            if self.time_control_active:
-                remaining = max(0.01, min(remaining or 0.01, self.clocks[seat]))
-            timeout_seconds = remaining
             timeout_consequence = (
                 TimeoutConsequence.GAME_ENDS if self.time_control_active else None
             )
+            budget = self.clocks[seat] if self.time_control_active else None
 
-            move = await ctx.request_input(
-                view,
-                actor=seat,
-                sources=sources,
-                timeout_seconds=timeout_seconds,
-                timeout_consequence=timeout_consequence,
-                            )
+            async with ctx.turn_deadline(budget):
+                while True:
+                    lead = self._action_status(ctx, seat)
+                    if error_msg:
+                        lead = f"**{error_msg}**\n{lead}"
 
-            if move.is_system:
-                continue
+                    view = await run_cpu(
+                        self.render,
+                        ctx,
+                        lead=lead,
+                        status_emoji="loading",
+                    )
 
-            if move.source == "move":
-                move_text = move.args.get("move", "")
-            else:
-                move_text = move.source
+                    # Accept both UCI and SAN notation, and the slash command "move"
+                    sources = {m.uci() for m in self.board.legal_moves} | {
+                        self.board.san(m) for m in self.board.legal_moves
+                    }
+                    sources.add("move")
 
-            m = parse_user_move(self.board, move_text)
-            if m is not None:
-                self.apply_move(move)
-                await ctx.record_event(move.source, dict(move.args))
-                error_msg = None
-                turn_seat = None
-                turn_deadline = None
-            else:
-                error_msg = f"Invalid or illegal move: '{move_text}'. Try again."
-                if self.time_control_active:
-                    self._consume_thinking_time(move)
+                    move = await ctx.request_input(
+                        view,
+                        actor=seat,
+                        sources=sources,
+                        timeout_consequence=timeout_consequence,
+                    )
+
+                    if move.is_system:
+                        break
+
+                    if move.source == "move":
+                        move_text = move.args.get("move", "")
+                    else:
+                        move_text = move.source
+
+                    m = parse_user_move(self.board, move_text)
+                    if m is not None:
+                        self.apply_move(move)
+                        await ctx.record_event(move.source, dict(move.args))
+                        error_msg = None
+                        break
+                    error_msg = f"Invalid or illegal move: '{move_text}'. Try again."
+                    if self.time_control_active:
+                        self._consume_thinking_time(move)
+                        if self.clocks[seat] <= 0:
+                            return self._clock_loss_outcome(seat)
 
     def _render_base(
         self,

@@ -7,6 +7,8 @@ from strife.engine.metadata import (
     GameMetadata,
     OptionType,
     SettingOption,
+)
+from strife.presentation.settings import (
     choice_emoji_for,
     int_setting_bounds,
     int_setting_fits_select,

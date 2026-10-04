@@ -25,12 +25,12 @@ from strife.lifecycle.service import LifecycleService
 from strife.logging import configure_logging, get_logger
 from strife.matchmaking.registries import SessionRegistries
 from strife.matchmaking.service import LobbyService, SessionFinalizer
-from strife.persistence.active_games import ActiveGame, ActiveGameRepository
 from strife.persistence.migrator import Migrator
 from strife.persistence.pool import create_pool
 from strife.persistence.repositories import GuildRepository, MatchRepository, MoveRepository, UserRepository
 from strife.presentation.compiler import Compiler
 from strife.presentation.emoji import EmojiResolver
+from strife.presentation.mentions import install_discord_mentions
 from strife.presentation.user_error import UserErrorPresenter
 from strife.presentation.user_success import UserSuccessPresenter
 from strife.replay.profile import ProfileService
@@ -38,6 +38,7 @@ from strife.replay.service import ReplayService
 from strife.routing.cache import InMemoryPayloadCache
 from strife.routing.custom_id import CustomIdEncoder
 from strife.routing.router import InteractionRouter
+from strife.session.resume import resume_live_matches
 from strife.settings import Settings
 
 log = get_logger("bot")
@@ -85,9 +86,12 @@ class StrifeBot(commands.AutoShardedBot):
         self.changelogs: ChangelogCatalog | None = None
         self.about: AboutService | None = None
         self._background_tasks: list[asyncio.Task] = []
-        self.active_games: ActiveGameRepository | None = None
+        self._live_resume_done = asyncio.Event()
+        self.matches: MatchRepository | None = None
+        self.moves: MoveRepository | None = None
 
     async def setup_hook(self) -> None:
+        install_discord_mentions()
         configure_logging(self.settings.log_level)
         self.config = load_app_config(self.settings.config_dir)
         start_workers(max_workers=self.settings.cpu_pool_size)
@@ -100,19 +104,6 @@ class StrifeBot(commands.AutoShardedBot):
         applied = await migrator.run()
         if applied:
             log.info("Applied migrations: %s", ", ".join(applied))
-
-        # Threads left behind by a crash/SIGKILL. Snapshot now, before any new
-        # game can start, and clean them up once the gateway is ready.
-        self.active_games = ActiveGameRepository(self.pool)
-        try:
-            interrupted = await self.active_games.list_all()
-        except Exception:
-            log.exception("Failed to read interrupted game threads")
-            interrupted = []
-        if interrupted:
-            self._background_tasks.append(
-                asyncio.create_task(self._clean_up_interrupted_games(interrupted))
-            )
 
         log.info("Strife %s (platform %s)", __version__, __platform_version__)
         self.plugin_manager = PluginManager.from_paths(
@@ -159,13 +150,13 @@ class StrifeBot(commands.AutoShardedBot):
             except Exception:
                 log.exception("Failed to send application command error feedback")
 
-        matches = MatchRepository(self.pool)
-        moves = MoveRepository(self.pool)
+        self.matches = MatchRepository(self.pool)
+        self.moves = MoveRepository(self.pool)
         users = UserRepository(self.pool)
         guilds = GuildRepository(self.pool)
         finalizer = SessionFinalizer(
             registries=self.sessions,
-            matches=matches,
+            matches=self.matches,
             users=users,
             guilds=guilds,
         )
@@ -194,10 +185,10 @@ class StrifeBot(commands.AutoShardedBot):
         finalizer.lifecycle = self.lifecycle
 
         self.replay = ReplayService(
-            matches, moves, self.game_registry, compiler, self.config.text, user_errors
+            self.matches, self.moves, self.game_registry, compiler, self.config.text, user_errors
         )
         self.profile = ProfileService(
-            users, matches, compiler, self.config.text, self.game_registry, self.replay
+            users, self.matches, compiler, self.config.text, self.game_registry, self.replay
         )
         self.catalog = CatalogService(
             self.game_registry, self.config, compiler, self.emoji, self.config.text, self.changelogs
@@ -247,6 +238,7 @@ class StrifeBot(commands.AutoShardedBot):
 
         await self.add_cog(AdminCommands(self, self.settings))
         self.lifecycle.start()
+        self._background_tasks.append(asyncio.create_task(self._resume_live_matches()))
         if self.settings.sync_on_start:
             try:
                 synced = await self.tree.sync()
@@ -266,34 +258,18 @@ class StrifeBot(commands.AutoShardedBot):
             len(self.guilds),
         )
 
-    async def _clean_up_interrupted_games(self, games: list[ActiveGame]) -> None:
-        """Tell crashed matches' threads they're over, lock them, and forget them."""
-        await self.wait_until_ready()
-        notice = self.config.text.get("match.interrupted")
-        for game in games:
-            try:
-                thread = self.get_channel(game.thread_id) or await self.fetch_channel(
-                    game.thread_id
-                )
-            except (discord.NotFound, discord.Forbidden):
-                thread = None
-            except Exception:
-                log.exception("Failed to fetch interrupted game thread %s", game.thread_id)
-                thread = None
-            if isinstance(thread, discord.Thread):
-                try:
-                    await thread.send(notice)
-                except discord.HTTPException as exc:
-                    log.warning("Couldn't post interrupt notice in %s: %s", game.thread_id, exc)
-                try:
-                    await thread.edit(locked=True, archived=True)
-                except discord.HTTPException as exc:
-                    log.warning("Couldn't lock interrupted thread %s: %s", game.thread_id, exc)
-            try:
-                await self.active_games.remove(game.thread_id)
-            except Exception:
-                log.exception("Failed to clear interrupted game thread %s", game.thread_id)
-        log.info("Cleaned up %s interrupted game thread(s)", len(games))
+    async def wait_until_live_resumed(self) -> None:
+        await self._live_resume_done.wait()
+
+    async def _resume_live_matches(self) -> None:
+        """Rebuild live matches after the gateway is ready, then open lobbies."""
+        try:
+            await self.wait_until_ready()
+            await resume_live_matches(self)
+        except Exception:
+            log.exception("Live match resume failed")
+        finally:
+            self._live_resume_done.set()
 
     async def _close_rematch_offers(self) -> None:
         rematch = getattr(self.lifecycle, "rematch", None) if self.lifecycle else None
@@ -309,10 +285,19 @@ class StrifeBot(commands.AutoShardedBot):
             log.exception("Failed to disable rematch offers during shutdown")
 
     async def _shutdown_session(self, session) -> None:
-        try:
-            await session.cancel("restart")
-        except Exception:
-            log.exception("Failed to abandon session %s during shutdown", session.id)
+        if self.pool is not None and getattr(session, "_match_id", None) is not None:
+            try:
+                paused = await session.pause()
+            except Exception:
+                log.exception("Failed to pause session %s during shutdown", session.id)
+                paused = False
+            if paused:
+                return
+        else:
+            try:
+                await session.cancel("restart")
+            except Exception:
+                log.exception("Failed to abandon session %s during shutdown", session.id)
         if session.task and not session.task.done():
             try:
                 await session.task
@@ -358,8 +343,8 @@ class StrifeBot(commands.AutoShardedBot):
                     )
                 except TimeoutError:
                     log.warning(
-                        "Timed out abandoning %s session(s) during shutdown; "
-                        "the next boot will clean up their threads",
+                        "Timed out pausing %s session(s) during shutdown; "
+                        "live rows stay in the database for the next boot",
                         len(sessions),
                     )
             # Abandoned matches just registered offers of their own.

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from strife.engine import BotRequest
+from strife.engine import BotRequest, Interrupt
 from strife.engine.context import GameContext
 from strife.engine.game import Game
 from strife.engine.outcomes import forfeit_outcome
 from strife.engine.workers import run_cpu
-from strife.engine.players import GameOutcome, Move
+from strife.engine.players import GameOutcome, Move, Result
 from strife.games.spyfall.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -64,8 +64,6 @@ class Spyfall(Game):
         self.history: list[str] = []
         self.turn = 1
         self.max_turns = 5
-        self.pending_accuse: dict[int, int] = {}
-        self.pending_guess: dict[int, str] = {}
         self._passes: set[int] = set()
         self._accused_seats: set[int] = set()
         self._notice: str | None = None
@@ -87,12 +85,7 @@ class Spyfall(Game):
             return
         self.alive.discard(seat)
         self.forfeited.add(seat)
-        self.pending_accuse.pop(seat, None)
-        self.pending_guess.pop(seat, None)
         self._passes.discard(seat)
-        for accuser, target in list(self.pending_accuse.items()):
-            if accuser == seat or target == seat:
-                self.pending_accuse.pop(accuser, None)
         if self.accused_player == seat or self.accuser == seat:
             self.accused_player = None
             self.accuser = None
@@ -149,13 +142,7 @@ class Spyfall(Game):
             moves = await ctx.request_inputs(
                 view,
                 actors=actors,
-                sources={
-                    "accuse_select",
-                    "location_select",
-                    "accuse",
-                    "guess_location",
-                    "pass",
-                },
+                sources={"accuse", "guess_location", "pass"},
                 until="any",
                             )
             if not moves:
@@ -164,29 +151,10 @@ class Spyfall(Game):
                 continue
             actor_seat, move = next(iter(moves.items()))
 
-            if move.source == "forfeit":
+            if move.interrupt is Interrupt.FORFEIT:
                 winner_faction = self._winner_after_removal()
                 if winner_faction is not None:
                     break
-                continue
-
-            if move.source == "accuse_select":
-                val = move.args.get("value")
-                if val is not None:
-                    target = int(val)
-                    if target == actor_seat:
-                        self._notice = "You cannot accuse yourself."
-                    elif target in self.alive:
-                        self.pending_accuse[actor_seat] = target
-                continue
-
-            if move.source == "location_select":
-                if actor_seat != self.spy:
-                    self._notice = "Only the spy can guess the location."
-                    continue
-                val = move.args.get("value")
-                if val is not None:
-                    self.pending_guess[actor_seat] = str(val)
                 continue
 
             if move.source == "pass":
@@ -201,10 +169,11 @@ class Spyfall(Game):
                     self._notice = "Only the spy can guess the location."
                     continue
 
-                guess = self.pending_guess.get(actor_seat)
+                guess = move.args.get("location")
                 if not guess:
                     self._notice = "Choose a location first."
                     continue
+                guess = str(guess)
                 if guess == self.location:
                     winner_faction = "spy"
                     self.history.append(f"Spy guessed the location correctly: {guess}!")
@@ -227,7 +196,11 @@ class Spyfall(Game):
                         "You have already made an accusation."
                     )
                     continue
-                target = self.pending_accuse.get(actor_seat)
+                raw_target = move.args.get("target")
+                try:
+                    target = int(raw_target) if raw_target is not None else None
+                except (TypeError, ValueError):
+                    target = None
                 if target is None:
                     self._notice = "Choose a player to accuse first."
                     continue
@@ -242,7 +215,6 @@ class Spyfall(Game):
                 self.accuser = actor_seat
                 self.votes = {}
                 self._accused_seats.add(actor_seat)
-                self.pending_accuse.pop(actor_seat, None)
 
                 await ctx.record_event("accusation_start", {
                     "accuser": actor_seat,
@@ -278,7 +250,7 @@ class Spyfall(Game):
 
                 guilty_count = 0
                 for v_seat, v_move in vote_moves.items():
-                    if v_move.source == "forfeit":
+                    if v_move.interrupt is Interrupt.FORFEIT:
                         continue
                     val = "guilty" if v_move.source == "vote_guilty" else "innocent"
                     self.votes[v_seat] = val
@@ -329,14 +301,14 @@ class Spyfall(Game):
         for p in self.players:
             is_spy_player = (p.seat == self.spy)
             if winner_faction == "spy":
-                results[p.seat] = "win" if is_spy_player else "loss"
+                results[p.seat] = Result.WIN if is_spy_player else Result.LOSS
                 player_descriptions[p.seat] = "Won as Spy!" if is_spy_player else "Lost to the Spy!"
             else:
-                results[p.seat] = "loss" if is_spy_player else "win"
+                results[p.seat] = Result.LOSS if is_spy_player else Result.WIN
                 player_descriptions[p.seat] = "Lost as Spy!" if is_spy_player else "Found the Spy!"
 
         for seat in self.forfeited:
-            results[seat] = "loss"
+            results[seat] = Result.LOSS
             player_descriptions[seat] = "Forfeited"
 
         return GameOutcome(
@@ -436,9 +408,10 @@ class Spyfall(Game):
         row1 = ActionRow()
         row1.add_select(
             Select(
-                source="accuse_select",
+                source="target",
                 placeholder="Accuse a player of being the spy",
                 choices=other_choices,
+                form=True,
             )
         )
         container.add_action_row(row1)
@@ -450,9 +423,10 @@ class Spyfall(Game):
         row2 = ActionRow()
         row2.add_select(
             Select(
-                source="location_select",
+                source="location",
                 placeholder="Guess location (Spy only)",
                 choices=loc_choices,
+                form=True,
             )
         )
         container.add_action_row(row2)
@@ -564,15 +538,7 @@ class Spyfall(Game):
         return view
 
     async def bot_move(self, request: BotRequest) -> Move:
-        # A mock turn choose method:
-        # Converts buttons (vote_guilty, vote_innocent) to the args used by choose_move
-        move = await run_cpu(choose_move, self, request.difficulty, request.seat)
-        if move.source == "vote":
-            # Translate to the source button click name
-            val = move.args.get("value")
-            source = "vote_guilty" if val == "guilty" else "vote_innocent"
-            return Move(actor_seat=request.seat, source=source, args=move.args)
-        return move
+        return await run_cpu(choose_move, self, request.difficulty, request.seat)
 
     async def handle_query(self, seat: int, source: str, ctx: GameContext) -> bool:
         if source == "peek":
