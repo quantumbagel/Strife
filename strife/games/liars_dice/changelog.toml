@@ -1,4 +1,13 @@
 [[release]]
+version = "1.1.1"
+date = "2026-10-04"
+summary = "Hands stay hidden while bidding."
+fixed = [
+  "The live board shows dice counts during bidding, not everyone's faces",
+  "An illegal bid no longer resets the turn clock",
+]
+
+[[release]]
 version = "1.1.0"
 date = "2026-10-04"
 summary = "Replays show every hand."

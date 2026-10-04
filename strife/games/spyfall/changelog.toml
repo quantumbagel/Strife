@@ -1,4 +1,13 @@
 [[release]]
+version = "1.1.1"
+date = "2026-10-04"
+summary = "Invalid clicks share the discussion clock."
+fixed = [
+  "An empty or illegal accuse or guess no longer restarts the discussion timer",
+  "Bots only pick from the allowed actions and form choices",
+]
+
+[[release]]
 version = "1.1.0"
 date = "2026-10-04"
 summary = "Replays reveal the spy."

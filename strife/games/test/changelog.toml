@@ -1,4 +1,12 @@
 [[release]]
+version = "1.1.1"
+date = "2026-10-04"
+summary = "A silent confirm window no longer loops forever."
+fixed = [
+  "If nobody confirms a secret before the window closes, the test moves on",
+]
+
+[[release]]
 version = "1.1.0"
 date = "2026-10-04"
 summary = "Shows the 2.0 game API."

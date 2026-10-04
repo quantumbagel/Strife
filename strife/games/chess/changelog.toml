@@ -1,4 +1,13 @@
 [[release]]
+version = "1.2.1"
+date = "2026-10-04"
+summary = "Creator color no longer swaps who is asked to move."
+fixed = [
+  "Picking white or black for the creator keeps each player's seat",
+  "The board, clocks, and results follow who actually plays white",
+]
+
+[[release]]
 version = "1.2.0"
 date = "2026-10-04"
 summary = "Replays come from the real game."

@@ -56,7 +56,7 @@ class Spyfall(Game):
         self.spy = self.rng.randint(0, len(players) - 1)
         self.alive = {p.seat for p in players}
         self.forfeited: set[int] = set()
-        
+
         # State tracking
         self.accused_player: int | None = None
         self.accuser: int | None = None
@@ -79,6 +79,9 @@ class Spyfall(Game):
         return None
 
     def remove_player(self, seat: int) -> None:
+        self._drop_seat(seat)
+
+    def _drop_seat(self, seat: int) -> None:
         if seat < 0 or seat >= len(self.players):
             return
         if seat not in self.alive:
@@ -101,16 +104,21 @@ class Spyfall(Game):
     def _phase_status(self, ctx: GameContext) -> str:
         if self.accused_player is not None:
             accused_name = self._name(self.accused_player)
-            accuser_name = self._name(self.accuser) if self.accuser is not None else "Someone"
+            accuser_name = (
+                self._name(self.accuser) if self.accuser is not None else "Someone"
+            )
             return f"{accuser_name} accused {accused_name}. Voting in progress."
         return "Ask questions. Accuse a player or guess the location at any time."
 
     async def play(self, ctx: GameContext) -> GameOutcome:
         # 1. Setup secret PMs
-        await ctx.record_event("setup", {
-            "location": self.location,
-            "spy": self.spy,
-        })
+        await ctx.record_event(
+            "setup",
+            {
+                "location": self.location,
+                "spy": self.spy,
+            },
+        )
 
         for p in self.players:
             priv_view = LayoutView()
@@ -135,163 +143,202 @@ class Spyfall(Game):
         # 2. Main Gameplay Loop
         winner_faction = None
         while winner_faction is None and self.turn <= self.max_turns:
-            view = self._discussion_view(ctx)
-            actors = set(self.alive)
-            if not actors:
-                break
-            moves = await ctx.request_inputs(
-                view,
-                actors=actors,
-                sources={"accuse", "guess_location", "pass"},
-                until="any",
-                            )
-            if not moves:
-                self.turn += 1
-                self._passes.clear()
-                continue
-            actor_seat, move = next(iter(moves.items()))
-
-            if move.interrupt is Interrupt.FORFEIT:
-                winner_faction = self._winner_after_removal()
-                if winner_faction is not None:
-                    break
-                continue
-
-            if move.source == "pass":
-                self._passes.add(actor_seat)
-                if self._discussion_round_done():
-                    self.turn += 1
-                    self._passes.clear()
-                continue
-
-            elif move.source == "guess_location":
-                if actor_seat != self.spy:
-                    self._notice = "Only the spy can guess the location."
-                    continue
-
-                guess = move.args.get("location")
-                if not guess:
-                    self._notice = "Choose a location first."
-                    continue
-                guess = str(guess)
-                if guess == self.location:
-                    winner_faction = "spy"
-                    self.history.append(f"Spy guessed the location correctly: {guess}!")
-                else:
-                    winner_faction = "villagers"
-                    self.history.append(f"Spy guessed the wrong location: {guess}! The location was {self.location}.")
-                
-                await ctx.record_event("spy_guess", {
-                    "spy": actor_seat,
-                    "location": guess,
-                    "correct": (guess == self.location),
-                    "history": list(self.history),
-                })
-                break
-
-            elif move.source == "accuse":
-                if actor_seat in self._accused_seats:
-                    self._notice = (
-                        "You can only accuse one player per game. "
-                        "You have already made an accusation."
+            pending_accusation: tuple[int, int] | None = None
+            async with ctx.turn_deadline():
+                while True:
+                    view = self._discussion_view(ctx)
+                    actors = set(self.alive)
+                    if not actors:
+                        break
+                    moves = await ctx.request_inputs(
+                        view,
+                        actors=actors,
+                        sources={"accuse", "guess_location", "pass"},
+                        until="any",
                     )
-                    continue
-                raw_target = move.args.get("target")
-                try:
-                    target = int(raw_target) if raw_target is not None else None
-                except (TypeError, ValueError):
-                    target = None
-                if target is None:
-                    self._notice = "Choose a player to accuse first."
-                    continue
-                if target == actor_seat:
-                    self._notice = "You cannot accuse yourself."
-                    continue
-                if target not in self.alive:
-                    self._notice = "That player is no longer in the game."
-                    continue
+                    if not moves:
+                        self.turn += 1
+                        self._passes.clear()
+                        break
+                    actor_seat, move = next(iter(moves.items()))
 
-                self.accused_player = target
-                self.accuser = actor_seat
-                self.votes = {}
-                self._accused_seats.add(actor_seat)
+                    if move.interrupt is Interrupt.FORFEIT:
+                        winner_faction = self._winner_after_removal()
+                        break
 
-                await ctx.record_event("accusation_start", {
-                    "accuser": actor_seat,
-                    "accused": target,
-                })
+                    if move.source == "pass":
+                        self._passes.add(actor_seat)
+                        if self._discussion_round_done():
+                            self.turn += 1
+                            self._passes.clear()
+                        break
 
-                # Enter voting phase
-                voting_view = self._voting_view(ctx)
-                # Wait for all other alive players to vote
-                voters = set(self.alive) - {target}
-                
-                vote_moves = await ctx.request_inputs(
-                    voting_view,
-                    actors=voters,
-                    sources={"vote_guilty", "vote_innocent"},
-                    until="all",
-                                    )
+                    elif move.source == "guess_location":
+                        if actor_seat != self.spy:
+                            self._notice = "Only the spy can guess the location."
+                            continue
 
-                winner_faction = self._winner_after_removal()
-                if winner_faction is not None:
-                    break
-                if self.accused_player is None:
-                    # The accused left mid-vote; the accuser keeps their accusation.
-                    self._accused_seats.discard(actor_seat)
-                    await ctx.record_event("accusation_resolve", {
+                        guess = move.args.get("location")
+                        if not guess:
+                            self._notice = "Choose a location first."
+                            continue
+                        guess = str(guess)
+                        if guess == self.location:
+                            winner_faction = "spy"
+                            self.history.append(
+                                f"Spy guessed the location correctly: {guess}!"
+                            )
+                        else:
+                            winner_faction = "villagers"
+                            self.history.append(
+                                f"Spy guessed the wrong location: {guess}! The location was {self.location}."
+                            )
+
+                        await ctx.record_event(
+                            "spy_guess",
+                            {
+                                "spy": actor_seat,
+                                "location": guess,
+                                "correct": (guess == self.location),
+                                "history": list(self.history),
+                            },
+                        )
+                        break
+
+                    elif move.source == "accuse":
+                        if actor_seat in self._accused_seats:
+                            self._notice = (
+                                "You can only accuse one player per game. "
+                                "You have already made an accusation."
+                            )
+                            continue
+                        raw_target = move.args.get("target")
+                        try:
+                            target = int(raw_target) if raw_target is not None else None
+                        except TypeError, ValueError:
+                            target = None
+                        if target is None:
+                            self._notice = "Choose a player to accuse first."
+                            continue
+                        if target == actor_seat:
+                            self._notice = "You cannot accuse yourself."
+                            continue
+                        if target not in self.alive:
+                            self._notice = "That player is no longer in the game."
+                            continue
+
+                        self.accused_player = target
+                        self.accuser = actor_seat
+                        self.votes = {}
+                        self._accused_seats.add(actor_seat)
+
+                        await ctx.record_event(
+                            "accusation_start",
+                            {
+                                "accuser": actor_seat,
+                                "accused": target,
+                            },
+                        )
+                        pending_accusation = (actor_seat, target)
+                        break
+
+            if not self.alive or winner_faction is not None:
+                break
+            if pending_accusation is None:
+                continue
+
+            actor_seat, target = pending_accusation
+            # Enter voting phase
+            voting_view = self._voting_view(ctx)
+            # Wait for all other alive players to vote
+            voters = set(self.alive) - {target}
+
+            vote_moves = await ctx.request_inputs(
+                voting_view,
+                actors=voters,
+                sources={"vote_guilty", "vote_innocent"},
+                until="all",
+            )
+
+            winner_faction = self._winner_after_removal()
+            if winner_faction is not None:
+                break
+            if self.accused_player is None:
+                # The accused left mid-vote; the accuser keeps their accusation.
+                self._accused_seats.discard(actor_seat)
+                await ctx.record_event(
+                    "accusation_resolve",
+                    {
                         "accused": target,
                         "unanimous": False,
                         "cancelled": True,
                         "votes": {},
                         "history": list(self.history),
-                    })
+                    },
+                )
+                continue
+
+            guilty_count = 0
+            for v_seat, v_move in vote_moves.items():
+                if v_move.interrupt is Interrupt.FORFEIT:
                     continue
+                val = "guilty" if v_move.source == "vote_guilty" else "innocent"
+                self.votes[v_seat] = val
+                if val == "guilty":
+                    guilty_count += 1
 
-                guilty_count = 0
-                for v_seat, v_move in vote_moves.items():
-                    if v_move.interrupt is Interrupt.FORFEIT:
-                        continue
-                    val = "guilty" if v_move.source == "vote_guilty" else "innocent"
-                    self.votes[v_seat] = val
-                    if val == "guilty":
-                        guilty_count += 1
+            voters = set(self.alive) - {target}
+            unanimous = guilty_count == len(voters) and len(self.votes) == len(voters)
+            if unanimous:
+                if target == self.spy:
+                    winner_faction = "villagers"
+                    self.history.append(
+                        f"{self._name(target)} was unanimously accused and was the Spy!"
+                    )
+                else:
+                    winner_faction = "spy"
+                    self.history.append(
+                        f"{self._name(target)} was unanimously accused but was innocent! The real spy was {self._name(self.spy)}."
+                    )
 
-                voters = set(self.alive) - {target}
-                unanimous = guilty_count == len(voters) and len(self.votes) == len(voters)
-                if unanimous:
-                    if target == self.spy:
-                        winner_faction = "villagers"
-                        self.history.append(f"{self._name(target)} was unanimously accused and was the Spy!")
-                    else:
-                        winner_faction = "spy"
-                        self.history.append(f"{self._name(target)} was unanimously accused but was innocent! The real spy was {self._name(self.spy)}.")
-                    
-                    await ctx.record_event("accusation_resolve", {
+                await ctx.record_event(
+                    "accusation_resolve",
+                    {
                         "accused": target,
                         "unanimous": True,
                         "votes": dict(self.votes),
                         "history": list(self.history),
-                    })
-                    break
-                else:
-                    self.history.append(f"Accusation of {self._name(target)} failed ({guilty_count}/{len(voters)} guilty votes).")
-                    await ctx.record_event("accusation_resolve", {
+                    },
+                )
+                break
+            else:
+                self.history.append(
+                    f"Accusation of {self._name(target)} failed ({guilty_count}/{len(voters)} guilty votes)."
+                )
+                await ctx.record_event(
+                    "accusation_resolve",
+                    {
                         "accused": target,
                         "unanimous": False,
                         "votes": dict(self.votes),
                         "history": list(self.history),
-                    })
-                    self.accused_player = None
-                    self.accuser = None
+                    },
+                )
+                self.accused_player = None
+                self.accuser = None
 
         # If turn limit reached without resolution, Spy wins by default
         if winner_faction is None:
             winner_faction = "spy"
-            self.history.append(f"Timer/turn limit reached! The villagers failed to find the Spy. The Spy was {self._name(self.spy)}.")
-            await ctx.record_event("limit_reached", {
-                "history": list(self.history),
-            })
+            self.history.append(
+                f"Timer/turn limit reached! The villagers failed to find the Spy. The Spy was {self._name(self.spy)}."
+            )
+            await ctx.record_event(
+                "limit_reached",
+                {
+                    "history": list(self.history),
+                },
+            )
 
         return self._faction_outcome(winner_faction)
 
@@ -299,13 +346,17 @@ class Spyfall(Game):
         results = {}
         player_descriptions = {}
         for p in self.players:
-            is_spy_player = (p.seat == self.spy)
+            is_spy_player = p.seat == self.spy
             if winner_faction == "spy":
                 results[p.seat] = Result.WIN if is_spy_player else Result.LOSS
-                player_descriptions[p.seat] = "Won as Spy!" if is_spy_player else "Lost to the Spy!"
+                player_descriptions[p.seat] = (
+                    "Won as Spy!" if is_spy_player else "Lost to the Spy!"
+                )
             else:
                 results[p.seat] = Result.LOSS if is_spy_player else Result.WIN
-                player_descriptions[p.seat] = "Lost as Spy!" if is_spy_player else "Found the Spy!"
+                player_descriptions[p.seat] = (
+                    "Lost as Spy!" if is_spy_player else "Found the Spy!"
+                )
 
         for seat in self.forfeited:
             results[seat] = Result.LOSS
@@ -313,14 +364,20 @@ class Spyfall(Game):
 
         return GameOutcome(
             results=results,
-            summary={"winner_faction": winner_faction, "spy": self.spy, "location": self.location, "history": list(self.history)},
+            summary={
+                "winner_faction": winner_faction,
+                "spy": self.spy,
+                "location": self.location,
+                "history": list(self.history),
+            },
             description=f"The {winner_faction} won!",
             player_descriptions=player_descriptions,
         )
 
-    def forfeit_end_outcome(self, forfeiter_seat: int, reason: str = "forfeit") -> GameOutcome:
-        if forfeiter_seat in self.alive:
-            self.remove_player(forfeiter_seat)
+    def forfeit_end_outcome(
+        self, forfeiter_seat: int, reason: str = "forfeit"
+    ) -> GameOutcome:
+        self._drop_seat(forfeiter_seat)
         if forfeiter_seat == self.spy:
             return self._faction_outcome("villagers")
         remaining_villagers = self.alive - {self.spy}
@@ -336,7 +393,9 @@ class Spyfall(Game):
         assert outcome is not None
         return outcome
 
-    def render_replay(self, ctx: GameContext, live_view: LayoutView | None) -> LayoutView | None:
+    def render_replay(
+        self, ctx: GameContext, live_view: LayoutView | None
+    ) -> LayoutView | None:
         if self.accused_player is not None:
             view = self._voting_view_replay(ctx)
         else:
@@ -360,7 +419,9 @@ class Spyfall(Game):
     def _discussion_view_replay(self, ctx: GameContext) -> LayoutView:
         view = LayoutView()
         container = Container()
-        message_lead(container, self._phase_status(ctx), emoji=ctx.emoji, prefix_emoji="timer")
+        message_lead(
+            container, self._phase_status(ctx), emoji=ctx.emoji, prefix_emoji="timer"
+        )
 
         roster_lines = [
             member_line(
@@ -380,7 +441,9 @@ class Spyfall(Game):
         add_section(
             container,
             "Locations",
-            "\n".join(f"{ctx.emoji.get('bullet', base=True)} {loc}" for loc in self.LOCATIONS),
+            "\n".join(
+                f"{ctx.emoji.get('bullet', base=True)} {loc}" for loc in self.LOCATIONS
+            ),
         )
         block = history_block(self.history, ctx.emoji, limit=5)
         if block:
@@ -416,10 +479,7 @@ class Spyfall(Game):
         )
         container.add_action_row(row1)
 
-        loc_choices = [
-            SelectChoice(label=loc, value=loc)
-            for loc in self.LOCATIONS
-        ]
+        loc_choices = [SelectChoice(label=loc, value=loc) for loc in self.LOCATIONS]
         row2 = ActionRow()
         row2.add_select(
             Select(
@@ -482,7 +542,9 @@ class Spyfall(Game):
                 continue
             v_status = self.votes.get(p.seat, "Pending")
             vote_lines.append(f"{p.mention}: **{v_status.title()}**")
-        add_section(container, "Votes", "\n".join(vote_lines) if vote_lines else "_None_")
+        add_section(
+            container, "Votes", "\n".join(vote_lines) if vote_lines else "_None_"
+        )
         view.add_container(container)
         return view
 
@@ -519,7 +581,9 @@ class Spyfall(Game):
         container.add_action_row(row2)
         return view
 
-    async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
+    async def final_view(
+        self, ctx: GameContext, outcome: GameOutcome
+    ) -> LayoutView | None:
         summary = outcome.summary or {}
         winner = summary.get("winner_faction", "villagers")
         spy_name = self._name(summary.get("spy", 0))
@@ -538,7 +602,7 @@ class Spyfall(Game):
         return view
 
     async def bot_move(self, request: BotRequest) -> Move:
-        return await run_cpu(choose_move, self, request.difficulty, request.seat)
+        return await run_cpu(choose_move, self, request)
 
     async def handle_query(self, seat: int, source: str, ctx: GameContext) -> bool:
         if source == "peek":

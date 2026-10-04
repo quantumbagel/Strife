@@ -31,7 +31,9 @@ from strife.presentation.components import (
 
 
 class TestGame(Game):
-    def __init__(self, players: list[Player], settings: Mapping[str, Any], rng: random.Random):
+    def __init__(
+        self, players: list[Player], settings: Mapping[str, Any], rng: random.Random
+    ):
         super().__init__(players, settings, rng)
         self.alive = set(p.seat for p in players)
         self.phase = 1
@@ -47,7 +49,9 @@ class TestGame(Game):
         keys = [role.key for role in self.metadata.roles] or ["tester"]
         count = len(self.players)
         if count >= 2 and len(keys) >= 2:
-            assigned = list(keys[:2]) + [self.rng.choice(keys) for _ in range(count - 2)]
+            assigned = list(keys[:2]) + [
+                self.rng.choice(keys) for _ in range(count - 2)
+            ]
             self.rng.shuffle(assigned)
         else:
             assigned = [keys[0]] * count
@@ -73,7 +77,11 @@ class TestGame(Game):
 
     def _phase1_view(self, ctx: GameContext) -> LayoutView:
         view = LayoutView()
-        view.header("first", "API Test Phase 1: Layout Components Showcase", emoji_resolver=ctx.emoji)
+        view.header(
+            "first",
+            "API Test Phase 1: Layout Components Showcase",
+            emoji_resolver=ctx.emoji,
+        )
 
         container = Container()
         container.add_text(
@@ -92,7 +100,9 @@ class TestGame(Game):
 
         # Test Section with accessory button
         sec = Section(
-            accessory=Button(source="btn_sect", label="Section Accessory", style=ButtonStyle.PRIMARY)
+            accessory=Button(
+                source="btn_sect", label="Section Accessory", style=ButtonStyle.PRIMARY
+            )
         )
         sec.add_text(TextDisplay("This text is inside a Section layout element."))
         container.add_section(sec)
@@ -102,16 +112,31 @@ class TestGame(Game):
 
         # Test Buttons in ActionRow
         btn_row = ActionRow()
-        btn_row.add_button(Button(source="btn_primary", label="Primary", style=ButtonStyle.PRIMARY))
         btn_row.add_button(
-            Button(source="btn_secondary", label="Secondary", style=ButtonStyle.SECONDARY)
+            Button(source="btn_primary", label="Primary", style=ButtonStyle.PRIMARY)
         )
         btn_row.add_button(
-            Button(source="btn_success", label="Success", style=ButtonStyle.SUCCESS, emoji="ready")
+            Button(
+                source="btn_secondary", label="Secondary", style=ButtonStyle.SECONDARY
+            )
         )
-        btn_row.add_button(Button(source="btn_danger", label="Danger", style=ButtonStyle.DANGER))
         btn_row.add_button(
-            Button(label="External Link", style=ButtonStyle.LINK, url="https://github.com/quantumbagel/Strife")
+            Button(
+                source="btn_success",
+                label="Success",
+                style=ButtonStyle.SUCCESS,
+                emoji="ready",
+            )
+        )
+        btn_row.add_button(
+            Button(source="btn_danger", label="Danger", style=ButtonStyle.DANGER)
+        )
+        btn_row.add_button(
+            Button(
+                label="External Link",
+                style=ButtonStyle.LINK,
+                url="https://github.com/quantumbagel/Strife",
+            )
         )
         container.add_action_row(btn_row)
 
@@ -168,7 +193,11 @@ class TestGame(Game):
 
         # Test action to proceed
         next_row = ActionRow()
-        next_row.add_button(Button(source="btn_next_1", label="Go to Phase 2 ➡️", style=ButtonStyle.SUCCESS))
+        next_row.add_button(
+            Button(
+                source="btn_next_1", label="Go to Phase 2 ➡️", style=ButtonStyle.SUCCESS
+            )
+        )
         container.add_action_row(next_row)
 
         # Interaction Feedback display
@@ -184,7 +213,9 @@ class TestGame(Game):
 
     def _phase2_view(self, ctx: GameContext) -> LayoutView:
         view = LayoutView()
-        view.header("hmm", "API Test Phase 2: Simultaneous Inputs", emoji_resolver=ctx.emoji)
+        view.header(
+            "hmm", "API Test Phase 2: Simultaneous Inputs", emoji_resolver=ctx.emoji
+        )
 
         container = Container()
         container.add_text(
@@ -219,7 +250,9 @@ class TestGame(Game):
 
     def _phase3_public_view(self, ctx: GameContext) -> LayoutView:
         view = LayoutView()
-        view.header("ready", "API Test Phase 3: Private Messages", emoji_resolver=ctx.emoji)
+        view.header(
+            "ready", "API Test Phase 3: Private Messages", emoji_resolver=ctx.emoji
+        )
 
         container = Container()
         container.add_text(
@@ -231,11 +264,19 @@ class TestGame(Game):
 
         for p in self.players:
             if p.seat in self.alive:
-                status = "Confirmed ✅" if p.seat in self.phase3_confirmed else "Waiting ⏳"
+                status = (
+                    "Confirmed ✅" if p.seat in self.phase3_confirmed else "Waiting ⏳"
+                )
                 container.add_text(TextDisplay(f"• {p.mention}: **{status}**"))
 
         row = ActionRow()
-        row.add_button(Button(source="btn_confirm_secret", label="I read my secret!", style=ButtonStyle.SUCCESS))
+        row.add_button(
+            Button(
+                source="btn_confirm_secret",
+                label="I read my secret!",
+                style=ButtonStyle.SUCCESS,
+            )
+        )
         container.add_action_row(row)
 
         view.add_container(container)
@@ -243,7 +284,9 @@ class TestGame(Game):
 
     def _phase4_view(self, ctx: GameContext) -> LayoutView:
         view = LayoutView()
-        view.header("user", "API Test Phase 4: Engine Context Details", emoji_resolver=ctx.emoji)
+        view.header(
+            "user", "API Test Phase 4: Engine Context Details", emoji_resolver=ctx.emoji
+        )
 
         container = Container()
         container.add_text(
@@ -258,12 +301,16 @@ class TestGame(Game):
         container.add_text(TextDisplay(f"• **Is Replay:** {ctx.is_replay}"))
 
         container.add_separator()
-        container.add_text(TextDisplay("### Game Settings", size_style=TextSize.SUBHEADER))
+        container.add_text(
+            TextDisplay("### Game Settings", size_style=TextSize.SUBHEADER)
+        )
         for k, v in self.settings.items():
             container.add_text(TextDisplay(f"• `{k}`: `{v}`"))
 
         container.add_separator()
-        container.add_text(TextDisplay("### Players List", size_style=TextSize.SUBHEADER))
+        container.add_text(
+            TextDisplay("### Players List", size_style=TextSize.SUBHEADER)
+        )
         for p in self.players:
             is_bot_status = ctx.is_bot(p.seat)
             alive_status = "Alive" if p.seat in self.alive else "Removed"
@@ -275,7 +322,11 @@ class TestGame(Game):
             )
 
         row = ActionRow()
-        row.add_button(Button(source="btn_finish", label="Finish Game 🏁", style=ButtonStyle.PRIMARY))
+        row.add_button(
+            Button(
+                source="btn_finish", label="Finish Game 🏁", style=ButtonStyle.PRIMARY
+            )
+        )
         container.add_action_row(row)
 
         view.add_container(container)
@@ -286,7 +337,7 @@ class TestGame(Game):
         self.phase = 1
         while True:
             if not self.alive:
-                return self._forfeit_result(next(iter(self.removed_players)))
+                return self._forfeit_result(min(self.removed_players))
             view = self._phase1_view(ctx)
             actor = sorted(self.alive)[0]
             move = await ctx.request_input(
@@ -323,7 +374,9 @@ class TestGame(Game):
         await ctx.update(view)
 
         actors = set(self.alive)
-        moves = await ctx.request_inputs(view, actors=actors, sources={"vote_input"}, until="all")
+        moves = await ctx.request_inputs(
+            view, actors=actors, sources={"vote_input"}, until="all"
+        )
         votes: dict[int, str] = {}
         for seat, move in moves.items():
             val = move.args.get("value") or (
@@ -337,19 +390,31 @@ class TestGame(Game):
 
         # Phase 3: Private message sending
         self.phase = 3
-        words = ["antigravity", "bagel", "quantum", "strife", "victory", "secret", "discord"]
+        words = [
+            "antigravity",
+            "bagel",
+            "quantum",
+            "strife",
+            "victory",
+            "secret",
+            "discord",
+        ]
         for p in self.players:
             if p.seat in self.alive:
                 secret = self.rng.choice(words)
                 self.secrets[p.seat] = secret
 
                 priv_view = LayoutView()
-                priv_view.header("user", "Top Secret Information", emoji_resolver=ctx.emoji)
+                priv_view.header(
+                    "user", "Top Secret Information", emoji_resolver=ctx.emoji
+                )
                 priv_container = Container()
                 priv_container.add_text(
                     TextDisplay(f"Hello {p.mention}! Your secret code word is:")
                 )
-                priv_container.add_text(TextDisplay(f"## {secret}", size_style=TextSize.HEADER))
+                priv_container.add_text(
+                    TextDisplay(f"## {secret}", size_style=TextSize.HEADER)
+                )
                 priv_container.add_text(
                     TextDisplay(
                         "Please return to the game thread and confirm you read it.",
@@ -359,14 +424,22 @@ class TestGame(Game):
                 priv_view.add_container(priv_container)
 
                 await ctx.send_private(p.seat, priv_view)
-                await ctx.record_event("send_private_secret", {"seat": p.seat, "secret": secret})
+                await ctx.record_event(
+                    "send_private_secret", {"seat": p.seat, "secret": secret}
+                )
 
         while len(self.phase3_confirmed) < len(self.alive):
             pub_view = self._phase3_public_view(ctx)
             pending_actors = set(self.alive) - self.phase3_confirmed
             moves = await ctx.request_inputs(
-                pub_view, actors=pending_actors, sources={"btn_confirm_secret"}, until="any"
+                pub_view,
+                actors=pending_actors,
+                sources={"btn_confirm_secret"},
+                until="any",
             )
+            if not moves:
+                self.phase3_confirmed.update(pending_actors)
+                break
             for seat, move in moves.items():
                 if move.source == "btn_confirm_secret":
                     self.phase3_confirmed.add(seat)
@@ -375,7 +448,7 @@ class TestGame(Game):
         self.phase = 4
         view = self._phase4_view(ctx)
         if not self.alive:
-            return self._forfeit_result(next(iter(self.removed_players)))
+            return self._forfeit_result(min(self.removed_players))
         actor = sorted(self.alive)[0]
         move = await ctx.request_input(view, actor=actor, sources={"btn_finish"})
 
@@ -401,7 +474,9 @@ class TestGame(Game):
             player_descriptions=player_descriptions,
         )
 
-    def render_replay(self, ctx: GameContext, live_view: LayoutView | None) -> LayoutView | None:
+    def render_replay(
+        self, ctx: GameContext, live_view: LayoutView | None
+    ) -> LayoutView | None:
         view = LayoutView()
         container = Container()
         message_lead(
@@ -424,23 +499,38 @@ class TestGame(Game):
     def replay_label(self) -> str | None:
         return f"Phase {self.phase}"
 
-    async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
+    async def final_view(
+        self, ctx: GameContext, outcome: GameOutcome
+    ) -> LayoutView | None:
         view = LayoutView()
         view.header("ready", "API Test: Final Summary", emoji_resolver=ctx.emoji)
 
         container = Container()
         container.add_text(
-            TextDisplay("The API Test game has concluded successfully.", size_style=TextSize.SUBHEADER)
+            TextDisplay(
+                "The API Test game has concluded successfully.",
+                size_style=TextSize.SUBHEADER,
+            )
         )
-        container.add_text(TextDisplay(f"**Outcome Description:** {outcome.description}"))
+        container.add_text(
+            TextDisplay(f"**Outcome Description:** {outcome.description}")
+        )
 
         summary = outcome.summary or {}
         container.add_separator()
-        container.add_text(TextDisplay("### Summary Details", size_style=TextSize.SUBHEADER))
+        container.add_text(
+            TextDisplay("### Summary Details", size_style=TextSize.SUBHEADER)
+        )
         container.add_text(TextDisplay(f"• **Verified:** {summary.get('verified')}"))
-        container.add_text(TextDisplay(f"• **Phase 2 Votes:** `{summary.get('phase2_votes')}`"))
-        container.add_text(TextDisplay(f"• **Generated Secrets:** `{summary.get('secrets')}`"))
-        container.add_text(TextDisplay(f"• **Removed Players:** `{summary.get('removed_players')}`"))
+        container.add_text(
+            TextDisplay(f"• **Phase 2 Votes:** `{summary.get('phase2_votes')}`")
+        )
+        container.add_text(
+            TextDisplay(f"• **Generated Secrets:** `{summary.get('secrets')}`")
+        )
+        container.add_text(
+            TextDisplay(f"• **Removed Players:** `{summary.get('removed_players')}`")
+        )
 
         view.add_container(container)
         return view
@@ -453,7 +543,11 @@ class TestGame(Game):
             return Move(actor_seat=seat, source="btn_primary", args={})
         elif self.phase == 2:
             val = self.bot_rng.choice(["agree", "disagree", "abstain"])
-            return Move(actor_seat=seat, source="vote_input", args={"value": val, "values": [val]})
+            return Move(
+                actor_seat=seat,
+                source="vote_input",
+                args={"value": val, "values": [val]},
+            )
         elif self.phase == 3:
             return Move(actor_seat=seat, source="btn_confirm_secret", args={})
         elif self.phase == 4:

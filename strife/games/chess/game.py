@@ -230,6 +230,7 @@ class Chess(TurnBasedGame):
     def __init__(self, players: list[Player], settings, rng: random.Random):
         super().__init__(players, settings, rng)
         self._chess960_pos: int | None = None
+        self.white_seat = 0
         self._apply_creator_color()
         self.reset()
 
@@ -240,6 +241,7 @@ class Chess(TurnBasedGame):
         return VARIANT_STANDARD
 
     def _apply_creator_color(self) -> None:
+        self.white_seat = 0
         mode = str(self.setting("color", "random")).lower()
         if mode not in ("white", "black") or len(self.players) != 2:
             return
@@ -249,12 +251,10 @@ class Chess(TurnBasedGame):
         creator = next((p for p in self.players if p.user_id == creator_id), None)
         if creator is None:
             return
-        want_white = mode == "white"
-        if (creator.seat == 0) == want_white:
-            return
-        self.players[0], self.players[1] = self.players[1], self.players[0]
-        for idx, player in enumerate(self.players):
-            player.seat = idx
+        if mode == "white":
+            self.white_seat = creator.seat
+        else:
+            self.white_seat = 1 - creator.seat
 
     def _new_board(self) -> chess.Board:
         variant = self._variant()
@@ -284,7 +284,7 @@ class Chess(TurnBasedGame):
 
     def reset(self) -> None:
         self.board = self._new_board()
-        self.current = 0
+        self.current = self.white_seat
         active, clocks, increment = self._clock_config()
         self.time_control_active = active
         self.clocks = clocks
@@ -300,8 +300,8 @@ class Chess(TurnBasedGame):
 
     def _format_clocks(self) -> str:
         clocks = (
-            f"White: `{self._format_time(self.clocks[0])}` | "
-            f"Black: `{self._format_time(self.clocks[1])}`"
+            f"White: `{self._format_time(self.clocks[self.white_seat])}` | "
+            f"Black: `{self._format_time(self.clocks[1 - self.white_seat])}`"
         )
         if self.increment:
             clocks += f" (+{int(self.increment)}s)"
@@ -326,7 +326,9 @@ class Chess(TurnBasedGame):
             if t2.tzinfo is not None:
                 t2 = t2.astimezone(timezone.utc).replace(tzinfo=None)
             elapsed = (t2 - t1).total_seconds()
-            self.clocks[move.actor_seat] = max(0.0, self.clocks[move.actor_seat] - elapsed)
+            self.clocks[move.actor_seat] = max(
+                0.0, self.clocks[move.actor_seat] - elapsed
+            )
         if move.created_at is not None:
             stamped = move.created_at
             if stamped.tzinfo is not None:
@@ -351,7 +353,11 @@ class Chess(TurnBasedGame):
         self.current = 1 - self.current
 
     def _apply_system_timeout(self, move: Move) -> None:
-        if self.time_control_active and move.source == "game_end" and move.args.get("reason") == "timeout":
+        if (
+            self.time_control_active
+            and move.source == "game_end"
+            and move.args.get("reason") == "timeout"
+        ):
             if self.last_move_time is not None and move.created_at is not None:
                 t1 = self.last_move_time
                 t2 = move.created_at
@@ -370,7 +376,7 @@ class Chess(TurnBasedGame):
 
     def _action_status(self, ctx: GameContext, seat: int) -> str:
         player = self.players[seat]
-        color = "White" if seat == 0 else "Black"
+        color = "White" if seat == self.white_seat else "Black"
         check_str = " (in check)" if self.board.is_check() else ""
         return f"{color} ({player.mention}) to act{check_str}"
 
@@ -384,7 +390,9 @@ class Chess(TurnBasedGame):
             player_descriptions={winner: "Won on time", loser_seat: "Lost on time"},
         )
 
-    def forfeit_end_outcome(self, forfeiter_seat: int, reason: str = "forfeit") -> GameOutcome:
+    def forfeit_end_outcome(
+        self, forfeiter_seat: int, reason: str = "forfeit"
+    ) -> GameOutcome:
         if reason == "timeout" and self.time_control_active:
             return self._clock_loss_outcome(forfeiter_seat)
         return super().forfeit_end_outcome(forfeiter_seat, reason=reason)
@@ -403,7 +411,9 @@ class Chess(TurnBasedGame):
                 player_descriptions={0: f"Draw ({reason})", 1: f"Draw ({reason})"},
             )
 
-        winner = 0 if result.winner == chess.WHITE else 1
+        winner = (
+            self.white_seat if result.winner == chess.WHITE else 1 - self.white_seat
+        )
         loser = 1 - winner
         winner_mention = str(self.players[winner])
         return GameOutcome(
@@ -415,7 +425,11 @@ class Chess(TurnBasedGame):
 
     async def play(self, ctx: GameContext) -> GameOutcome:
         error_msg = None
-        if self.time_control_active and self.last_move_time is None and ctx.started_at is not None:
+        if (
+            self.time_control_active
+            and self.last_move_time is None
+            and ctx.started_at is not None
+        ):
             stamped = ctx.started_at
             if stamped.tzinfo is not None:
                 stamped = stamped.astimezone(timezone.utc).replace(tzinfo=None)
@@ -497,14 +511,23 @@ class Chess(TurnBasedGame):
         svg_data = chess.svg.board(self.board, lastmove=lastmove, check=check)
         png_data = resvg_py.svg_to_bytes(svg_string=svg_data, width=450, height=450)
         filename = f"board_{len(self.board.move_stack)}.png"
-        view.files = [ViewFile(data=png_data, filename=filename, description="Chess board")]
+        view.files = [
+            ViewFile(data=png_data, filename=filename, description="Chess board")
+        ]
 
-        container = game_container(ctx, lead=lead or status or title, prefix_emoji=status_emoji or "loading")
+        container = game_container(
+            ctx, lead=lead or status or title, prefix_emoji=status_emoji or "loading"
+        )
 
         if self._variant() != VARIANT_STANDARD:
-            add_meta(container, f"{ctx.emoji.get('game', base=True)} {self._ruleset_label()}")
+            add_meta(
+                container, f"{ctx.emoji.get('game', base=True)} {self._ruleset_label()}"
+            )
         if self.time_control_active:
-            add_meta(container, f"{ctx.emoji.get('timer', base=True)} Clocks: {self._format_clocks()}")
+            add_meta(
+                container,
+                f"{ctx.emoji.get('timer', base=True)} Clocks: {self._format_clocks()}",
+            )
         if isinstance(self.board, chess.variant.CrazyhouseBoard):
             white_pocket = _pocket_text(self.board.pockets[chess.WHITE])
             black_pocket = _pocket_text(self.board.pockets[chess.BLACK])
@@ -523,7 +546,11 @@ class Chess(TurnBasedGame):
             )
 
         gallery = MediaGallery()
-        gallery.add_item(MediaGalleryItem(media_url=f"attachment://{filename}", description="Chess board"))
+        gallery.add_item(
+            MediaGalleryItem(
+                media_url=f"attachment://{filename}", description="Chess board"
+            )
+        )
         container.set_gallery(gallery)
 
         return view, container
@@ -551,7 +578,9 @@ class Chess(TurnBasedGame):
                 "Use `/chess move` with SAN or UCI — `e4`, `Nf3`, `e2e4`, or drops like `N@f3`.",
             )
         else:
-            add_meta(container, "Use `/chess move` with SAN or UCI — `e4`, `Nf3`, or `e2e4`.")
+            add_meta(
+                container, "Use `/chess move` with SAN or UCI — `e4`, `Nf3`, or `e2e4`."
+            )
         view.add_container(container)
         return view
 
