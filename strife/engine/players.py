@@ -15,8 +15,6 @@ class Player:
     is_bot: bool = False
     bot_difficulty: str | None = None
     role_key: str | None = None
-    timeout_strikes: int = 0
-    taken_over: bool = False
 
     def _base_name(self) -> str:
         if self.user_id is not None and not self.is_bot:
@@ -37,22 +35,6 @@ class Player:
     def mention(self) -> str:
         return self.mention_for()
 
-    def display(
-        self,
-        emoji: Any = None,
-        *,
-        owner_ids: frozenset[int] | set[int] | None = None,
-        creator_id: int | None = None,
-    ) -> str:
-        prefix = ""
-        if emoji:
-            if creator_id is not None and self.user_id == creator_id:
-                prefix += f"{emoji.get('creator', base=True)} "
-            if owner_ids is not None and self.user_id in owner_ids:
-                prefix += f"{emoji.get('admin', base=True)} "
-
-        return f"{prefix}{self.mention_for(emoji)}"
-
     def __str__(self) -> str:
         return self.mention
 
@@ -70,8 +52,7 @@ class Move:
     """A live input or a recorded log entry.
 
     Live ``request_input`` results and replay log rows share this type so
-    ``play()`` and ``apply_move()`` / ``parse_replay()`` read the same fields.
-    Prefer ``args``; ``arguments`` is a compatibility alias.
+    ``play()`` and ``apply_move()`` / replay read the same fields.
     """
 
     actor_seat: int | None
@@ -88,10 +69,6 @@ class Move:
     @property
     def is_system(self) -> bool:
         return self.kind == LogEntryKind.SYSTEM
-
-    @property
-    def arguments(self) -> dict[str, Any]:
-        return self.args
 
 
 def select_value(move: Move, *keys: str) -> Any:

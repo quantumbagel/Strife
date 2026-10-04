@@ -11,13 +11,24 @@ What a game class must implement. Surfaces players actually see: [interfaces.md]
 
 Import from `strife.engine` and `strife.presentation` only — not persistence, the compiler, or `strife.session`. Games never see Discord types.
 
-Live clicks and replay log rows are the same `Move` (`args`, `source`, `kind`). `arguments` is an alias of `args`.
+Live clicks and replay log rows are the same `Move` (`args`, `source`, `kind`).
 
-Talk to the host through `GameContext`: input, board updates, DMs, `record_event`, query replies.
+Talk to the host through `GameContext`: input, board updates, DMs, `record_event`, query replies. `ctx.turn_timeout_seconds` is the host’s per-turn budget when the match has a clock (`None` on CLI and replay).
+
+## Randomness
+
+| RNG | Use |
+|-----|-----|
+| `self.rng` | Rules: shuffles, dice, setup, tie-breaks. Seeded from the match seed |
+| `self.bot_rng` | Bot decision heuristics only (not seeded) |
+
+The host never consumes `self.rng` for bot scheduling; `until="any"` bot picks use a separate host RNG.
+
+All rules randomness must come from `self.rng`. `play()` must not read wall-clock time for rules; use `Move.created_at` when you need timestamps in game logic.
 
 ## Versions
 
-This host is **platform 1.0.1**.
+This host is **platform 2.0.0**.
 
 | Field | Meaning |
 |-------|---------|
@@ -33,26 +44,33 @@ The game loads if major versions match and the host is ≥ the target. A 1.0.0 g
 | Method | When | Does |
 |--------|------|------|
 | `play(ctx)` | Always | Game loop; return `GameOutcome` when finished |
-| `parse_replay(moves, ctx)` | `supports_replay` | Build replay frames |
-| `bot_move(difficulty, seat)` | `metadata.bots` | Pick a move for a bot |
-| `remove_player(seat)` | `supports_player_removal` | Update state when someone leaves |
+| `bot_move(request)` | `metadata.bots` | Pick a move for a bot (`BotRequest`: seat, difficulty, allowed sources) |
+| `remove_player(seat)` | Inferred when you override this method | Update state when someone leaves |
 
-Missing a required method **skips the game** (error log). Default `supports_replay=True`, so a raw `Game` without `parse_replay` (and not `TurnBasedGame`) won’t show up in `/play`.
+Missing a required method **skips the game** (error log).
 
 ## Optional hooks
 
 | Method | Does |
 |--------|------|
+| `render_replay(ctx, live_view)` | Replay frame for the current state. Default: last board `play()` showed. Hidden-info games override to reveal secrets. Return `None` to skip a frame |
+| `replay_label()` | Optional per-frame label in the replay UI |
 | `final_view(ctx, outcome)` | End-state UI |
 | `handle_query(seat, source, ctx)` | Peek / extra UI. Return `True` if handled |
 | `forfeit_end_outcome(seat, reason)` | Results when the host ends the match on a forfeit |
+
+## Replay
+
+Replays **re-run `play()`** against a `GameContext` that answers `request_input`, `request_inputs`, and `record_event` from the stored log (same seed and players). The engine snapshots frames at `update` / `request_*` boundaries via `render_replay`. Divergence between what `play()` asks for and the log raises `ReplayDivergence`.
+
+Matches persisted before log format 2 (`log_format < 2`) cannot be replayed.
 
 ## Moves vs queries vs links
 
 | Kind | How | In the log? | Replay? |
 |------|-----|-------------|---------|
-| Solo move | `request_input(..., sources={...})` | Yes (default) | One frame |
-| Group input | `request_inputs(..., record=False)` + `record_event` | One event | One frame |
+| Solo move | `request_input(..., sources={...})` | Yes (`game`) | Yes |
+| Group input | `request_inputs(...)` then one `record_event` | One event per input + one event row | Yes |
 | Query | `Button(..., query=True)` + `handle_query` | No | No |
 | Link | `Button(style=ButtonStyle.LINK, url=...)` | No | No |
 
@@ -80,28 +98,28 @@ Button(label="Rules", style=ButtonStyle.LINK, url="https://example.com/rules")
 
 | Kind | Who writes it | Examples | Replay |
 |------|---------------|----------|--------|
-| `game` | `request_input` (default), `record_event` | tile click, `day_outcome` | Apply state / render |
-| `system` | Host | `forfeit`, `game_end`, `bot_takeover`, `timeout` | Banners, early end — not rules |
+| `game` | Every `request_input` / `request_inputs` answer, plus `record_event` | tile click, `day_outcome` | Consumed in order by replay |
+| `system` | Host | `forfeit`, `game_end`, `bot_takeover`, `timeout` | Metadata, banners, early end |
 
 Games only emit **`game`** via `record_event`. `record_event` rejects the four system names.
 
-`parse_replay` walks the full log (order + system banners via `system_replay_info`) but only applies `move.is_game`. `TurnBasedGame` does this for you. `total_turns` counts game entries only.
+Every player input is logged exactly once by the host. `record_event` rows are checkpoints your `play()` must emit identically on replay (`source` + `args`). `total_turns` counts **game** rows with `actor_seat is not None` (player inputs only).
 
 | Pattern | Recording |
 |---------|-----------|
 | Solo `request_input` | Auto, `game` |
-| Group `request_inputs(..., record=False)` | You emit one `record_event` |
+| Group `request_inputs` | One `game` row per seat answer, then your `record_event` |
 | Phase change | `record_event("day_outcome", {...})` |
 | Peek | Not recorded |
 | Forfeit / timeout / cancel | Host → `system` |
 
-Don’t `record_event` a player click that was already recorded. For votes, `record=False` then one combined event.
+Don’t `record_event` the same click that `request_input` already logged. For votes, log each ballot via `request_inputs`, then one combined `record_event`.
 
 ```python
 await ctx.record_event("night_outcome", {"day": self.day, "victim": seat})
 ```
 
-Stable names and keys so `parse_replay` can read them. Ignore sources that were never logged (`"peek"`).
+Stable names and keys so replay can validate them. Ignore sources that were never logged (`"peek"`).
 
 ## Args
 
@@ -125,12 +143,12 @@ The lobby does not deal roles. Declare `RoleSpec` for catalog copy and DMs. Assi
 
 ## Host-injected sources
 
-- `forfeit` — when `supports_player_removal`, a seat that forfeits or times out mid-match is removed (`remove_player`), and a pending input for that seat resolves with this `Move`. The host always logs one **system** row `forfeit` (`actor_seat` = the seat, `args` = `{"reason": "forfeit" | "timeout", "removed": true}`), even under `record=False`. `removed` rows are not the end of the replay: `iter_replay()` gives them `frame=False` and hangs the removal banner on the next frame (like `bot_takeover`). Apply your side effects (e.g. drop the seat from `alive`) before checking `step.frame`
+- `forfeit` — when the game overrides `remove_player`, a seat that forfeits or times out mid-match is removed, and a pending input for that seat resolves with this `Move`. The host always logs one **system** row `forfeit` (`actor_seat` = the seat, `args` = `{"reason": "forfeit" | "timeout", "removed": true}`). Apply your side effects (e.g. drop the seat from `alive`) when you receive the move
 - `timeout` — live move when the consequence is skip/strike
 - `game_end` — cancelled or timed out
-- `bot_takeover` — **system** row, then the bot’s **game** move. Use `iter_replay()` so the banner sticks to the next frame
+- `bot_takeover` — **system** row, then the bot’s **game** move
 
-Handle these with `system_replay_info()` from `strife.engine.replay`.
+Banner metadata for removals and bot takeover uses `system_replay_info()` from `strife.engine.replay` (read-only; does not mutate players).
 
 ## First-to-act timeouts
 

@@ -1,4 +1,12 @@
 [[release]]
+version = "1.1.0"
+date = "2026-10-04"
+summary = "Shows the 2.0 game API."
+changed = [
+  "Demonstrates render_replay and replay labels",
+]
+
+[[release]]
 version = "1.0.0"
 date = "2026-09-07"
 summary = "Kitchen sink for the game API."

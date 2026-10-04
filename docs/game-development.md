@@ -11,6 +11,29 @@ Build a game, run it locally, ship it. Method tables: [game-api.md](game-api.md)
 
 No `bot.py` or `strife.session` edits. The host loads `plugin.toml` at startup.
 
+### Local tests with `MockContext`
+
+For unit tests or quick loops without Discord, use the same host helpers as the CLI:
+
+```python
+import random
+from strife.engine.testing import MockContext
+from strife.presentation.emoji import EmojiResolver
+from my_game.game import MyGame
+
+players = [...]  # list[Player]
+game = MyGame(players, settings={}, rng=random.Random(1))
+ctx = MockContext(
+    game,
+    emoji=EmojiResolver({}),
+    script=[(0, "tile_00", {}), (1, "tile_11", {})],
+)
+outcome = await game.play(ctx)
+assert ctx.recorded  # same Move log shape as a live match
+```
+
+Use `interactive=True` to prompt on stdin when the script runs out; `verbose=True` mirrors `run_game.py` logging.
+
 ## Turn-based games
 
 Subclass `TurnBasedGame`. See [`strife/games/tictactoe/`](../strife/games/tictactoe/).
@@ -26,7 +49,6 @@ from strife.engine import TurnBasedGame, game_metadata_from, PlayerCount, Player
     player_order=PlayerOrder.RANDOM,
 )
 class MyGame(TurnBasedGame):
-    def reset(self) -> None: ...
     def apply_move(self, move: Move) -> None: ...
     def render(self, ctx, *, lead=None, prefix_emoji=None) -> LayoutView: ...
     async def play(self, ctx) -> GameOutcome:
@@ -37,7 +59,7 @@ class MyGame(TurnBasedGame):
 
 `take_turn` renders, waits, and calls `apply_move` — live play and replay share that path. Wrap live buttons in `add_controls(container, ctx, row)` so they disappear in replay.
 
-Override `render_final()` if the finished board looks different.
+Override `render_replay(ctx, live_view)` to reveal hidden information in replays. Optional `replay_label()` sets frame titles. Override `final_view` for the end screen.
 
 ## Metadata and settings
 
@@ -66,9 +88,8 @@ Missing `choice_emojis` fall back to the option’s `emoji`, then `"pointing"`.
 
 Capabilities:
 
-- `supports_replay=True` (default) — implement `parse_replay`, or use `TurnBasedGame`
 - `bots=(BotSpec(...),)` — implement `bot_move()`
-- `supports_player_removal=True` — implement `remove_player()`
+- Override `remove_player()` — registration infers `supports_player_removal` from that override (`supports_player_removal=False` opts out)
 
 ## Game loop
 
@@ -76,7 +97,6 @@ Capabilities:
 |------|------|
 | `ctx.request_input(view, actor=seat, sources={...})` | One player |
 | `ctx.request_inputs(view, actors={...}, until="all"\|"any")` | Several players |
-| `ctx.request_inputs(..., record=False)` | Collect clicks without logging each one |
 | `ctx.update(view)` | Refresh the board |
 | `ctx.send_private(seat, view)` | DM hidden info |
 | `ctx.record_event(source, arguments)` | Log a non-input event |
@@ -127,53 +147,33 @@ Button(label="How to Play", style=ButtonStyle.LINK, url="https://en.wikipedia.or
 | What | Examples | In the log? | Replay frame? |
 |------|----------|-------------|---------------|
 | Solo move | Tile click, pass | `game` (auto) | Yes |
+| Group ballots | Each vote click | `game` per seat | Yes |
 | Group resolution | Vote tally | one `game` `record_event` | Yes |
 | System | Forfeit, cancel, bot takeover | `system` (host) | Banner / early stop |
 | Peek / link | Peek role, rules URL | No | No |
 
-Several players acting at once (votes, night actions): collect with `record=False`, then one `record_event` with the combined result. Don’t log seven vote clicks.
+Several players acting at once: `request_inputs` logs each answer, then emit one `record_event` with the combined result.
 
 ```python
 votes = await ctx.request_inputs(
-    day_view, actors=set(self.alive), sources={"vote"}, until="all", record=False,
+    day_view, actors=set(self.alive), sources={"vote"}, until="all",
 )
 await ctx.record_event("day_outcome", {"lynched": lynched, "votes": {...}})
 ```
 
-`parse_replay` should apply `"day_outcome"`, not `"vote"`. See mafia and spyfall.
-
-Leave `record=True` when each click *is* a replay step (tic-tac-toe tiles).
+Replays re-run `play()` via `run_replay` (same seed, log-driven context). `render_replay(ctx, live_view)` defaults to the live board; override to show secrets. Matches stored with `log_format < 2` cannot be replayed.
 
 Don’t record peeks. Don’t emit `forfeit` / `game_end` / `bot_takeover` / `timeout` — the host does that.
 
-### Custom `parse_replay`
-
-`TurnBasedGame` builds frames from `reset` / `apply_move` / `render`. Otherwise:
-
-```python
-from strife.engine import ReplayBuilder, iter_replay
-
-builder = ReplayBuilder(ctx)
-builder.initial(self.render(ctx, lead="Start", prefix_emoji="loading"))
-for step in iter_replay(moves, self.players):
-    if step.move.is_game:
-        self.apply_move(step.move)
-    if not step.frame:
-        continue
-    view = self.render_final(ctx) if step.terminal else self.render(ctx)
-    builder.add(step, view, label="Final" if step.terminal else "Turn")
-    if step.terminal:
-        break
-return builder.build()
-```
-
-`iter_replay` skips metadata-only `bot_takeover` rows and hangs the banner on the next real frame. Replay views don’t have to match the live board. Test with `python scripts/run_game.py <key> --replay`.
+Test with `python scripts/run_game.py <key> --replay`.
 
 ## Bots
 
-`async def bot_move(self, difficulty: str, seat: int) -> Move` — same `source` strings as your buttons. The host caps the call at 10s.
+`async def bot_move(self, request: BotRequest) -> Move` — use `request.seat`, `request.difficulty`, and optionally `request.sources` (resolved allowed move sources). Same `source` strings as your buttons. The host caps the call at 10s and validates the returned move against the request.
 
-Heavy search goes through `run_cpu` (`strife.engine.workers`). A tight loop on the event loop freezes the whole bot; the timeout can’t interrupt it.
+`self.rng` is **rules-only** and seeded from the match seed (replays stay deterministic). Bot heuristics use `self.bot_rng` (unseeded). The live host uses its own RNG for “which bot acts” in `until="any"` windows — never `self.rng`.
+
+Heavy search goes through `run_cpu` (`strife.engine.workers`): it runs on a `ThreadPoolExecutor`, which avoids blocking the asyncio loop but does not parallelize pure Python across cores (GIL). It helps when the callable releases the GIL (native code, image work, I/O). A tight loop on the event loop still freezes the whole bot; the timeout can’t interrupt it.
 
 ## Roles and DMs
 
@@ -198,7 +198,7 @@ Helpers in [`game_ui.py`](../strife/presentation/game_ui.py): `action_status`, `
 
 ## Forfeits
 
-The host injects `forfeit` and `game_end`. Use `forfeit_outcome()` from [`outcomes.py`](../strife/engine/outcomes.py). If `supports_player_removal`, implement `remove_player(seat)`. Faction games should override `forfeit_end_outcome(seat, reason)` so a timeout doesn't award every other seat.
+The host injects `forfeit` and `game_end`. Use `forfeit_outcome()` from [`outcomes.py`](../strife/engine/outcomes.py). When you override `remove_player(seat)`, the host may remove forfeiting seats mid-match. Faction games should override `forfeit_end_outcome(seat, reason)` so a timeout doesn't award every other seat.
 
 ## Checklist
 
@@ -210,7 +210,8 @@ The host injects `forfeit` and `game_end`. Use `forfeit_outcome()` from [`outcom
 - [ ] Replays work, including forfeits and bot takeovers
 - [ ] Query buttons have `query=True` and a `handle_query` handler
 - [ ] Replay views hide action rows (`add_controls` or `if not ctx.is_replay`)
-- [ ] Group actions: `record=False` + one `record_event`
+- [ ] Rules randomness only from `self.rng`; no wall-clock time or query side effects in rules
+- [ ] Hidden-info games override `render_replay` to reveal what live play hid
 - [ ] Art in `<package>/emoji/` (`game.webp`, pieces, roles)
 - [ ] `python scripts/run_game.py <key>`
 

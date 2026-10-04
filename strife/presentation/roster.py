@@ -55,7 +55,12 @@ def member_line(
         is_bot=is_bot,
         bot_difficulty=bot_difficulty,
     )
-    line = p.display(emoji, owner_ids=owner_ids, creator_id=creator_id)
+    prefix = ""
+    if creator_id is not None and user_id == creator_id:
+        prefix += f"{emoji.get('creator', base=True)} "
+    if owner_ids is not None and user_id is not None and user_id in owner_ids:
+        prefix += f"{emoji.get('admin', base=True)} "
+    line = f"{prefix}{p.mention_for(emoji)}"
     if suffix:
         line = f"{line} {suffix}"
     return line

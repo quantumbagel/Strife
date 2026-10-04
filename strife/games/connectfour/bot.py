@@ -13,7 +13,7 @@ def choose_move(game: ConnectFour, difficulty: str, seat: int) -> int:
         return 0
 
     if difficulty == "easy":
-        return game.rng.choice(valid_moves)
+        return game.bot_rng.choice(valid_moves)
 
     if difficulty == "medium":
         # 1. Can we win in one move?
@@ -43,7 +43,7 @@ def choose_move(game: ConnectFour, difficulty: str, seat: int) -> int:
         if 3 in valid_moves:
             return 3
 
-        return game.rng.choice(valid_moves)
+        return game.bot_rng.choice(valid_moves)
 
     # Hard: Minimax with Alpha-Beta pruning
     return _find_best_move_minimax(game, seat)

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import random
 from datetime import datetime, timezone
 from typing import Protocol
 import time
 
 from strife.config.text import TextConfig
 from strife.engine.game import Game
-from strife.engine.log import LogEntryKind
+from strife.engine.requests import TimeoutConsequence
+from strife.engine.match_log import MatchLog
 from strife.engine.players import GameOutcome, Move, Player
 from strife.persistence.repositories import FinishedMatch
 from strife.presentation.message import ViewSurface
@@ -65,7 +67,7 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
         header_surface: ViewSurface | None = None,
         turn_timeout_seconds: int = 90,
         turn_timeout_max_strikes: int = 3,
-        turn_timeout_consequence: str = "abandon",
+        turn_timeout_consequence: TimeoutConsequence = TimeoutConsequence.ABANDON,
     ) -> None:
         self.id = thread_id
         self.thread_id = thread_id
@@ -80,18 +82,18 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
         self.turn_timeout_seconds = turn_timeout_seconds
         self.turn_timeout_max_strikes = turn_timeout_max_strikes
         self.turn_timeout_consequence = turn_timeout_consequence
+        self._host_rng = random.Random()
         self._finalizer = finalizer
         self.game_key = game_key
         guard_bot_move(game)
         self.ctx = LiveContext(self)
         self.lock = asyncio.Lock()
         self.pending: dict[int, PendingInput] = {}
-        self.recorded_moves: list[Move] = []
+        self.log = MatchLog(on_append=self._on_log_append)
         now = time.monotonic()
         self.last_move_at = now
         self.last_progress_at = now
         self.task: asyncio.Task | None = None
-        self._turn_index = 0
         self._started_at = datetime.now(timezone.utc)
         self._match_id: int | None = None
         self._match_code: str | None = None
@@ -107,13 +109,22 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
         self._dm_failure_notified: set[int] = set()
         # Seats that forfeited or timed out of a still-running match.
         self._removed_seats: set[int] = set()
+        self.timeout_strikes: dict[int, int] = {}
+        self.taken_over: set[int] = set()
 
     @property
     def started_at(self) -> datetime:
         return self._started_at
 
+    @property
+    def recorded_moves(self) -> list[Move]:
+        return self.log.entries
+
     def mark_progress(self) -> None:
         self.last_progress_at = time.monotonic()
+
+    def _on_log_append(self, _move: Move) -> None:
+        self.last_move_at = time.monotonic()
 
     def _owner_ids(self) -> frozenset[int]:
         settings = getattr(self._bot, "settings", None) if self._bot is not None else None
@@ -155,10 +166,9 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
                 await self._finalize(outcome, status="completed")
             except asyncio.CancelledError:
                 if not self._finalized and not self._ending:
-                    self._append_log_entry(
+                    self.log.system(
                         "game_end",
                         {"reason": "cancelled", "cancelled": True},
-                        kind=LogEntryKind.SYSTEM,
                     )
                     await self._finalize(
                         GameOutcome(

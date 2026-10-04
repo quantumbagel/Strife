@@ -38,7 +38,7 @@ Games may import `strife.engine`, `strife.presentation`, and extras listed in `p
 
 On boot, `PluginManager` reads `strife/games/*/plugin.toml` (skip `plugins.yaml` `removed`) and `plugins/*/plugin.toml`, optionally pip-installs missing extras, then imports and registers `GAME`.
 
-Skipped (logged, not fatal): missing `GAME`, bad versions, missing extras, capability mismatch (`supports_replay` but no `parse_replay`), duplicate key, import error.
+Skipped (logged, not fatal): missing `GAME`, bad versions, missing extras, capability mismatch (`bots` but no `bot_move`), duplicate key, import error.
 
 `registry.create(key, players, settings, seed)` builds `random.Random(seed)` and constructs the class. Replays use the same seed.
 
@@ -66,7 +66,9 @@ A loaded game with no row is enabled with the `defaults` tuning (boot logs that 
 
 | Surface | For |
 |---------|-----|
-| `ctx.rng`, `ctx.players`, `ctx.settings`, `ctx.emoji` | Seeded RNG, seats, lobby settings, emoji keys |
+| `self.rng`, `self.players`, `self.settings` on `Game` | Seeded rules RNG, seats, lobby settings |
+| `self.bot_rng` on `Game` | Bot decision jitter (not seeded) |
+| `ctx.emoji` | Emoji keys |
 | `ctx.started_at`, `ctx.is_replay`, `ctx.is_bot(seat)` | Clock, hide controls, skip DMs |
 | `self.setting(key)` | Setting with metadata default (on `Game`, not `ctx`) |
 | `ctx.update(view)` | Edit the board |
@@ -88,10 +90,10 @@ A live match has two messages: header (`replay_noop:`, clicks do nothing) and bo
 | Host | Context | Input | Used by |
 |------|---------|-------|---------|
 | Live | `LiveContext` | Wait on pending futures; bots via `bot_move` (10s) | `game.play(ctx)` |
-| Replay | `ReplayContext` | `request_*` raise | `parse_replay` |
-| CLI | `MockContext` | stdin / `--move` | `python scripts/run_game.py <key>` |
+| Replay | `ReplayContext` (`strife.engine.replay`) | Answers from stored log | `run_replay` → `game.play(ctx)` |
+| CLI | `strife.engine.testing.MockContext` | stdin / `--move`; same bot and log path as live | `python scripts/run_game.py <key>` |
 
-Replay never runs `play()`. New instance, stored seed, `parse_replay`. Prefer `TurnBasedGame` or `iter_replay` + `ReplayBuilder`.
+Replay builds a fresh game with the stored seed and re-runs `play()` against the log. Frames come from `render_replay` at each `update` / `request_*` boundary.
 
 Timeouts, forfeits, persist, rematch, and thread lock stay in the session.
 
@@ -112,9 +114,9 @@ Cards come from `GameMetadata` only. The class is constructed when a lobby start
 
 Stale sessions disable the components and report `common.game_ended`.
 
-Lobby start: `registry.create` → public thread `{Game} (#{code})` → header + board → `game.play(ctx)`. Exceptions in `play` abandon that match. Caps: `bot_move` 10s, `handle_query` 5s, `final_view` 5s, `parse_replay` 15s. If `play()` yields but never touches `GameContext` for `play_hang_seconds`, the session is cancelled.
+Lobby start: `registry.create` → public thread `{Game} (#{code})` → header + board → `game.play(ctx)`. Exceptions in `play` abandon that match. Caps: `bot_move` 10s, `handle_query` 5s, `final_view` 5s, `run_replay` 15s. If `play()` yields but never touches `GameContext` for `play_hang_seconds`, the session is cancelled.
 
-A tight CPU loop (no await) still freezes the process. Use `run_cpu` for heavy work. A native crash kills the process; Docker restarts it with no live sessions.
+A tight CPU loop (no await) still freezes the process. `run_cpu` offloads to a thread pool so the event loop can breathe; pure Python still holds the GIL unless the work releases it (native libs, rendering, I/O). A native crash kills the process; Docker restarts it with no live sessions.
 
 ## Adding a game (host side)
 

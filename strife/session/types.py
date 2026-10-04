@@ -4,7 +4,9 @@ import asyncio
 from dataclasses import dataclass
 
 from strife.engine.game import Game
+from strife.engine.inputs import InvalidBotMove, validate_bot_move
 from strife.engine.players import Move
+from strife.engine.requests import BotRequest, TimeoutConsequence
 from strife.logging import get_logger
 
 log = get_logger("session")
@@ -17,15 +19,21 @@ def guard_bot_move(game: Game) -> None:
     """Wrap ``game.bot_move`` so every call (including from play()) is time-boxed."""
     original = game.bot_move
 
-    async def guarded(difficulty: str, seat: int) -> Move:
+    async def guarded(request: BotRequest) -> Move:
         try:
-            return await asyncio.wait_for(
-                original(difficulty, seat),
+            move = await asyncio.wait_for(
+                original(request),
                 timeout=BOT_MOVE_TIMEOUT_SECONDS,
             )
         except Exception as e:
-            log.exception("Bot move crashed or timed out for seat %s", seat)
+            log.exception("Bot move crashed or timed out for seat %s", request.seat)
             raise RuntimeError(f"Bot failed to make a move: {e}") from e
+        try:
+            validate_bot_move(request, move)
+        except InvalidBotMove as e:
+            log.error("Bot move validation failed for seat %s: %s", request.seat, e)
+            raise RuntimeError(str(e)) from e
+        return move
 
     game.bot_move = guarded  # type: ignore[method-assign]
 
@@ -38,12 +46,10 @@ class PendingInput:
     description: str | None = None
     line_description: str | None = None
     timeout_seconds: float | None = None
-    timeout_consequence: str | None = None
+    timeout_consequence: TimeoutConsequence | None = None
     deadline_at: float | None = None
     timeout_generation: int = 0
     until: str = "all"
-    # Whether the request path logs the move this future resolves with.
-    record: bool = True
     # Shared by every seat of one until="any" request; resolving it closes the
     # window with no move (see ``SessionInputMixin.expire_phase``).
     phase_timeout: asyncio.Future[None] | None = None

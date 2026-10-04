@@ -14,7 +14,11 @@ from strife.games.coup import GAME as Coup
 from strife.games.mafia import GAME as Mafia
 from strife.games.spyfall import GAME as Spyfall
 from strife.lifecycle.rematch import RematchManager, RematchOffer
-from strife.lifecycle.timeout import TimeoutConsequence, determine_consequence, will_removal_end_game
+from strife.lifecycle.timeout import (
+    ResolvedTimeoutConsequence,
+    determine_consequence,
+    will_removal_end_game,
+)
 from strife.matchmaking.finalizer import SessionFinalizer
 from strife.matchmaking.registries import SessionRegistries, UserLocation
 
@@ -58,13 +62,13 @@ def test_will_removal_not_use_lobby_min_players() -> None:
 def test_forfeit_two_humans_with_bots_removes_instead_of_ending() -> None:
     players = _players("A", "B", "Bot1", "Bot2", "Bot3", "Bot4", bots={2, 3, 4, 5})
     session = _FakeSessionState(players, _FakeGame(6, min_players=4, removal=True, bots=True))
-    assert determine_consequence(session, 0, reason="forfeit") == TimeoutConsequence.REMOVED
+    assert determine_consequence(session, 0, reason="forfeit") == ResolvedTimeoutConsequence.REMOVED
 
 
 def test_forfeit_last_human_ends_game() -> None:
     players = _players("A", "Bot", bots={1})
     session = _FakeSessionState(players, _FakeGame(2, min_players=2, removal=True, bots=True))
-    assert determine_consequence(session, 0, reason="forfeit") == TimeoutConsequence.GAME_ENDS
+    assert determine_consequence(session, 0, reason="forfeit") == ResolvedTimeoutConsequence.GAME_ENDS
 
 
 def test_forfeit_outcome_does_not_award_already_dead() -> None:

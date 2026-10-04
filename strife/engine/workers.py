@@ -29,7 +29,12 @@ def get_executor() -> ThreadPoolExecutor:
 
 
 async def run_cpu(fn: Callable[..., T], /, *args, **kwargs) -> T:
-    """Run *fn* on the dedicated CPU pool (bots, board renders)."""
+    """Run *fn* on the shared :class:`ThreadPoolExecutor` (bots, board renders).
+
+    Pure Python still holds the GIL on those threads, so this mainly avoids
+    blocking the asyncio event loop—not parallel CPU across cores. It helps
+    when *fn* releases the GIL (native libraries, image rendering, I/O).
+    """
     loop = asyncio.get_running_loop()
     executor = get_executor()
     if kwargs:

@@ -15,7 +15,7 @@ from strife.matchmaking.registries import UserLocation
 from strife.persistence.repositories import generate_match_code
 from strife.presentation.compiler import LayoutError
 from strife.presentation.components import Container, LayoutView, TextDisplay, TextSize
-from strife.presentation.game_ui import build_game_thread_header_view
+from strife.session.header import build_game_thread_header_view
 from strife.presentation.message import ViewSurface
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route

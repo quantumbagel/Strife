@@ -16,8 +16,6 @@ Typical imports::
         PlayerCount,
         PlayerOrder,
         PLATFORM_VERSION,
-        ReplayBuilder,
-        iter_replay,
         select_value,
         run_cpu,
     )
@@ -43,22 +41,19 @@ from strife.engine.metadata import (
 )
 from strife.engine.outcomes import forfeit_outcome
 from strife.engine.platform import PLATFORM_VERSION, parse_version, platform_satisfies
+from strife.engine.requests import BotRequest, TimeoutConsequence
 from strife.engine.players import GameOutcome, Move, Player, select_value
 from strife.engine.replay import (
-    ReplayBuilder,
-    ReplayStep,
+    ReplayDivergence,
     freeze_view,
-    iter_replay,
-    is_terminal_replay_move,
+    run_replay,
     system_replay_info,
 )
 from strife.engine.turn_based import TurnBasedGame
 from strife.engine.workers import run_cpu
 
-# Compatibility alias: recorded log rows are ``Move`` values.
-MoveRecord = Move
-
 __all__ = [
+    "BotRequest",
     "BotSpec",
     "Game",
     "GameContext",
@@ -66,29 +61,27 @@ __all__ = [
     "GameOutcome",
     "Move",
     "MoveParam",
-    "MoveRecord",
     "OptionType",
     "PLATFORM_VERSION",
     "ParamType",
     "Player",
     "PlayerCount",
     "PlayerOrder",
-    "ReplayBuilder",
+    "ReplayDivergence",
     "ReplayFrame",
-    "ReplayStep",
     "RoleSpec",
     "SettingOption",
     "SlashMove",
+    "TimeoutConsequence",
     "TurnBasedGame",
     "forfeit_outcome",
     "freeze_view",
     "game_metadata",
     "game_metadata_from",
-    "is_terminal_replay_move",
-    "iter_replay",
     "parse_version",
     "platform_satisfies",
     "run_cpu",
+    "run_replay",
     "select_value",
     "system_replay_info",
 ]

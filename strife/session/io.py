@@ -7,7 +7,7 @@ import discord
 
 from strife.lifecycle.timeout import timeout_consequence
 from strife.presentation.components import LayoutView
-from strife.presentation.game_ui import build_game_thread_header_view
+from strife.session.header import build_game_thread_header_view
 from strife.presentation.message import ViewSurface, to_discord_files
 from strife.session.types import log
 

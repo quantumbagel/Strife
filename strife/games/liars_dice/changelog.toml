@@ -1,4 +1,12 @@
 [[release]]
+version = "1.1.0"
+date = "2026-10-04"
+summary = "Replays show every hand."
+changed = [
+  "Replays show every player's dice each round",
+]
+
+[[release]]
 version = "1.0.2"
 date = "2026-10-04"
 summary = "The reveal stays on screen. Leaving keeps the table going."

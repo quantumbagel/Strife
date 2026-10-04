@@ -3,6 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
+LOG_FORMAT = 2
 
 class LogEntryKind(StrEnum):
     """Classification for match log entries."""

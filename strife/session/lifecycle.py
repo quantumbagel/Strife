@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-import time
-
 import discord
 
-from strife.engine.log import LogEntryKind, SYSTEM_SOURCES
-from strife.engine.players import GameOutcome, Move
+from strife.engine.log import LogEntryKind
+from strife.engine.players import GameOutcome
 from strife.lifecycle.results import build_results_view
 from strife.persistence.repositories import FinishedMatch, MatchPlayer
-from strife.presentation.game_ui import build_game_thread_header_view
+from strife.session.header import build_game_thread_header_view
 from strife.session.types import log
 
 
@@ -23,7 +21,7 @@ class SessionLifecycleMixin:
         task = self.task
         if task is not None and not task.done() and task is not asyncio.current_task():
             task.cancel()
-        self._append_log_entry("game_end", {"reason": reason, "cancelled": True}, kind=LogEntryKind.SYSTEM)
+        self.log.system("game_end", {"reason": reason, "cancelled": True})
         if forfeiter_seat is not None:
             outcome = self.game.forfeit_end_outcome(forfeiter_seat, reason)
         elif reason == "restart":
@@ -46,55 +44,6 @@ class SessionLifecycleMixin:
 
         await self._finalize(outcome, status="abandoned")
         return True
-
-
-    def _record_move(self, move: Move, *, kind: LogEntryKind | None = None) -> None:
-        entry_kind = kind or (
-            LogEntryKind.SYSTEM
-            if move.kind == LogEntryKind.SYSTEM or move.source in SYSTEM_SOURCES
-            else LogEntryKind.GAME
-        )
-        stamped = move.created_at or datetime.now(timezone.utc)
-        if move.created_at is None:
-            move.created_at = stamped
-        self.recorded_moves.append(
-            Move(
-                actor_seat=move.actor_seat,
-                source=move.source,
-                args=move.args,
-                kind=entry_kind,
-                turn_index=self._turn_index,
-                created_at=stamped,
-            )
-        )
-        self._turn_index += 1
-        self.last_move_at = time.monotonic()
-
-
-    def _append_log_entry(
-        self,
-        source: str,
-        arguments: dict,
-        *,
-        actor_seat: int | None = None,
-        kind: LogEntryKind = LogEntryKind.GAME,
-    ) -> None:
-        self.recorded_moves.append(
-            Move(
-                actor_seat=actor_seat,
-                source=source,
-                args=arguments,
-                kind=kind,
-                turn_index=self._turn_index,
-                created_at=datetime.now(timezone.utc),
-            )
-        )
-        self._turn_index += 1
-        self.last_move_at = time.monotonic()
-
-
-    def _record_system(self, source: str, arguments: dict, *, actor_seat: int | None = None) -> None:
-        self._append_log_entry(source, arguments, actor_seat=actor_seat, kind=LogEntryKind.SYSTEM)
 
 
     async def _finalize(self, outcome: GameOutcome, *, status: str) -> None:
@@ -126,21 +75,25 @@ class SessionLifecycleMixin:
                     if outcome.player_descriptions
                     else {},
                 },
-                total_turns=sum(1 for m in self.recorded_moves if m.kind == LogEntryKind.GAME),
+                total_turns=sum(
+                    1
+                    for m in self.recorded_moves
+                    if m.kind == LogEntryKind.GAME and m.actor_seat is not None
+                ),
                 started_at=self._started_at,
                 ended_at=datetime.now(timezone.utc),
                 players=[
                     MatchPlayer(
                         seat_index=p.seat,
                         user_id=p.user_id,
-                        is_bot=p.is_bot and not p.taken_over,
+                        is_bot=p.is_bot and p.seat not in self.taken_over,
                         bot_difficulty=p.bot_difficulty,
                         display_name=p.display_name,
                         role_key=p.role_key,
                         # A bot finished an AFK player's seat; its result isn't theirs.
                         result=(
                             "loss"
-                            if p.taken_over and outcome.results.get(p.seat)
+                            if p.seat in self.taken_over and outcome.results.get(p.seat)
                             else outcome.results.get(p.seat)
                         ),
                     )
@@ -205,6 +158,7 @@ class SessionLifecycleMixin:
                     replay_disabled=not persist_ok,
                     match_status=status,
                     removed_seats=frozenset(getattr(self, "_removed_seats", ())),
+                    taken_over_seats=frozenset(self.taken_over),
                 )
                 if hasattr(self, "lobby_surface") and self.lobby_surface is not None:
                     await self.lobby_surface.update(results_view)

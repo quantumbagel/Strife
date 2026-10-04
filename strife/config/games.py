@@ -4,15 +4,41 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
+
+from strife.engine.requests import TimeoutConsequence
+from strife.logging import get_logger
+
+log = get_logger("config.games")
+
+
+def _parse_timeout_consequence(value: str | TimeoutConsequence | None) -> TimeoutConsequence:
+    if value is None:
+        return TimeoutConsequence.ABANDON
+    if isinstance(value, TimeoutConsequence):
+        return value
+    try:
+        return TimeoutConsequence(value)
+    except ValueError:
+        log.error("Unknown turn_timeout_consequence '%s'; using abandon", value)
+        return TimeoutConsequence.ABANDON
 
 
 class GameDefaults(BaseModel):
     turn_timeout_seconds: int = 90
     turn_warning_seconds: int = 30
     turn_timeout_max_strikes: int = 3
-    turn_timeout_consequence: str = "abandon"
+    turn_timeout_consequence: TimeoutConsequence = TimeoutConsequence.ABANDON
     play_hang_seconds: int = 45
+
+    @field_validator("turn_timeout_consequence", mode="before")
+    @classmethod
+    def _validate_turn_timeout_consequence(cls, value: object) -> TimeoutConsequence:
+        if isinstance(value, TimeoutConsequence):
+            return value
+        if isinstance(value, str):
+            return _parse_timeout_consequence(value)
+        return TimeoutConsequence.ABANDON
 
 
 class GameConfig(BaseModel):
@@ -20,22 +46,43 @@ class GameConfig(BaseModel):
     turn_timeout_seconds: int | None = None
     turn_warning_seconds: int | None = None
     turn_timeout_max_strikes: int | None = None
-    turn_timeout_consequence: str | None = None
+    turn_timeout_consequence: TimeoutConsequence | None = None
     play_hang_seconds: int | None = None
+    settings_overrides: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("turn_timeout_consequence", mode="before")
+    @classmethod
+    def _validate_turn_timeout_consequence(cls, value: object) -> TimeoutConsequence | None:
+        if value is None:
+            return None
+        if isinstance(value, TimeoutConsequence):
+            return value
+        if isinstance(value, str):
+            return _parse_timeout_consequence(value)
+        return None
+
+
+class MergedGameConfig(BaseModel):
+    enabled: bool = True
+    turn_timeout_seconds: int = 90
+    turn_warning_seconds: int = 30
+    turn_timeout_max_strikes: int = 3
+    turn_timeout_consequence: TimeoutConsequence = TimeoutConsequence.ABANDON
+    play_hang_seconds: int = 45
     settings_overrides: dict[str, Any] = Field(default_factory=dict)
 
 
 class GamesConfig(BaseModel):
     defaults: GameDefaults
     games: dict[str, GameConfig]
-    _merged: dict[str, GameConfig] = PrivateAttr(default_factory=dict)
+    _merged: dict[str, MergedGameConfig] = PrivateAttr(default_factory=dict)
     _path: Path | None = PrivateAttr(default=None)
 
     def model_post_init(self, __context: object) -> None:
         self._merged = {key: self._merge_config(key, game) for key, game in self.games.items()}
 
-    def _merge_config(self, key: str, game: GameConfig) -> GameConfig:
-        return GameConfig(
+    def _merge_config(self, key: str, game: GameConfig) -> MergedGameConfig:
+        return MergedGameConfig(
             enabled=game.enabled,
             turn_timeout_seconds=(
                 game.turn_timeout_seconds
@@ -65,7 +112,7 @@ class GamesConfig(BaseModel):
             settings_overrides=dict(game.settings_overrides),
         )
 
-    def for_game(self, key: str) -> GameConfig:
+    def for_game(self, key: str) -> MergedGameConfig:
         """Tuning for *key*. Games without a row are enabled with the defaults;
         only an explicit ``enabled: false`` row hides a game."""
         if key in self._merged:

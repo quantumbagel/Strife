@@ -49,6 +49,7 @@ class RematchOffer:
     emoji: object | None = None
     result_players: list = field(default_factory=list)
     removed_seats: frozenset[int] = frozenset()
+    taken_over_seats: frozenset[int] = frozenset()
 
 
 class RematchManager:
@@ -66,14 +67,15 @@ class RematchManager:
         # Players who quit (removed) or went AFK (taken over) don't get a vote
         # or a seat; their seats aren't carried over as bots either.
         removed = frozenset(getattr(session, "_removed_seats", ()))
+        taken_over = frozenset(getattr(session, "taken_over", ()))
         members = [
             LobbyMember(user_id=p.user_id, display_name=p.display_name)
-            for p in rematch_eligible(session.players, removed)
+            for p in rematch_eligible(session.players, removed, taken_over)
         ]
         bots = [
             QueuedBot(name=p.display_name, difficulty=p.bot_difficulty or "medium")
             for p in session.players
-            if p.is_bot and not p.taken_over
+            if p.is_bot and p.seat not in taken_over
         ]
         eligible = {m.user_id for m in members}
         creator_id = getattr(session, "lobby_creator_id", None) or (
@@ -107,6 +109,7 @@ class RematchManager:
             emoji=session.surface.compiler.emoji,
             result_players=list(session.players),
             removed_seats=removed,
+            taken_over_seats=taken_over,
         )
 
     async def expire_stale(self) -> None:
@@ -149,6 +152,7 @@ class RematchManager:
                 outcome=offer.outcome,
                 players=offer.result_players,
                 removed_seats=offer.removed_seats,
+                taken_over_seats=offer.taken_over_seats,
                 thread_id=thread_id,
                 match_id=offer.match_id,
                 text=self.text,
@@ -169,6 +173,7 @@ class RematchManager:
             outcome=offer.outcome,
             players=offer.result_players,
             removed_seats=offer.removed_seats,
+            taken_over_seats=offer.taken_over_seats,
             thread_id=thread_id,
             match_id=offer.match_id,
             text=self.text,
@@ -269,6 +274,7 @@ class RematchManager:
                     outcome=offer.outcome,
                     players=offer.result_players,
                     removed_seats=offer.removed_seats,
+                    taken_over_seats=offer.taken_over_seats,
                     thread_id=thread_id,
                     match_id=offer.match_id,
                     text=self.text,

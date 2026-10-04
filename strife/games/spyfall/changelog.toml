@@ -1,4 +1,12 @@
 [[release]]
+version = "1.1.0"
+date = "2026-10-04"
+summary = "Replays reveal the spy."
+changed = [
+  "Replays show the location and who the spy is",
+]
+
+[[release]]
 version = "1.0.3"
 date = "2026-10-04"
 summary = "One accusation each. Leaving keeps the table going."

@@ -4,11 +4,12 @@ import random
 from collections.abc import Mapping
 from typing import Any
 
-from strife.engine.context import GameContext, ReplayFrame
+from strife.engine import BotRequest
+from strife.engine.context import GameContext
 from strife.engine.game import Game
 from strife.engine.outcomes import forfeit_outcome
 from strife.engine.players import GameOutcome, Move, Player
-from strife.engine.replay import ReplayBuilder, iter_replay
+from strife.presentation.game_ui import message_lead
 from strife.presentation.components import (
     ActionRow,
     Align,
@@ -257,7 +258,7 @@ class TestGame(Game):
 
         container.add_separator()
         container.add_text(TextDisplay("### Game Settings", size_style=TextSize.SUBHEADER))
-        for k, v in ctx.settings.items():
+        for k, v in self.settings.items():
             container.add_text(TextDisplay(f"• `{k}`: `{v}`"))
 
         container.add_separator()
@@ -322,7 +323,7 @@ class TestGame(Game):
         await ctx.update(view)
 
         actors = set(self.alive)
-        moves = await ctx.request_inputs(view, actors=actors, sources={"vote_input"}, until="all", record=False)
+        moves = await ctx.request_inputs(view, actors=actors, sources={"vote_input"}, until="all")
         votes: dict[int, str] = {}
         for seat, move in moves.items():
             val = move.args.get("value") or (
@@ -400,6 +401,29 @@ class TestGame(Game):
             player_descriptions=player_descriptions,
         )
 
+    def render_replay(self, ctx: GameContext, live_view: LayoutView | None) -> LayoutView | None:
+        view = LayoutView()
+        container = Container()
+        message_lead(
+            container,
+            "Replay — hidden state revealed",
+            emoji=ctx.emoji,
+            prefix_emoji="peek",
+        )
+        if self.secrets:
+            for seat in sorted(self.secrets):
+                secret = self.secrets[seat]
+                container.add_text(
+                    TextDisplay(f"• {self.players[seat].mention}: **{secret}**")
+                )
+        else:
+            container.add_text(TextDisplay("No secrets assigned yet (pre–phase 3)."))
+        view.add_container(container)
+        return view
+
+    def replay_label(self) -> str | None:
+        return f"Phase {self.phase}"
+
     async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
         view = LayoutView()
         view.header("ready", "API Test: Final Summary", emoji_resolver=ctx.emoji)
@@ -421,69 +445,14 @@ class TestGame(Game):
         view.add_container(container)
         return view
 
-    async def parse_replay(self, moves: list[Move], ctx: GameContext) -> list[ReplayFrame]:
-        self.alive = set(p.seat for p in self.players)
-        self.phase = 1
-        self.last_interacted_source = None
-        self.last_interacted_args = None
-        self.phase2_votes = {}
-        self.phase3_confirmed = set()
-        self.secrets = {}
-        self.removed_players = set()
-
-        builder = ReplayBuilder(ctx)
-        builder.initial(self._phase1_view(ctx), label="Start")
-
-        for step in iter_replay(moves, self.players):
-            move = step.move
-            args = move.args
-            if move.source == "btn_next_1":
-                self.phase = 2
-            elif move.source == "vote_resolve":
-                self.phase2_votes = {int(k): v for k, v in args.get("votes", {}).items()}
-                self.phase = 2
-            elif move.source == "cast_vote":
-                seat = args.get("seat")
-                vote = args.get("vote")
-                if seat is not None:
-                    self.phase2_votes[seat] = vote
-            elif move.source == "send_private_secret":
-                seat = args.get("seat")
-                secret = args.get("secret")
-                if seat is not None:
-                    self.secrets[seat] = secret
-                self.phase = 3
-            elif move.source == "confirm_secret":
-                seat = args.get("seat")
-                if seat is not None:
-                    self.phase3_confirmed.add(seat)
-            elif move.source == "btn_finish":
-                self.phase = 4
-            elif step.frame and self.phase == 1:
-                self.last_interacted_source = move.source
-                self.last_interacted_args = args
-
-            if not step.frame:
-                continue
-            if self.phase == 1:
-                view = self._phase1_view(ctx)
-            elif self.phase == 2:
-                view = self._phase2_view(ctx)
-            elif self.phase == 3:
-                view = self._phase3_public_view(ctx)
-            else:
-                view = self._phase4_view(ctx)
-            builder.add(step, view, label=f"Action {move.turn_index + 1}")
-
-        return builder.build()
-
-    async def bot_move(self, difficulty: str, seat: int) -> Move:
+    async def bot_move(self, request: BotRequest) -> Move:
+        seat = request.seat
         if self.phase == 1:
-            if self.rng.random() < 0.5:
+            if self.bot_rng.random() < 0.5:
                 return Move(actor_seat=seat, source="btn_next_1", args={})
             return Move(actor_seat=seat, source="btn_primary", args={})
         elif self.phase == 2:
-            val = self.rng.choice(["agree", "disagree", "abstain"])
+            val = self.bot_rng.choice(["agree", "disagree", "abstain"])
             return Move(actor_seat=seat, source="vote_input", args={"value": val, "values": [val]})
         elif self.phase == 3:
             return Move(actor_seat=seat, source="btn_confirm_secret", args={})

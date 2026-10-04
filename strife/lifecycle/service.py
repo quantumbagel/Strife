@@ -11,7 +11,8 @@ from strife.engine.log import LogEntryKind
 from strife.engine.players import Move
 from strife.engine.registry import GameRegistry
 from strife.lifecycle.rematch import RematchManager
-from strife.lifecycle.timeout import determine_consequence, TimeoutConsequence
+from strife.engine.requests import BotRequest
+from strife.lifecycle.timeout import ResolvedTimeoutConsequence, determine_consequence
 from strife.logging import get_logger
 from strife.matchmaking.registries import SessionRegistries
 from strife.matchmaking.service import LobbyService
@@ -197,7 +198,7 @@ class LifecycleService:
             raise SessionError("game_ending")
 
     async def _execute_consequence(
-        self, session, seat: int, consequence: TimeoutConsequence, reason: str
+        self, session, seat: int, consequence: ResolvedTimeoutConsequence, reason: str
     ) -> bool:
         """Apply ``consequence``. Returns False when the match was already ending."""
         async with session.lock:
@@ -210,28 +211,28 @@ class LifecycleService:
             player = session.players[seat]
             pending = session.pending.get(seat)
 
-        if consequence == TimeoutConsequence.PHASE_ENDS:
+        if consequence == ResolvedTimeoutConsequence.PHASE_ENDS:
             return await session.expire_phase(seat)
 
         # Occupancy stays "game" until persist finishes on GAME_ENDS. Release
         # immediately when the seat leaves a still-running match (removed here,
         # or handed to a bot below) so the player can start something else.
-        if consequence == TimeoutConsequence.REMOVED and player.user_id:
+        if consequence == ResolvedTimeoutConsequence.REMOVED and player.user_id:
             await self.registries.release_user(
                 player.user_id, thread_id=session.thread_id
             )
 
-        if consequence == TimeoutConsequence.SKIP:
+        if consequence == ResolvedTimeoutConsequence.SKIP:
             await session.force_move(
                 seat,
                 Move(actor_seat=seat, source="timeout", args={}, kind=LogEntryKind.SYSTEM),
             )
 
-        elif consequence == TimeoutConsequence.AUTO_PASS:
+        elif consequence == ResolvedTimeoutConsequence.AUTO_PASS:
             await session.force_move(seat, Move(actor_seat=seat, source="pass", args={}))
 
-        elif consequence == TimeoutConsequence.STRIKE:
-            player.timeout_strikes += 1
+        elif consequence == ResolvedTimeoutConsequence.STRIKE:
+            session.timeout_strikes[seat] = session.timeout_strikes.get(seat, 0) + 1
             max_strikes = getattr(session, "turn_timeout_max_strikes", 3)
 
             thread = self.bot.get_channel(session.thread_id)
@@ -250,7 +251,7 @@ class LifecycleService:
                         title=self.text.get("match.strike_title", player=player.mention),
                         body=self.text.get(
                             "match.strike_body",
-                            current=player.timeout_strikes,
+                            current=session.timeout_strikes[seat],
                             max=max_strikes,
                         ),
                         text=self.text,
@@ -272,14 +273,14 @@ class LifecycleService:
             else:
                 await session.force_move(seat, Move(actor_seat=seat, source="pass", args={}))
 
-        elif consequence == TimeoutConsequence.BOT_TAKEOVER:
+        elif consequence == ResolvedTimeoutConsequence.BOT_TAKEOVER:
             difficulty = getattr(session.game.metadata, "bot_takeover_difficulty", "hard")
             async with session.lock:
                 if session._finalized or session._ending:
                     return False
                 if reason == "timeout" and session.pending.get(seat) is None:
                     return False
-                player.taken_over = True
+                session.taken_over.add(seat)
                 player.is_bot = True
                 player.bot_difficulty = difficulty
                 active = session.game.active_seats()
@@ -294,7 +295,7 @@ class LifecycleService:
                 # Nobody is left to play against; don't let bots finish it alone.
                 await session.cancel(reason, forfeiter_seat=seat)
                 return True
-            session._record_system(
+            session.log.system(
                 "bot_takeover",
                 {
                     "seat": seat,
@@ -305,7 +306,18 @@ class LifecycleService:
                 },
             )
             try:
-                move = await session.game.bot_move(difficulty, seat)
+                allowed = pending.allowed_sources if pending else None
+                sources = frozenset(allowed) if allowed is not None else None
+                description = None
+                if pending is not None:
+                    description = pending.description or pending.line_description
+                request = BotRequest(
+                    seat=seat,
+                    difficulty=difficulty,
+                    sources=sources,
+                    description=description,
+                )
+                move = await session.game.bot_move(request)
                 await session.force_move(seat, move)
             except Exception as e:
                 log.exception(
@@ -316,12 +328,12 @@ class LifecycleService:
                 )
                 await session.cancel("error", forfeiter_seat=seat)
 
-        elif consequence == TimeoutConsequence.REMOVED:
+        elif consequence == ResolvedTimeoutConsequence.REMOVED:
             try:
                 session.game.remove_player(seat)
                 session._removed_seats.add(seat)
                 # Logs a system "forfeit" row even when the seat wasn't waiting
-                # on a recorded input (Mafia uses record=False).
+                # on a pending input (request path logs the forfeit row).
                 await session.force_forfeit(seat, reason)
             except Exception as e:
                 log.exception(
@@ -332,7 +344,7 @@ class LifecycleService:
                 )
                 await session.cancel("error", forfeiter_seat=seat)
 
-        elif consequence == TimeoutConsequence.GAME_ENDS:
+        elif consequence == ResolvedTimeoutConsequence.GAME_ENDS:
             return await session.cancel(reason, forfeiter_seat=seat)
 
         return True

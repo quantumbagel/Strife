@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from strife.engine.requests import TimeoutConsequence as InputTimeoutConsequence
+from strife.logging import get_logger
 
-class TimeoutConsequence(StrEnum):
+log = get_logger("lifecycle.timeout")
+
+
+class ResolvedTimeoutConsequence(StrEnum):
     BOT_TAKEOVER = "bot_takeover"
     REMOVED = "removed"
     GAME_ENDS = "game_ends"
@@ -12,6 +17,25 @@ class TimeoutConsequence(StrEnum):
     STRIKE = "strike"
     # until="any" window closed with nobody acting: no seat is blamed.
     PHASE_ENDS = "phase_ends"
+
+
+def _input_consequence(session: object, seat: int) -> InputTimeoutConsequence:
+    pending = getattr(session, "pending", {}).get(seat)
+    if pending is not None and getattr(pending, "timeout_consequence", None) is not None:
+        value = pending.timeout_consequence
+    elif hasattr(session, "turn_timeout_consequence"):
+        value = session.turn_timeout_consequence
+    else:
+        return InputTimeoutConsequence.ABANDON
+    if isinstance(value, InputTimeoutConsequence):
+        return value
+    if isinstance(value, str):
+        try:
+            return InputTimeoutConsequence(value)
+        except ValueError:
+            log.error("Unknown timeout_consequence '%s'; using abandon", value)
+            return InputTimeoutConsequence.ABANDON
+    return InputTimeoutConsequence.ABANDON
 
 
 def will_removal_end_game(session: object, seat: int) -> bool:
@@ -33,16 +57,16 @@ def will_removal_end_game(session: object, seat: int) -> bool:
 
 def determine_consequence(
     session: object, seat: int, reason: str = "timeout"
-) -> TimeoutConsequence:
+) -> ResolvedTimeoutConsequence:
     """Determine what consequence applies when ``seat`` fails to make a move (timeout or forfeit)."""
     # Forfeits skip interactive options and bot takeover, going straight to removal or end game.
     if reason == "forfeit":
         meta = session.game.metadata  # type: ignore[attr-defined]
         if meta.supports_player_removal:
             if will_removal_end_game(session, seat):
-                return TimeoutConsequence.GAME_ENDS
-            return TimeoutConsequence.REMOVED
-        return TimeoutConsequence.GAME_ENDS
+                return ResolvedTimeoutConsequence.GAME_ENDS
+            return ResolvedTimeoutConsequence.REMOVED
+        return ResolvedTimeoutConsequence.GAME_ENDS
 
     # Default timeout consequence logic
     pending = getattr(session, "pending", {}).get(seat)
@@ -50,44 +74,36 @@ def determine_consequence(
     # A shared "first to act" window isn't any one seat's turn, so expiry
     # closes the window instead of punishing whoever is listed first.
     if pending is not None and getattr(pending, "until", "all") == "any":
-        return TimeoutConsequence.PHASE_ENDS
+        return ResolvedTimeoutConsequence.PHASE_ENDS
 
-    consequence_type = "abandon"
-    if pending and getattr(pending, "timeout_consequence", None) is not None:
-        consequence_type = pending.timeout_consequence
-    elif hasattr(session, "turn_timeout_consequence"):
-        consequence_type = session.turn_timeout_consequence
+    consequence_type = _input_consequence(session, seat)
 
-    if consequence_type == "skip":
-        return TimeoutConsequence.SKIP
-    if consequence_type == "auto_pass":
-        return TimeoutConsequence.AUTO_PASS
-    if consequence_type in ("game_ends", "game_end"):
-        return TimeoutConsequence.GAME_ENDS
+    if consequence_type == InputTimeoutConsequence.SKIP:
+        return ResolvedTimeoutConsequence.SKIP
+    if consequence_type == InputTimeoutConsequence.AUTO_PASS:
+        return ResolvedTimeoutConsequence.AUTO_PASS
+    if consequence_type == InputTimeoutConsequence.GAME_ENDS:
+        return ResolvedTimeoutConsequence.GAME_ENDS
 
-    if consequence_type == "strike":
-        players = getattr(session, "players", [])
-        if 0 <= seat < len(players):
-            player = players[seat]
-            max_strikes = getattr(session, "turn_timeout_max_strikes", 3)
-            if player.timeout_strikes + 1 < max_strikes:
-                return TimeoutConsequence.STRIKE
+    if consequence_type == InputTimeoutConsequence.STRIKE:
+        strikes = getattr(session, "timeout_strikes", {}).get(seat, 0)
+        max_strikes = getattr(session, "turn_timeout_max_strikes", 3)
+        if strikes + 1 < max_strikes:
+            return ResolvedTimeoutConsequence.STRIKE
 
     meta = session.game.metadata  # type: ignore[attr-defined]
 
     if meta.supports_bots:
-        return TimeoutConsequence.BOT_TAKEOVER
+        return ResolvedTimeoutConsequence.BOT_TAKEOVER
 
     if meta.supports_player_removal:
         if will_removal_end_game(session, seat):
-            return TimeoutConsequence.GAME_ENDS
-        return TimeoutConsequence.REMOVED
+            return ResolvedTimeoutConsequence.GAME_ENDS
+        return ResolvedTimeoutConsequence.REMOVED
 
-    return TimeoutConsequence.GAME_ENDS
+    return ResolvedTimeoutConsequence.GAME_ENDS
 
 
-def timeout_consequence(session: object, seat: int) -> TimeoutConsequence:
+def timeout_consequence(session: object, seat: int) -> ResolvedTimeoutConsequence:
     """Predict what happens when ``seat`` times out (mirrors lifecycle abandon logic)."""
     return determine_consequence(session, seat, reason="timeout")
-
-

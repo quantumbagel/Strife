@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from contextvars import ContextVar
 from datetime import datetime
-import random
 from typing import Any, Literal, TYPE_CHECKING
 from weakref import WeakKeyDictionary
 
-from strife.engine.log import reject_system_source
-from strife.engine.players import Move, Player
+from strife.engine.requests import TimeoutConsequence
+from strife.engine.players import Move
 from strife.presentation.components import LayoutView
 from strife.presentation.emoji import EmojiResolver
 
@@ -53,18 +51,6 @@ class LiveContext:
         return False
 
     @property
-    def rng(self) -> random.Random:
-        return self._host().game.rng
-
-    @property
-    def players(self) -> Sequence[Player]:
-        return self._host().players
-
-    @property
-    def settings(self) -> Mapping[str, object]:
-        return self._host().settings
-
-    @property
     def emoji(self) -> EmojiResolver:
         return self._host().surface.compiler.emoji
 
@@ -85,17 +71,15 @@ class LiveContext:
         *,
         actor: int,
         sources: set[str] | None = None,
-        record: bool = True,
         description: str | None = None,
         timeout_seconds: float | None = None,
-        timeout_consequence: str | None = None,
+        timeout_consequence: TimeoutConsequence | None = None,
     ) -> Move:
         self._touch()
         move = await self._host()._request_input(
             view,
             actor=actor,
             sources=sources,
-            record=record,
             description=description,
             timeout_seconds=timeout_seconds,
             timeout_consequence=timeout_consequence,
@@ -111,11 +95,10 @@ class LiveContext:
         sources: set[str] | None = None,
         until: Literal["all", "any"] = "all",
         per_seat_sources: dict[int, set[str]] | None = None,
-        record: bool = True,
         description: str | None = None,
         descriptions: dict[int, str] | None = None,
         timeout_seconds: float | None = None,
-        timeout_consequence: str | None = None,
+        timeout_consequence: TimeoutConsequence | None = None,
     ) -> dict[int, Move]:
         self._touch()
         moves = await self._host()._request_inputs(
@@ -124,7 +107,6 @@ class LiveContext:
             sources=sources,
             until=until,
             per_seat_sources=per_seat_sources,
-            record=record,
             description=description,
             descriptions=descriptions,
             timeout_seconds=timeout_seconds,
@@ -139,8 +121,7 @@ class LiveContext:
 
     async def record_event(self, source: str, arguments: dict[str, Any]) -> None:
         self._touch()
-        reject_system_source(source)
-        self._host()._append_log_entry(source, arguments)
+        self._host().log.event(source, arguments)
 
     async def respond_query(self, view: LayoutView) -> None:
         self._touch()

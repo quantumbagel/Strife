@@ -1,4 +1,15 @@
 [[release]]
+version = "1.1.0"
+date = "2026-10-04"
+summary = "Replays show every hand. AFK takeovers keep playing."
+changed = [
+  "Replays show every player's cards face-up",
+]
+fixed = [
+  "A bot taking over an AFK player's turn no longer ends the match",
+]
+
+[[release]]
 version = "1.0.3"
 date = "2026-10-04"
 summary = "Leaving keeps the table going. Bots block. Replays match."

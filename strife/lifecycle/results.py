@@ -17,13 +17,18 @@ from strife.routing import prefixes as P
 
 
 def rematch_eligible(
-    players: list[Player], removed_seats: set[int] | frozenset[int] = frozenset()
+    players: list[Player],
+    removed_seats: set[int] | frozenset[int] = frozenset(),
+    taken_over_seats: set[int] | frozenset[int] = frozenset(),
 ) -> list[Player]:
     """Humans who finished the match: not removed mid-game and not taken over by a bot."""
     return [
         p
         for p in players
-        if p.user_id and not p.is_bot and not p.taken_over and p.seat not in removed_seats
+        if p.user_id
+        and not p.is_bot
+        and p.seat not in taken_over_seats
+        and p.seat not in removed_seats
     ]
 
 
@@ -44,6 +49,7 @@ def build_results_view(
     replay_disabled: bool = False,
     match_status: str = "completed",
     removed_seats: set[int] | frozenset[int] = frozenset(),
+    taken_over_seats: set[int] | frozenset[int] = frozenset(),
 ) -> LayoutView:
     view = LayoutView()
     container = Container()
@@ -87,7 +93,7 @@ def build_results_view(
         result = outcome.results.get(player.seat, "—")
         role = f" ({player.role_key})" if player.role_key else ""
 
-        if player.taken_over and outcome.results.get(player.seat):
+        if player.seat in taken_over_seats and outcome.results.get(player.seat):
             # Matches the stored row: a bot finished this AFK seat, so the
             # result (even a win) isn't the player's.
             res_emoji = emoji.get("error")
@@ -109,14 +115,14 @@ def build_results_view(
             emoji,
             user_id=player.user_id,
             display_name=player.display_name,
-            is_bot=player.is_bot and not player.taken_over,
-            bot_difficulty=None if player.taken_over else player.bot_difficulty,
+            is_bot=player.is_bot and player.seat not in taken_over_seats,
+            bot_difficulty=None if player.seat in taken_over_seats else player.bot_difficulty,
         )
         lines.append(f"• {name}{role} {forward} {res_emoji} {res_text}")
 
     container.add_text(TextDisplay(markdown_content="\n".join(lines)))
 
-    total = len(rematch_eligible(players, removed_seats))
+    total = len(rematch_eligible(players, removed_seats, taken_over_seats))
     if rematch_restarting:
         rematch_label = text.get("match.rematch_restarting")
     elif total > 0:

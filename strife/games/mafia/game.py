@@ -4,15 +4,13 @@ import asyncio
 from collections import Counter
 
 from strife.engine import (
+    BotRequest,
     Game,
     GameContext,
     GameOutcome,
     Move,
     Player,
-    ReplayBuilder,
-    ReplayFrame,
     forfeit_outcome,
-    iter_replay,
     run_cpu,
     select_value,
 )
@@ -63,6 +61,59 @@ class Mafia(Game):
         if key is None:
             return ctx.emoji.get("user", base=True)
         return ctx.emoji.get(key)
+
+    def _roster_with_roles(self, ctx: GameContext) -> str:
+        forward = ctx.emoji.get("forward", base=True)
+        lines = []
+        for player in self.players:
+            role = self.role.get(player.seat, "unknown")
+            role_emoji = self._role_emoji(ctx, role)
+            name = member_line(
+                ctx.emoji,
+                user_id=player.user_id,
+                display_name=player.display_name,
+                is_bot=player.is_bot,
+                bot_difficulty=player.bot_difficulty,
+            )
+            if player.seat in self.alive:
+                status = "Alive"
+            else:
+                reason = self.death_reason.get(player.seat, "out")
+                status = f"Dead ({reason})"
+            bullet = ctx.emoji.get("bullet", base=True)
+            lines.append(
+                f"{bullet} {name} {forward} {role_emoji} **{role.title()}** · {status}"
+            )
+        return "**Players (roles revealed)**\n" + ("\n".join(lines) if lines else "_None_")
+
+    def render_replay(self, ctx: GameContext, live_view: LayoutView | None) -> LayoutView | None:
+        view = LayoutView()
+        container = Container()
+        if self._phase == "day":
+            message_lead(
+                container,
+                "Discussion and vote.",
+                emoji=ctx.emoji,
+                prefix_emoji="loading",
+            )
+        else:
+            message_lead(
+                container,
+                "Night falls across the town...",
+                emoji=ctx.emoji,
+                prefix_emoji="timer",
+            )
+        container.add_text(TextDisplay(markdown_content=self._roster_with_roles(ctx)))
+        history_block = self._history_block(ctx)
+        if history_block:
+            container.add_separator()
+            container.add_text(TextDisplay(markdown_content=history_block))
+        view.add_container(container)
+        return view
+
+    def replay_label(self) -> str | None:
+        label = "Day" if self._phase == "day" else "Night"
+        return f"{label} {self.day}"
 
     def _alive_roster(self, ctx: GameContext, alive: set[int] | None = None) -> str:
         seats = sorted(alive if alive is not None else self.alive)
@@ -240,8 +291,7 @@ class Mafia(Game):
             sources=None,
             per_seat_sources=per_seat_sources,
             until="all",
-            record=False,
-        )
+                    )
         self._night_views = {}
         for move in moves.values():
             self._normalize_target(move)
@@ -305,7 +355,7 @@ class Mafia(Game):
     async def _day(self, ctx: GameContext) -> None:
         self._phase = "day"
         day_view = self._day_view(ctx)
-        votes = await ctx.request_inputs(day_view, actors=set(self.alive), sources={"vote"}, until="all", record=False)
+        votes = await ctx.request_inputs(day_view, actors=set(self.alive), sources={"vote"}, until="all")
         tally: Counter[int] = Counter()
         for seat, move in votes.items():
             target = self._normalize_target(move)
@@ -327,138 +377,6 @@ class Mafia(Game):
             "history": list(self.history),
             "votes": {seat: m.args.get("target") for seat, m in votes.items()}
         })
-
-    async def parse_replay(self, moves: list[Move], ctx: GameContext) -> list[ReplayFrame]:
-        def _get_name(seat: int | None) -> str:
-            if seat is None:
-                return "Unknown"
-            return self.players[seat].mention
-
-        roles: dict[int, str] = {}
-        alive = set(p.seat for p in self.players)
-        history: list[str] = []
-        builder = ReplayBuilder(ctx)
-
-        for step in iter_replay(moves, self.players):
-            move = step.move
-            if move.source == "forfeit" and move.actor_seat is not None:
-                alive.discard(move.actor_seat)
-            if not step.frame:
-                continue
-            args = move.args
-
-            if move.source == "roles_assigned":
-                roles = {int(k): v for k, v in args["roles"].items()}
-                for p in self.players:
-                    p.role_key = roles.get(p.seat)
-                view = LayoutView()
-                container = Container()
-                message_lead(container, "The game is about to begin.", emoji=ctx.emoji, prefix_emoji="user")
-                forward = ctx.emoji.get("forward", base=True)
-                role_lines = [
-                    f"{ctx.emoji.get('bullet', base=True)} {_get_name(p.seat)} {forward} {self._role_emoji(ctx, roles.get(p.seat, 'unknown'))} **{roles.get(p.seat, 'unknown').title()}**"
-                    for p in self.players
-                ]
-                container.add_text(TextDisplay(markdown_content="\n".join(role_lines)))
-                view.add_container(container)
-                builder.add(step, view, label="Setup")
-
-            elif move.source == "night_start":
-                view = self._public_view_replay(
-                    ctx,
-                    lead="Night falls across the town...",
-                    prefix_emoji="timer",
-                    alive=alive,
-                    history=history,
-                )
-                builder.add(step, view, label=f"Night {args['day']}")
-
-            elif move.source in ("kill", "protect", "investigate"):
-                actor_seat = move.actor_seat
-                role = roles.get(actor_seat, "unknown") if actor_seat is not None else "unknown"
-                target_val = args.get("target")
-                target_seat = int(target_val) if (target_val is not None and target_val != "skip") else None
-                view = LayoutView()
-                container = Container()
-                message_lead(
-                    container,
-                    f"{_get_name(actor_seat)} chose to **{move.source}** {_get_name(target_seat) if target_seat is not None else 'no one'}",
-                    emoji=ctx.emoji,
-                    prefix_emoji=self._ROLE_EMOJI.get(role, "user"),
-                )
-                view.add_container(container)
-                builder.add(step, view, label="Night Action", actor_seat=actor_seat)
-
-            elif move.source == "detective_reveal":
-                view = LayoutView()
-                container = Container()
-                message_lead(
-                    container,
-                    f"{_get_name(int(args['detective']))} found {_get_name(int(args['target']))} is **{args['alignment'].upper()}**",
-                    emoji=ctx.emoji,
-                    prefix_emoji="detective",
-                )
-                view.add_container(container)
-                builder.add(step, view, label="Investigation", actor_seat=int(args["detective"]))
-
-            elif move.source == "night_outcome":
-                victim = args.get("victim")
-                history = args.get("history", [])
-                if victim is not None:
-                    alive.discard(int(victim))
-                    status = f"{_get_name(int(victim))} was eliminated during the night."
-                else:
-                    status = "No one was eliminated during the night."
-                view = LayoutView()
-                container = Container()
-                message_lead(
-                    container,
-                    status,
-                    emoji=ctx.emoji,
-                    prefix_emoji="success" if victim is None else "error",
-                )
-                container.add_separator()
-                container.add_text(TextDisplay(markdown_content=self._alive_roster(ctx, alive)))
-                view.add_container(container)
-                builder.add(step, view, label="Morning")
-
-            elif move.source == "day_outcome":
-                lynched = args.get("lynched")
-                history = args.get("history", [])
-                votes_cast = args.get("votes", {})
-                if lynched is not None:
-                    alive.discard(int(lynched))
-                view = LayoutView()
-                container = Container()
-                if lynched is not None:
-                    status = f"{_get_name(int(lynched))} was lynched by popular vote."
-                    status_emoji = "error"
-                else:
-                    status = "The vote was skipped or tied. No one was lynched."
-                    status_emoji = "hmm"
-                message_lead(container, status, emoji=ctx.emoji, prefix_emoji=status_emoji)
-                vote_lines = []
-                for voter_str, target_str in votes_cast.items():
-                    voter_seat = int(voter_str)
-                    target_seat = int(target_str) if (target_str is not None and target_str != "skip") else None
-                    vote_lines.append(
-                        f"{ctx.emoji.get('bullet', base=True)} {_get_name(voter_seat)} voted for **{_get_name(target_seat) if target_seat is not None else 'Skip'}**"
-                    )
-                if vote_lines:
-                    container.add_text(TextDisplay(markdown_content="\n".join(vote_lines)))
-                    container.add_separator()
-                container.add_text(TextDisplay(markdown_content=self._alive_roster(ctx, alive)))
-                view.add_container(container)
-                builder.add(step, view, label="Lynch Vote")
-
-            elif move.is_game and move.source in ("winner", "game_end"):
-                builder.add(
-                    step,
-                    self._game_over_view(ctx, args.get("winning_faction", "unknown"), roles),
-                    label="Game Over",
-                )
-
-        return builder.build()
 
     def _public_view_replay(
         self,
@@ -655,9 +573,11 @@ class Mafia(Game):
         assert outcome is not None
         return outcome
 
-    async def bot_move(self, difficulty: str, seat: int) -> Move:
-        source, args = await run_cpu(choose_mafia_move, self, difficulty, seat)
-        return Move(actor_seat=seat, source=source, args=args)
+    async def bot_move(self, request: BotRequest) -> Move:
+        source, args = await run_cpu(
+            choose_mafia_move, self, request.difficulty, request.seat
+        )
+        return Move(actor_seat=request.seat, source=source, args=args)
 
     async def handle_query(self, seat: int, source: str, ctx: GameContext) -> bool:
         if source == "peek":

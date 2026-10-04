@@ -15,7 +15,7 @@ def choose_mafia_move(game: Mafia, difficulty: str, seat: int) -> tuple[str, dic
             if not targets:
                 targets = alive
             if difficulty == "easy":
-                target = game.rng.choice(targets)
+                target = game.bot_rng.choice(targets)
             else:
                 detectives = [s for s in targets if game.role[s] == "detective"]
                 doctors = [s for s in targets if game.role[s] == "doctor"]
@@ -27,11 +27,11 @@ def choose_mafia_move(game: Mafia, difficulty: str, seat: int) -> tuple[str, dic
                     target = targets[0]
             return "kill", {"target": target}
         if role == "doctor":
-            target = seat if difficulty != "easy" else game.rng.choice(alive)
+            target = seat if difficulty != "easy" else game.bot_rng.choice(alive)
             return "protect", {"target": target}
         if role == "detective":
             candidates = [s for s in alive if s != seat]
-            target = game.rng.choice(candidates) if candidates else seat
+            target = game.bot_rng.choice(candidates) if candidates else seat
             return "investigate", {"target": target}
     candidates = [s for s in alive if s != seat]
     if role == "mafia" and difficulty != "easy":
@@ -39,7 +39,7 @@ def choose_mafia_move(game: Mafia, difficulty: str, seat: int) -> tuple[str, dic
     if not candidates:
         return "vote", {"target": "skip"}
     if difficulty == "easy":
-        target = game.rng.choice(candidates)
+        target = game.bot_rng.choice(candidates)
     else:
         target = candidates[0]
     return "vote", {"target": target}

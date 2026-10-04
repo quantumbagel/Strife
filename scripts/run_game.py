@@ -13,147 +13,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from strife.engine.context import ReplayContext
-from strife.engine.log import LogEntryKind, reject_system_source
-from strife.engine.players import Move, Player
+from strife.engine.players import Player
 from strife.engine.registry import GameRegistry
-from strife.presentation.components import LayoutView, query_sources
+from strife.engine.replay import run_replay
+from strife.engine.testing import MockContext
 from strife.presentation.emoji import EmojiResolver
-
-
-class MockContext:
-    """Minimal GameContext for local game iteration."""
-
-    def __init__(
-        self,
-        *,
-        rng: random.Random,
-        players: list[Player],
-        settings: dict,
-        emoji: EmojiResolver,
-        scripted_moves: list[tuple[int, str, dict]] | None = None,
-    ) -> None:
-        self.rng = rng
-        self.players = players
-        self.settings = settings
-        self.emoji = emoji
-        self.started_at = None
-        self.is_replay = False
-        self._scripted = list(scripted_moves or [])
-        self._script_index = 0
-        self._update_count = 0
-        self.recorded: list[Move] = []
-        self._turn_index = 0
-
-    def is_bot(self, seat: int) -> bool:
-        return self.players[seat].is_bot
-
-    async def update(self, view: LayoutView) -> None:
-        self._update_count += 1
-        print(f"[update #{self._update_count}] view with {len(view.children)} top-level node(s)")
-
-    async def request_input(
-        self,
-        view: LayoutView,
-        *,
-        actor: int,
-        sources: set[str] | None = None,
-        record: bool = True,
-        description: str | None = None,
-        timeout_seconds: float | None = None,
-        timeout_consequence: str | None = None,
-    ) -> Move:
-        await self.update(view)
-        if sources is not None:
-            sources = set(sources) - query_sources(view)
-        if self.players[actor].is_bot:
-            print(f"[bot] seat {actor} has no bot_move in CLI; using first source")
-            source = sorted(sources)[0] if sources else "pass"
-            move = Move(actor_seat=actor, source=source, args={}, turn_index=self._turn_index)
-            if record:
-                self.recorded.append(move)
-                self._turn_index += 1
-            return move
-        if self._script_index < len(self._scripted):
-            seat, source, args = self._scripted[self._script_index]
-            self._script_index += 1
-            if seat != actor:
-                print(f"Warning: scripted move actor {seat} != expected {actor}", file=sys.stderr)
-            print(f"[input] seat {actor} -> {source} {args}")
-            move = Move(actor_seat=actor, source=source, args=args, turn_index=self._turn_index)
-            if record:
-                self.recorded.append(move)
-                self._turn_index += 1
-            return move
-
-        label = self.players[actor].display_name
-        allowed = sorted(sources) if sources else ["(any)"]
-        print(f"\nAction: {label} (seat {actor})")
-        print(f"Allowed sources: {', '.join(allowed)}")
-        while True:
-            source = input("Enter move source (or 'quit'): ").strip()
-            if source == "quit":
-                raise SystemExit(0)
-            if sources is not None and source not in sources:
-                print(f"Invalid source. Choose from: {', '.join(sorted(sources))}")
-                continue
-            move = Move(actor_seat=actor, source=source, args={}, turn_index=self._turn_index)
-            if record:
-                self.recorded.append(move)
-                self._turn_index += 1
-            return move
-
-    async def request_inputs(
-        self,
-        view: LayoutView,
-        *,
-        actors: set[int],
-        sources: set[str] | None = None,
-        until: str = "all",
-        per_seat_sources: dict[int, set[str]] | None = None,
-        record: bool = True,
-        description: str | None = None,
-        descriptions: dict[int, str] | None = None,
-        timeout_seconds: float | None = None,
-        timeout_consequence: str | None = None,
-    ) -> dict[int, Move]:
-        await self.update(view)
-        results: dict[int, Move] = {}
-        for seat in sorted(actors):
-            seat_sources = (
-                per_seat_sources.get(seat, sources) if per_seat_sources else sources
-            )
-            results[seat] = await self.request_input(
-                view,
-                actor=seat,
-                sources=seat_sources,
-                record=record,
-                timeout_seconds=timeout_seconds,
-                timeout_consequence=timeout_consequence,
-            )
-            if until == "any":
-                break
-        return results
-
-    async def send_private(self, seat: int, view: LayoutView) -> None:
-        print(f"[private -> seat {seat}] DM with {len(view.children)} top-level node(s)")
-
-    async def record_event(self, source: str, arguments: dict) -> None:
-        reject_system_source(source)
-        print(f"[event] {source} {arguments}")
-        self.recorded.append(
-            Move(
-                actor_seat=None,
-                source=source,
-                args=arguments,
-                kind=LogEntryKind.GAME,
-                turn_index=self._turn_index,
-            )
-        )
-        self._turn_index += 1
-
-    async def respond_query(self, view: LayoutView) -> None:
-        print(f"[query] view with {len(view.children)} top-level node(s)")
+from strife.session.types import guard_bot_move
 
 
 def _load_emoji() -> EmojiResolver:
@@ -194,12 +59,13 @@ async def _run(args: argparse.Namespace) -> None:
     settings = {opt.key: opt.default for opt in meta.settings}
     rng = random.Random(args.seed)
     game = game_cls(players, settings, rng)
+    guard_bot_move(game)
     ctx = MockContext(
-        rng=rng,
-        players=players,
-        settings=settings,
+        game,
         emoji=_load_emoji().bind_game(args.game_key),
-        scripted_moves=_parse_scripted(args.move) if args.move else None,
+        script=_parse_scripted(args.move) if args.move else None,
+        interactive=True,
+        verbose=True,
     )
 
     print(
@@ -213,15 +79,24 @@ async def _run(args: argparse.Namespace) -> None:
     if outcome.summary:
         print("Summary:", outcome.summary)
 
-    if args.replay and meta.supports_replay:
-        replay_game = game_cls(list(players), settings, random.Random(args.seed))
-        replay_ctx = ReplayContext(
-            rng=random.Random(args.seed),
-            players=list(players),
-            settings=settings,
+    if args.replay:
+        replay_players = [
+            Player(
+                seat=p.seat,
+                user_id=p.user_id,
+                display_name=p.display_name,
+                is_bot=p.is_bot,
+                bot_difficulty=p.bot_difficulty,
+            )
+            for p in players
+        ]
+        replay_game = game_cls(replay_players, settings, random.Random(args.seed))
+        frames = await run_replay(
+            replay_game,
+            ctx.recorded,
             emoji=ctx.emoji,
+            started_at=None,
         )
-        frames = await replay_game.parse_replay(ctx.recorded, replay_ctx)
         print(f"\n=== Replay ({len(frames)} frame(s)) ===")
         for frame in frames:
             print(f"  [{frame.index}] {frame.turn_label}")

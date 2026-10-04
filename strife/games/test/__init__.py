@@ -68,7 +68,6 @@ META = GameMetadata(
         RoleSpec("tester", "Tester", "You are a tester. Interact with everything to verify features."),
         RoleSpec("observer", "Observer", "You observe and verify that the system runs smoothly."),
     ),
-    supports_player_removal=True,
 )
 
 TestGame.metadata = META

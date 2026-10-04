@@ -23,7 +23,6 @@ META = GameMetadata(
         BotSpec("hard", "Presses accusations; spy blends in without guessing"),
     ),
     bot_takeover_difficulty="medium",
-    supports_player_removal=True,
 )
 
 Spyfall.metadata = META

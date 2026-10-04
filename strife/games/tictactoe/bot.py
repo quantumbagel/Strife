@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 def choose_move(game: TicTacToe, difficulty: str, seat: int) -> tuple[int, int]:
     empties = [(c, r) for r in range(3) for c in range(3) if game.board[game._idx(c, r)] is None]
     if difficulty == "easy":
-        return game.rng.choice(empties)
+        return game.bot_rng.choice(empties)
     if difficulty == "medium":
         move = _find_win(game, seat) or _find_win(game, 1 - seat)
         if move:
@@ -18,8 +18,8 @@ def choose_move(game: TicTacToe, difficulty: str, seat: int) -> tuple[int, int]:
             return (1, 1)
         corners = [(c, r) for c, r in empties if c in {0, 2} and r in {0, 2}]
         if corners:
-            return game.rng.choice(corners)
-        return game.rng.choice(empties)
+            return game.bot_rng.choice(corners)
+        return game.bot_rng.choice(empties)
     return _minimax_move(game, seat)
 
 
@@ -47,7 +47,7 @@ def _minimax_move(game: TicTacToe, seat: int) -> tuple[int, int]:
             best_moves = [(col, row)]
         elif score == best_score:
             best_moves.append((col, row))
-    return game.rng.choice(best_moves)
+    return game.bot_rng.choice(best_moves)
 
 
 def _minimax(game: TicTacToe, seat: int, bot: int, maximizing: bool) -> int:

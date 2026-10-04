@@ -2,6 +2,19 @@
 # Newest first. Game API versions go in platform.toml.
 
 [[release]]
+version = "1.1.0"
+date = "2026-10-04"
+summary = "Replays rebuilt from the real game; old replays retired."
+changed = [
+  "Replays are rebuilt from the game itself, so they always match what happened",
+  "Matches played before this update can no longer be replayed",
+  "Profile action counts include every choice a player made",
+]
+fixed = [
+  "A bot taking over for an AFK player can no longer make an illegal move",
+]
+
+[[release]]
 version = "1.0.6"
 date = "2026-10-04"
 summary = "Private replays and profiles, clearer lobby errors, restart cleanup."

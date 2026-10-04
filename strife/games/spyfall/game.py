@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from strife.engine.context import GameContext, ReplayFrame
+from strife.engine import BotRequest
+from strife.engine.context import GameContext
 from strife.engine.game import Game
 from strife.engine.outcomes import forfeit_outcome
 from strife.engine.workers import run_cpu
 from strife.engine.players import GameOutcome, Move
-from strife.engine.replay import ReplayBuilder, iter_replay
 from strife.games.spyfall.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -157,8 +157,7 @@ class Spyfall(Game):
                     "pass",
                 },
                 until="any",
-                record=False,
-            )
+                            )
             if not moves:
                 self.turn += 1
                 self._passes.clear()
@@ -260,8 +259,7 @@ class Spyfall(Game):
                     actors=voters,
                     sources={"vote_guilty", "vote_innocent"},
                     until="all",
-                    record=False,
-                )
+                                    )
 
                 winner_faction = self._winner_after_removal()
                 if winner_faction is not None:
@@ -365,6 +363,27 @@ class Spyfall(Game):
         )
         assert outcome is not None
         return outcome
+
+    def render_replay(self, ctx: GameContext, live_view: LayoutView | None) -> LayoutView | None:
+        if self.accused_player is not None:
+            view = self._voting_view_replay(ctx)
+        else:
+            view = self._discussion_view_replay(ctx)
+        container = view.containers[0]
+        add_section(
+            container,
+            "Revealed",
+            (
+                f"{ctx.emoji.get('learn', base=True)} **Location:** {self.location}\n"
+                f"{ctx.emoji.get('game', base=True)} **Spy:** {self._name(self.spy)}"
+            ),
+        )
+        return view
+
+    def replay_label(self) -> str | None:
+        if self.accused_player is not None:
+            return "Accusation vote"
+        return f"Round {self.turn}"
 
     def _discussion_view_replay(self, ctx: GameContext) -> LayoutView:
         view = LayoutView()
@@ -544,65 +563,15 @@ class Spyfall(Game):
         view.add_container(container)
         return view
 
-    async def parse_replay(self, moves: list[Move], ctx: GameContext) -> list[ReplayFrame]:
-        self.alive = {p.seat for p in self.players}
-        self.forfeited = set()
-        self.history = []
-        self.accused_player = None
-        self.accuser = None
-        self.votes = {}
-        self.turn = 1
-        self.pending_accuse = {}
-        self.pending_guess = {}
-        self._passes = set()
-        self._accused_seats = set()
-
-        builder = ReplayBuilder(ctx)
-        for step in iter_replay(moves, self.players):
-            move = step.move
-            if move.source == "forfeit" and move.actor_seat is not None and move.args.get("removed"):
-                self.remove_player(move.actor_seat)
-            if not step.frame:
-                continue
-            args = move.args
-            if move.source == "setup":
-                self.location = args["location"]
-                self.spy = args["spy"]
-                builder.add(step, self._discussion_view_replay(ctx), label="Setup")
-            elif move.source == "accusation_start":
-                self.accuser = args.get("accuser", move.actor_seat)
-                self.accused_player = args["accused"]
-                self.votes = {}
-                if self.accuser is not None:
-                    self._accused_seats.add(self.accuser)
-                builder.add(step, self._voting_view_replay(ctx), label="Accusation")
-            elif move.source == "accusation_resolve":
-                self.votes = {int(k): v for k, v in args["votes"].items()}
-                self.history = args.get("history", [])
-                self.accused_player = None
-                self.accuser = None
-                builder.add(step, self._discussion_view_replay(ctx), label="Accusation Resolved")
-            elif move.source == "spy_guess":
-                self.history = args.get("history", [])
-                view = LayoutView()
-                container = Container()
-                message_lead(container, f"Guess: {args['location']}", emoji=ctx.emoji)
-                view.add_container(container)
-                builder.add(step, view, label="Spy Guess")
-            elif move.source == "limit_reached":
-                self.history = args.get("history", [])
-                builder.add(step, self._discussion_view_replay(ctx), label="Time Up")
-        return builder.build()
-
-    async def bot_move(self, difficulty: str, seat: int) -> Move:
+    async def bot_move(self, request: BotRequest) -> Move:
         # A mock turn choose method:
         # Converts buttons (vote_guilty, vote_innocent) to the args used by choose_move
-        move = await run_cpu(choose_move, self, difficulty, seat)
+        move = await run_cpu(choose_move, self, request.difficulty, request.seat)
         if move.source == "vote":
             # Translate to the source button click name
             val = move.args.get("value")
             source = "vote_guilty" if val == "guilty" else "vote_innocent"
-            return Move(actor_seat=seat, source=source, args=move.args)
+            return Move(actor_seat=request.seat, source=source, args=move.args)
         return move
 
     async def handle_query(self, seat: int, source: str, ctx: GameContext) -> bool:

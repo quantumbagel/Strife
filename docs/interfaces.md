@@ -171,7 +171,7 @@ Do not import `discord`, `strife.session`, `strife.bot`, matchmaking, routing, p
 3. Export `GAME` from `__init__.py`
 4. `GameMetadata.key` equals `plugin.toml` key. Host stamps versions from the manifest
 5. `play(ctx) -> GameOutcome` always
-6. Missing `parse_replay` / `bot_move` / `remove_player` when declared **skips registration**. Default `supports_replay=True` — use `TurnBasedGame` or set `supports_replay=False`
+6. Missing `bot_move` / `remove_player` when declared **skips registration**
 
 Scaffold: `python scripts/scaffold_game.py <key> "Title"`. Third-party: **Use this template** on `templates/game-plugin/`, then `strife/install <git-url>`. Local: `python scripts/run_game.py <key>`.
 
@@ -181,10 +181,12 @@ Games type against the protocol. They never construct a host.
 
 | Member | Purpose |
 |--------|---------|
-| `ctx.rng` / `self.rng` | Same seeded RNG on every host |
-| `ctx.players`, `ctx.settings`, `ctx.emoji` | Seats, settings, emoji keys |
+| `self.rng` | Seeded rules RNG (replays match live). Do not use for bot AI |
+| `self.bot_rng` | Unseeded RNG for bot heuristics only |
+| `self.players`, `self.settings`, `self.setting(key)` | Seats and lobby settings (on `Game`, not `ctx`) |
+| `ctx.emoji` | Emoji keys |
 | `ctx.started_at`, `ctx.is_replay`, `ctx.is_bot(seat)` | Clock, hide controls, skip DMs |
-| `self.setting(key)` | On **`Game`**, not `ctx`. Metadata default fallback |
+| `ctx.turn_timeout_seconds` | Host per-turn budget (`float`); `None` on CLI/replay (no clock) |
 | `await ctx.update(view)` | Refresh the board |
 | `await ctx.request_input(...)` | One actor |
 | `await ctx.request_inputs(...)` | Simultaneous / first-to-act. `until="any"` returns `{}` if its window times out with nobody acting (no seat is penalized) |
@@ -192,37 +194,37 @@ Games type against the protocol. They never construct a host.
 | `await ctx.record_event(source, arguments)` | One `game` log row. Rejects system names |
 | `await ctx.respond_query(view)` | Only inside `handle_query` |
 
-`timeout_seconds` / `timeout_consequence` / `per_seat_sources` / `descriptions` are real API. Chess clocks and Coup skip-on-timeout use them. Replay never runs `request_*`.
+`timeout_seconds` / `timeout_consequence` / `per_seat_sources` / `descriptions` are real API. Chess clocks and Coup skip-on-timeout use them. Replay answers `request_*` from the log.
 
 Optional: `handle_query`, `final_view`, `active_seats()` (timeout/forfeit — override if seats can leave).
 
-Don’t call `bot_move` from `play()`. Call `request_input` so bots, humans, CLI, and the log share one path. Caps: `bot_move` 10s, `handle_query` 5s, `final_view` 5s, `parse_replay` 15s. `play()` with no context progress for `play_hang_seconds` (default 45s) is cancelled. CPU-bound work: `run_cpu`.
+Don’t call `bot_move` from `play()`. Call `request_input` so bots, humans, CLI, and the log share one path. Caps: `bot_move` 10s, `handle_query` 5s, `final_view` 5s, `run_replay` 15s. `play()` with no context progress for `play_hang_seconds` (default 45s) is cancelled. CPU-bound work: `run_cpu` (thread pool; softens event-loop stalls; true parallelism only when work releases the GIL).
 
 ### 5.4 Buttons and recording
 
 | Kind | How | In the log? |
 |------|-----|-------------|
-| Solo move | `request_input(..., sources={...})` | Yes (`game`), unless `record=False` |
-| Group input | `request_inputs(..., record=False)` then one `record_event` | One `game` row |
+| Solo move | `request_input(..., sources={...})` | Yes (`game`) |
+| Group input | `request_inputs(...)` then one `record_event` | One `game` row per input + one event row |
 | Query | `query=True` + `handle_query` | No |
 | Link | `ButtonStyle.LINK` | No |
 | System | Host only | `forfeit`, `game_end`, `bot_takeover`, `timeout` |
 
 `query=True` is stripped from allowed sources. The router calls `handle_query` only for query controls. `add_controls` is a no-op when `ctx.is_replay`.
 
-`Move.args` is the field. `arguments` is a read-only alias. Slash **name** is the `source`.
+`Move.args` holds payload fields. Slash **name** is the `source`.
 
-`parse_replay` iterates the full log, applies only `move.is_game`, and uses the same rules path as live. Don’t write a second engine.
+Replay re-runs `play()` with log-driven `ReplayContext`; every input is logged on live and CLI hosts.
 
 ### 5.5 Three hosts
 
-| Host | Class | `record=False` | Bots | Timeouts | Queries |
-|------|--------|----------------|------|----------|---------|
-| Live | `LiveContext` | Honor | via `request_input` | Honor | `handle_query` |
-| CLI | `MockContext` | Honor | Scripted / first source | Passed through | Optional |
-| Replay | `ReplayContext` | n/a | n/a | n/a | n/a |
+| Host | Class | Bots | Timeouts | Queries |
+|------|--------|------|----------|---------|
+| Live | `LiveContext` | via `request_input` | Honor | `handle_query` |
+| CLI | `strife.engine.testing.MockContext` | Real `bot_move` + `validate_bot_move`; same `resolve_sources` as live | Passed through | Optional |
+| Replay | `ReplayContext` | n/a | n/a | n/a |
 
-CLI `--replay` and live `recorded_moves` should be the same kind of stream.
+CLI and live share `MatchLog` semantics (`record` / `event` / `system`); `--replay` calls `run_replay` on the same `Move` stream as `recorded_moves`.
 
 `LiveContext` must not expose `_session` or Discord objects to game code.
 
@@ -242,7 +244,7 @@ Compiler limits fail in the host. CLI should surface the same `LayoutError`.
 4. `request_inputs` must not share one `last_move_at` across waiters. AFK must not fire the same seat twice.
 5. Don’t hold `lobby.lock` across Discord HTTP. Set `starting`, drop the lock, re-check.
 6. Presentation that games import stays Discord-free. Thread headers, compiler, `ViewSurface`, HMAC, and owner badges live outside plugin import paths.
-7. Tests pin `Move` shapes, `query=True`, `record=False` on all three hosts, plugin.toml version stamps, occupancy rollback, and at least one social game’s CLI log vs `parse_replay`.
+7. Tests pin `Move` shapes, `query=True`, plugin.toml version stamps, occupancy rollback, and replay via `run_replay`.
 
 ## 7. Still open
 
@@ -265,7 +267,7 @@ Repos are one module. A match row exists only at finalize. Intended: insert on s
 
 Plugins run in-process. Live install does not pip-install; missing extras load on the next boot.
 
-Coup / Mafia / Spyfall / Liar’s Dice each reimplement phase windows, peek, and group `record=False`. There is no host helper for “phase + group resolution + peek.”
+Coup / Mafia / Spyfall / Liar’s Dice each reimplement phase windows, peek, and group `request_inputs` + `record_event`. There is no host helper for “phase + group resolution + peek.”
 
 Chess `bot_move` still `asyncio.sleep(0.5)` on the event loop; Liar’s Dice `sleep(4)` in `play()`. Replay Chess render is not offloaded.
 

@@ -47,6 +47,7 @@ def validate_class_name(name: str) -> str | None:
 GAME_PY = '''from __future__ import annotations
 
 from strife.engine import (
+    BotRequest,
     BotSpec,
     GameContext,
     GameOutcome,
@@ -77,17 +78,16 @@ class {cls}(TurnBasedGame):
     def __init__(self, players, settings, rng):
         super().__init__(players, settings, rng)
         self.current = 0
-        self.reset()
-
-    def reset(self) -> None:
-        self.current = 0
 
     def apply_move(self, move: Move) -> None:
         if move.source == "pass" and move.actor_seat is not None:
             self.current = 1 - move.actor_seat
 
-    def replay_action_status(self, ctx: GameContext, next_actor: int) -> str:
-        return action_status(ctx, self.players[next_actor])
+    def replay_label(self) -> str | None:
+        return f"Turn {{self.current + 1}}"
+
+    def render_replay(self, ctx: GameContext, live_view: LayoutView | None) -> LayoutView | None:
+        return live_view
 
     async def play(self, ctx: GameContext) -> GameOutcome:
         while True:
@@ -122,8 +122,8 @@ class {cls}(TurnBasedGame):
         view.add_container(container)
         return view
 
-    async def bot_move(self, difficulty: str, seat: int) -> Move:
-        return Move(actor_seat=seat, source="pass", args={{}})
+    async def bot_move(self, request: BotRequest) -> Move:
+        return Move(actor_seat=request.seat, source="pass", args={{}})
 '''
 
 INIT_PY = '''from {module}.game import {cls}

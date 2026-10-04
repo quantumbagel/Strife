@@ -29,7 +29,6 @@ META = GameMetadata(
     ),
     settings=(),
     slash_moves=(),
-    supports_player_removal=False,
 )
 
 ConnectFour.metadata = META

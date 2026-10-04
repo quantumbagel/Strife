@@ -1,4 +1,12 @@
 [[release]]
+version = "1.1.0"
+date = "2026-10-04"
+summary = "Replays reveal every role."
+changed = [
+  "Replays show every player's role and each night's outcome, labeled by day and night",
+]
+
+[[release]]
 version = "1.0.3"
 date = "2026-10-04"
 summary = "Fairer small tables. Split mafia votes still kill."

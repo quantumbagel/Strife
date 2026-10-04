@@ -6,7 +6,7 @@ from typing import Any
 
 import asyncpg
 
-from strife.engine.log import LogEntryKind, infer_log_kind
+from strife.engine.log import LOG_FORMAT, LogEntryKind, infer_log_kind
 from strife.engine.players import Move as MoveRecord
 
 
@@ -48,6 +48,7 @@ class MatchDetail(MatchSummary):
     thread_id: int | None = None
     seed: int = 0
     settings: dict[str, Any] = field(default_factory=dict)
+    log_format: int = 1
     players: list[MatchPlayer] = field(default_factory=list)
 
 
@@ -172,8 +173,8 @@ class MatchRepository:
                             """
                             INSERT INTO matches(
                                 code, game_key, guild_id, thread_id, seed, settings,
-                                status, outcome, total_turns, started_at, ended_at
-                            ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                                status, outcome, total_turns, started_at, ended_at, log_format
+                            ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
                             RETURNING id, code
                             """,
                             code,
@@ -187,6 +188,7 @@ class MatchRepository:
                             record.total_turns,
                             record.started_at,
                             record.ended_at,
+                            LOG_FORMAT,
                         )
                         match_id = row["id"]
                         final_code = row["code"]
@@ -392,6 +394,7 @@ class MatchRepository:
             thread_id=row["thread_id"],
             seed=row["seed"],
             settings=row["settings"] or {},
+            log_format=int(row.get("log_format", 1)),
             started_at=row["started_at"],
             ended_at=row["ended_at"],
             players=[

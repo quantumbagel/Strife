@@ -8,9 +8,11 @@ from typing import Any, Literal
 import discord
 
 from strife.engine.errors import SessionError
+from strife.engine.inputs import make_bot_request, resolve_sources
+from strife.engine.requests import TimeoutConsequence
 from strife.engine.log import LogEntryKind
 from strife.engine.players import Move
-from strife.presentation.components import LayoutView, move_sources, query_sources
+from strife.presentation.components import LayoutView
 from strife.routing.router import InteractionInput
 from strife.session.types import PendingInput, QUERY_TIMEOUT_SECONDS, log
 
@@ -18,26 +20,6 @@ _UNTIL_ANY_BOT_DELAY_SECONDS = 8.0
 
 
 class SessionInputMixin:
-    def _resolve_sources(
-        self,
-        view: LayoutView,
-        sources: set[str] | None,
-        *,
-        per_seat_sources: dict[int, set[str]] | None = None,
-        seat: int | None = None,
-    ) -> set[str] | None:
-        queries = query_sources(view)
-        if per_seat_sources is not None and seat is not None:
-            base = per_seat_sources.get(seat, sources)
-        else:
-            base = sources
-        if base is None:
-            allowed = move_sources(view)
-        else:
-            allowed = set(base)
-        return allowed - queries if allowed else allowed
-
-
     async def submit(self, inp: InteractionInput) -> bool:
         """Record a click. Returns True when other humans still have to act."""
         async with self.lock:
@@ -151,8 +133,8 @@ class SessionInputMixin:
                     )
                 )
                 self.pending.pop(seat, None)
-            if not (delivered and pending.record):
-                self._record_system("forfeit", args, actor_seat=seat)
+            if not delivered:
+                self.log.system("forfeit", args, actor_seat=seat)
         await self.refresh_header()
 
 
@@ -180,19 +162,22 @@ class SessionInputMixin:
         *,
         actor: int,
         sources: set[str] | None,
-        record: bool = True,
         description: str | None = None,
         timeout_seconds: float | None = None,
-        timeout_consequence: str | None = None,
+        timeout_consequence: TimeoutConsequence | None = None,
     ) -> Move:
-        allowed = self._resolve_sources(view, sources)
         if self.players[actor].is_bot:
-            difficulty = self.players[actor].bot_difficulty or "medium"
-            move = await self.game.bot_move(difficulty, actor)
+            request = make_bot_request(
+                self.players,
+                view,
+                actor,
+                sources=sources,
+                description=description,
+            )
+            move = await self.game.bot_move(request)
             await self._update_surface(view)
-            if record:
-                async with self.lock:
-                    self._record_move(move)
+            async with self.lock:
+                self.log.record(move)
             return move
 
         loop = asyncio.get_running_loop()
@@ -202,6 +187,7 @@ class SessionInputMixin:
         self._timeout_generation[actor] = generation
         seconds = timeout_seconds if timeout_seconds is not None else self.turn_timeout_seconds
         deadline = now + seconds
+        allowed = resolve_sources(view, sources)
         async with self.lock:
             self.pending[actor] = PendingInput(
                 {actor},
@@ -212,7 +198,6 @@ class SessionInputMixin:
                 timeout_consequence=timeout_consequence,
                 deadline_at=deadline,
                 timeout_generation=generation,
-                record=record,
             )
             self.last_move_at = now
             self._timeout_warned.pop(actor, None)
@@ -220,9 +205,8 @@ class SessionInputMixin:
         await self._update_surface(view)
         await self.refresh_header()
         move = await future
-        if record:
-            async with self.lock:
-                self._record_move(move)
+        async with self.lock:
+            self.log.record(move)
         return move
 
 
@@ -234,11 +218,10 @@ class SessionInputMixin:
         sources: set[str] | None,
         until: Literal["all", "any"],
         per_seat_sources: dict[int, set[str]] | None = None,
-        record: bool = True,
         description: str | None = None,
         descriptions: dict[int, str] | None = None,
         timeout_seconds: float | None = None,
-        timeout_consequence: str | None = None,
+        timeout_consequence: TimeoutConsequence | None = None,
     ) -> dict[int, Move]:
         results: dict[int, Move] = {}
         humans = {seat for seat in actors if not self.players[seat].is_bot}
@@ -246,11 +229,16 @@ class SessionInputMixin:
 
         if until == "any" and not humans:
             # All actors are bots: pick one at random and return only that move.
-            bot_seat = self.game.rng.choice(sorted(bots))
-            difficulty = self.players[bot_seat].bot_difficulty or "medium"
-            move = await self.game.bot_move(difficulty, bot_seat)
-            if record:
-                self._record_move(move)
+            bot_seat = self._host_rng.choice(sorted(bots))
+            request = make_bot_request(
+                self.players,
+                view,
+                bot_seat,
+                sources=sources,
+                description=description,
+            )
+            move = await self.game.bot_move(request)
+            self.log.record(move)
             return {bot_seat: move}
 
         loop = asyncio.get_running_loop()
@@ -266,7 +254,7 @@ class SessionInputMixin:
             for seat in humans:
                 future: asyncio.Future[Move] = loop.create_future()
                 futures[seat] = future
-                seat_sources = self._resolve_sources(
+                seat_sources = resolve_sources(
                     view, sources, per_seat_sources=per_seat_sources, seat=seat
                 )
                 generation = self._timeout_generation.get(seat, 0) + 1
@@ -284,7 +272,6 @@ class SessionInputMixin:
                     deadline_at=deadline,
                     timeout_generation=generation,
                     until=until,
-                    record=record,
                     phase_timeout=phase_timeout,
                 )
                 self._timeout_inflight.discard(seat)
@@ -301,9 +288,16 @@ class SessionInputMixin:
 
                 async def _bot_contender() -> tuple[int, Move]:
                     await asyncio.sleep(delay)
-                    bot_seat = self.game.rng.choice(sorted(bots))
-                    difficulty = self.players[bot_seat].bot_difficulty or "medium"
-                    move = await self.game.bot_move(difficulty, bot_seat)
+                    bot_seat = self._host_rng.choice(sorted(bots))
+                    request = make_bot_request(
+                        self.players,
+                        view,
+                        bot_seat,
+                        sources=sources,
+                        per_seat_sources=per_seat_sources,
+                        description=description,
+                    )
+                    move = await self.game.bot_move(request)
                     return bot_seat, move
 
                 bot_waiter = asyncio.create_task(_bot_contender())
@@ -324,8 +318,7 @@ class SessionInputMixin:
                         if future.done() and not future.cancelled():
                             move = future.result()
                             results[seat] = move
-                            if record:
-                                self._record_move(move)
+                            self.log.record(move)
                         elif not future.done():
                             future.cancel()
                         self.pending.pop(seat, None)
@@ -339,8 +332,7 @@ class SessionInputMixin:
                         if exc is None:
                             bot_seat, move = bot_waiter.result()
                             results[bot_seat] = move
-                            if record:
-                                self._record_move(move)
+                            self.log.record(move)
                         else:
                             log.exception(
                                 "until=any bot move failed",
@@ -348,7 +340,7 @@ class SessionInputMixin:
                             )
                     if not results and phase_timeout is not None and phase_timeout in done:
                         # The window closed with nobody acting; no seat is to blame.
-                        self._record_system(
+                        self.log.system(
                             "timeout",
                             {"reason": "timeout", "until": "any", "seats": sorted(humans)},
                         )
@@ -366,19 +358,26 @@ class SessionInputMixin:
 
         # until == "all": collect bot moves alongside human futures.
         for seat in bots:
-            difficulty = self.players[seat].bot_difficulty or "medium"
-            move = await self.game.bot_move(difficulty, seat)
+            request = make_bot_request(
+                self.players,
+                view,
+                seat,
+                sources=sources,
+                per_seat_sources=per_seat_sources,
+                description=(
+                    descriptions.get(seat) if descriptions is not None else description
+                ),
+            )
+            move = await self.game.bot_move(request)
             results[seat] = move
-            if record:
-                async with self.lock:
-                    self._record_move(move)
+            async with self.lock:
+                self.log.record(move)
 
         for seat, future in futures.items():
             move = await future
             async with self.lock:
                 results[seat] = move
-                if record:
-                    self._record_move(move)
+                self.log.record(move)
                 self.pending.pop(seat, None)
         await self.refresh_header()
         return results

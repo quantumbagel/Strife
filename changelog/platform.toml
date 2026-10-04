@@ -2,6 +2,30 @@
 # Bump when GameContext or types games import change.
 
 [[release]]
+version = "2.0.0"
+date = "2026-10-04"
+summary = "Replays re-run play(); bots get the request; one input core."
+added = [
+  "Game.render_replay(ctx, live_view) — defaults to the live board; override to reveal hidden information. Game.replay_label() for frame labels",
+  "BotRequest (seat, difficulty, allowed sources, description); bot_move(request) replaces bot_move(difficulty, seat)",
+  "TimeoutConsequence enum, ctx.turn_timeout_seconds, and self.bot_rng for bot decisions",
+  "strife.engine.testing.MockContext — drive a game from a script with real bots and the same log as live",
+]
+changed = [
+  "Replays re-run play() against the stored log, so self.rng is for rules only; bots and the host never draw from it",
+  "Every input is logged; record_event rows are checkpoints, and a replay that disagrees with them is unavailable instead of wrong",
+  "The host rejects bot moves outside the request's allowed sources",
+  "supports_player_removal is inferred from overriding remove_player",
+  "run_cpu docs: it is a thread pool, so pure Python still holds the GIL",
+]
+removed = [
+  "Game.parse_replay, ReplayBuilder, iter_replay, ReplayStep, is_terminal_replay_move, and GameMetadata.supports_replay — every game is replayable",
+  "The record parameter of request_input / request_inputs",
+  "ctx.rng, ctx.players, ctx.settings — use self.rng, self.players, self.settings / self.setting()",
+  "MoveRecord and Move.arguments; TurnBasedGame.reset, render_final, render_final_replay, replay_initial_status, replay_action_status; Player.display, timeout_strikes, taken_over",
+]
+
+[[release]]
 version = "1.0.2"
 date = "2026-10-04"
 summary = "Blameless first-to-act timeouts, logged removals."

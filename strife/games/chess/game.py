@@ -10,7 +10,9 @@ import chess.variant
 import resvg_py
 
 from strife.engine import (
+    BotRequest,
     BotSpec,
+    TimeoutConsequence,
     GameContext,
     GameOutcome,
     Move,
@@ -20,13 +22,10 @@ from strife.engine import (
     Player,
     PlayerCount,
     PlayerOrder,
-    ReplayBuilder,
-    ReplayFrame,
     SettingOption,
     SlashMove,
     TurnBasedGame,
     game_metadata_from,
-    iter_replay,
     run_cpu,
 )
 from datetime import datetime, timezone
@@ -366,11 +365,9 @@ class Chess(TurnBasedGame):
                 actor = self.current
                 self.clocks[actor] = max(0.0, self.clocks[actor] - elapsed)
 
-    def replay_action_status(self, ctx: GameContext, next_actor: int) -> str:
-        player = self.players[next_actor]
-        color = "White" if next_actor == 0 else "Black"
-        status = f"{color} ({player.mention}) to act"
-        return status
+    def replay_label(self) -> str | None:
+        n = len(self.board.move_stack)
+        return "Start" if n == 0 else f"Move {n}"
 
     def _action_status(self, ctx: GameContext, seat: int) -> str:
         player = self.players[seat]
@@ -420,7 +417,13 @@ class Chess(TurnBasedGame):
     async def play(self, ctx: GameContext) -> GameOutcome:
         error_msg = None
         if self.time_control_active and self.last_move_time is None:
-            self.last_move_time = datetime.now(timezone.utc).replace(tzinfo=None)
+            if ctx.started_at is not None:
+                stamped = ctx.started_at
+                if stamped.tzinfo is not None:
+                    stamped = stamped.astimezone(timezone.utc).replace(tzinfo=None)
+                self.last_move_time = stamped
+            else:
+                self.last_move_time = datetime.now(timezone.utc).replace(tzinfo=None)
         turn_deadline: float | None = None
         turn_seat: int | None = None
 
@@ -438,7 +441,7 @@ class Chess(TurnBasedGame):
                 if self.time_control_active:
                     turn_deadline = time.monotonic() + self.clocks[seat]
                 else:
-                    host_timeout = getattr(ctx, "turn_timeout_seconds", None)
+                    host_timeout = ctx.turn_timeout_seconds
                     budget = float(host_timeout) if host_timeout else 90.0
                     turn_deadline = time.monotonic() + budget
 
@@ -463,7 +466,9 @@ class Chess(TurnBasedGame):
             if self.time_control_active:
                 remaining = max(0.01, min(remaining or 0.01, self.clocks[seat]))
             timeout_seconds = remaining
-            timeout_consequence = "game_ends" if self.time_control_active else None
+            timeout_consequence = (
+                TimeoutConsequence.GAME_ENDS if self.time_control_active else None
+            )
 
             move = await ctx.request_input(
                 view,
@@ -471,8 +476,7 @@ class Chess(TurnBasedGame):
                 sources=sources,
                 timeout_seconds=timeout_seconds,
                 timeout_consequence=timeout_consequence,
-                record=False,
-            )
+                            )
 
             if move.is_system:
                 continue
@@ -493,48 +497,6 @@ class Chess(TurnBasedGame):
                 error_msg = f"Invalid or illegal move: '{move_text}'. Try again."
                 if self.time_control_active:
                     self._consume_thinking_time(move)
-
-    async def parse_replay(self, moves: list[Move], ctx: GameContext) -> list[ReplayFrame]:
-        self.reset()
-        if ctx.started_at:
-            t = ctx.started_at
-            if t.tzinfo is not None:
-                t = t.astimezone(timezone.utc).replace(tzinfo=None)
-            self.last_move_time = t
-
-        builder = ReplayBuilder(ctx)
-        builder.initial(
-            self.render_replay(
-                ctx,
-                lead=self.replay_initial_status(ctx, moves),
-                prefix_emoji="loading",
-            ),
-            label="Start",
-        )
-
-        turn = 0
-        for step in iter_replay(moves, self.players):
-            if step.move.is_game:
-                self.apply_move(step.move)
-            else:
-                self._apply_system_timeout(step.move)
-            if not step.frame:
-                continue
-            turn += 1
-            if step.terminal:
-                builder.add(step, self.render_final_replay(ctx), label="Final")
-                break
-            builder.add(
-                step,
-                self.render_replay(
-                    ctx,
-                    lead=self.replay_action_status(ctx, self.current),
-                    prefix_emoji="loading",
-                ),
-                label=self.replay_label(turn),
-            )
-
-        return builder.build()
 
     def _render_base(
         self,
@@ -610,44 +572,19 @@ class Chess(TurnBasedGame):
         view.add_container(container)
         return view
 
-    def render_replay(
-        self,
-        ctx: GameContext,
-        *,
-        title: str | None = None,
-        status: str | None = None,
-        status_emoji: str | None = None,
-        lead: str | None = None,
-    ) -> LayoutView:
-        view, container = self._render_base(
-            ctx, title=title, status=status, status_emoji=status_emoji, lead=lead
-        )
-        view.add_container(container)
-        return view
-
-    def render_final(self, ctx: GameContext) -> LayoutView:
-        outcome = self._outcome()
-        status = outcome.description if outcome else "Game over."
-        return self.render(ctx, title="Final", status=status, status_emoji="error")
-
-    def render_final_replay(self, ctx: GameContext) -> LayoutView:
-        outcome = self._outcome()
-        status = outcome.description if outcome else "Game over."
-        return self.render_replay(ctx, title="Final", status=status, status_emoji="error")
-
-    async def bot_move(self, difficulty: str, seat: int) -> Move:
+    async def bot_move(self, request: BotRequest) -> Move:
         await asyncio.sleep(0.5)
         legal = list(self.board.legal_moves)
         if not legal:
-            return Move(actor_seat=seat, source="resign", args={})
+            return Move(actor_seat=request.seat, source="resign", args={})
 
-        if difficulty == "capture-priority":
+        if request.difficulty == "capture-priority":
             captures = [m for m in legal if self.board.is_capture(m)]
             if captures:
-                chosen = self.rng.choice(captures)
+                chosen = self.bot_rng.choice(captures)
             else:
-                chosen = self.rng.choice(legal)
+                chosen = self.bot_rng.choice(legal)
         else:
-            chosen = self.rng.choice(legal)
+            chosen = self.bot_rng.choice(legal)
 
-        return Move(actor_seat=seat, source=chosen.uci(), args={})
+        return Move(actor_seat=request.seat, source=chosen.uci(), args={})

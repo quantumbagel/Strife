@@ -213,8 +213,7 @@ class GameMetadata:
     settings: tuple[SettingOption, ...] = ()
     slash_moves: tuple[SlashMove, ...] = ()
     roles: tuple[RoleSpec, ...] = ()
-    supports_player_removal: bool = False
-    supports_replay: bool = True
+    supports_player_removal: bool | None = None
     how_to_play_link: str | None = None
 
     @property

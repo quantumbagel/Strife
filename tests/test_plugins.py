@@ -54,7 +54,6 @@ from strife.engine import Game, GameOutcome, PlayerCount, game_metadata_from
     version="9.9.9",
     platform_version="0.0.1",
     player_count=PlayerCount(fixed=2),
-    supports_replay=False,
 )
 class {cls}(Game):
     async def play(self, ctx):

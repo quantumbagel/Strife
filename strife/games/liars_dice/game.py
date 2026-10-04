@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from strife.engine.context import GameContext, ReplayFrame
+from strife.engine import BotRequest
+from strife.engine.context import GameContext
 from strife.engine.game import Game
 from strife.engine.workers import run_cpu
 from strife.engine.players import GameOutcome, Move
-from strife.engine.replay import ReplayBuilder, iter_replay
 from strife.games.liars_dice.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -345,7 +345,7 @@ class LiarsDice(Game):
                 )
 
                 sources = {"quantity_select", "value_select", "bid", "challenge"}
-                move = await ctx.request_input(view, actor=seat, sources=sources, record=False)
+                move = await ctx.request_input(view, actor=seat, sources=sources)
 
                 if move.source == "forfeit":
                     forfeiter = move.actor_seat if move.actor_seat is not None else seat
@@ -453,7 +453,11 @@ class LiarsDice(Game):
                 bot_difficulty=p.bot_difficulty,
             )
             if p.seat in self.alive:
-                dice = die_mark * self.dice_counts[p.seat]
+                hand = self.hands.get(p.seat)
+                if hand:
+                    dice = self._format_hand(ctx, hand)
+                else:
+                    dice = die_mark * self.dice_counts[p.seat]
                 roster_lines.append(f"{name}: {dice}")
             else:
                 roster_lines.append(f"{name}: {ctx.emoji.get('error', base=True)} Out")
@@ -474,6 +478,19 @@ class LiarsDice(Game):
 
         view.add_container(container)
         return view
+
+    def render_replay(self, ctx: GameContext, live_view: LayoutView | None) -> LayoutView | None:
+        if self.current in self.alive:
+            lead = self._action_status(ctx, self.current)
+        else:
+            lead = "Bidding round"
+        return self._round_view_replay(ctx, lead=lead, prefix_emoji="loading")
+
+    def replay_label(self) -> str | None:
+        if self.current_bid is not None:
+            q, v = self.current_bid
+            return f"Bid {q}×{v}"
+        return "Bidding"
 
     def _round_view(
         self,
@@ -602,90 +619,8 @@ class LiarsDice(Game):
         view.add_container(container)
         return view
 
-    async def parse_replay(self, moves: list[Move], ctx: GameContext) -> list[ReplayFrame]:
-        self.dice_counts = {p.seat: self.settings.get("dice_count", 5) for p in self.players}
-        self.hands = {}
-        self.alive = {p.seat for p in self.players}
-        self.current_bid = None
-        self.last_bidder = None
-        self.history = []
-        self.last_reveal = None
-        builder = ReplayBuilder(ctx)
-        for step in iter_replay(moves, self.players):
-            move = step.move
-            args = move.args
-            if move.source == "forfeit" and move.actor_seat is not None and args.get("removed"):
-                self.remove_player(int(move.actor_seat))
-            if not step.frame:
-                continue
-            if move.source == "round_start":
-                self.hands = {int(k): list(v) for k, v in args["hands"].items()}
-                self.dice_counts = {int(k): v for k, v in args["dice_counts"].items()}
-                self.current_bid = None
-                self.last_bidder = None
-                builder.add(step, self._round_view_replay(ctx, lead="Dice rolled!"), label="Round Start")
-            elif move.source == "bid":
-                self.current_bid = (args["quantity"], args["value"])
-                bidder = args.get("player", move.actor_seat)
-                if bidder is not None:
-                    bidder = int(bidder)
-                self.last_bidder = bidder
-                bidder_name = (
-                    self.players[bidder].mention
-                    if bidder is not None
-                    else "someone"
-                )
-                builder.add(
-                    step,
-                    self._round_view_replay(
-                        ctx,
-                        lead=f"Bid submitted by {bidder_name}",
-                    ),
-                    label="Bid",
-                )
-            elif move.source == "challenge_resolve":
-                bid_raw = args["bid"]
-                bid = (int(bid_raw[0]), int(bid_raw[1]))
-                actual_count = int(args["actual_count"])
-                if "hands" in args:
-                    captured_hands = {int(k): list(v) for k, v in args["hands"].items()}
-                else:
-                    captured_hands = {
-                        reveal_seat: list(hand)
-                        for reveal_seat, hand in self.hands.items()
-                        if reveal_seat in self.alive
-                    }
-                is_liar = bool(args.get("is_liar", actual_count < bid[0]))
-                self.last_reveal = {
-                    "verdict": is_liar,
-                    "hands": captured_hands,
-                    "bid": bid,
-                    "actual_count": actual_count,
-                }
-                self.history = list(args.get("history", []))
-                loser = args["loser"]
-                self.dice_counts[loser] -= 1
-                if self.dice_counts[loser] == 0:
-                    self.alive.discard(loser)
-                    self.hands.pop(loser, None)
-                view = LayoutView()
-                container = Container()
-                message_lead(container, args["verdict"], emoji=ctx.emoji)
-                add_body(
-                    container,
-                    self._reveal_text(
-                        ctx,
-                        hands=captured_hands,
-                        bid=bid,
-                        actual_count=actual_count,
-                    ),
-                )
-                view.add_container(container)
-                builder.add(step, view, label="Challenge")
-        return builder.build()
-
-    async def bot_move(self, difficulty: str, seat: int) -> Move:
-        move = await run_cpu(choose_move, self, difficulty, seat)
+    async def bot_move(self, request: BotRequest) -> Move:
+        move = await run_cpu(choose_move, self, request.difficulty, request.seat)
         if move.source == "bid":
             self.pending_quantity = move.args.get("quantity")
             self.pending_value = move.args.get("value")

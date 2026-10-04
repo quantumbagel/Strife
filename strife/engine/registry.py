@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import pkgutil
 import random
@@ -20,12 +21,6 @@ def _method_overridden(game_cls: type[Game], name: str) -> bool:
 
 def _validate_capabilities(game_cls: type[Game], metadata: GameMetadata) -> bool:
     ok = True
-    if metadata.supports_replay and not _method_overridden(game_cls, "parse_replay"):
-        log.error(
-            "Game %s declares supports_replay but does not implement parse_replay()",
-            game_cls.__name__,
-        )
-        ok = False
     if metadata.supports_bots and not _method_overridden(game_cls, "bot_move"):
         log.error(
             "Game %s declares bot difficulties but does not implement bot_move()",
@@ -82,6 +77,12 @@ class GameRegistry:
                 )
                 return
             metadata = game_cls.metadata
+            if metadata.supports_player_removal is None:
+                removal = _method_overridden(game_cls, "remove_player")
+            else:
+                removal = metadata.supports_player_removal
+            metadata = dataclasses.replace(metadata, supports_player_removal=removal)
+            game_cls.metadata = metadata  # type: ignore[attr-defined]
             if not hasattr(metadata, "key") or not metadata.key:
                 log.error(
                     "Failed to register game module %s: Metadata is missing 'key' attribute.",

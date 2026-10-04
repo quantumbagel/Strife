@@ -22,7 +22,6 @@ META = GameMetadata(
         BotSpec("medium", "Uses owned roles and targets threats"),
         BotSpec("hard", "Aggressive coups, steals, and challenges"),
     ),
-    supports_player_removal=True,
 )
 
 Coup.metadata = META

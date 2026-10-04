@@ -13,13 +13,22 @@ from strife.persistence.repositories import MatchDetail, MatchRepository, MoveRe
 from strife.presentation.compiler import Compiler
 from strife.presentation.user_error import UserErrorPresenter
 from strife.presentation.modals import PageJumpModal
-from strife.engine.context import ReplayContext
+from strife.engine.log import LOG_FORMAT
 from strife.engine.players import Player
 from strife.engine.registry import GameRegistry
+from strife.engine.replay import ReplayDivergence, run_replay
 from strife.replay.view import build_replay_view
 from strife.routing import prefixes as P
 
 log = get_logger("replay.service")
+
+
+class ReplayFormatTooOld(Exception):
+    """Stored match log predates the current replay format."""
+
+    def __init__(self, match_id: int) -> None:
+        self.match_id = match_id
+        super().__init__(f"Match {match_id} log format too old for replay")
 
 
 class ReplayLoadError(Exception):
@@ -92,6 +101,8 @@ class ReplayService:
         detail = await self.matches.get(match_id)
         if detail is None:
             return None
+        if detail.log_format < LOG_FORMAT:
+            raise ReplayFormatTooOld(match_id)
         move_records = await self.moves.list_for_match(match_id)
         players = [
             Player(
@@ -109,23 +120,35 @@ class ReplayService:
                 detail.game_key, players, detail.settings, detail.seed
             )
             game_emoji = self.compiler.emoji.bind_game(detail.game_key)
-            ctx = ReplayContext(
-                rng=game.rng,
-                players=players,
-                settings=detail.settings,
-                emoji=game_emoji,
-                started_at=detail.started_at,
-            )
             from strife.presentation.emoji_context import bind_emoji, reset_emoji
 
             token = bind_emoji(game_emoji)
             try:
                 frames = await asyncio.wait_for(
-                    game.parse_replay(move_records, ctx),
+                    run_replay(
+                        game,
+                        move_records,
+                        emoji=game_emoji,
+                        started_at=detail.started_at,
+                    ),
                     timeout=15.0,
                 )
             finally:
                 reset_emoji(token)
+        except ReplayDivergence as exc:
+            log.exception(
+                "Replay divergence for match %s (game=%s, moves=%d): %s",
+                match_id,
+                detail.game_key,
+                len(move_records),
+                exc,
+            )
+            raise ReplayLoadError(
+                match_id,
+                detail.game_key,
+                move_count=len(move_records),
+                cause=exc,
+            ) from exc
         except Exception as exc:
             log.exception(
                 "Replay load failed for match %s (game=%s, moves=%d)",
@@ -160,6 +183,9 @@ class ReplayService:
             return
         try:
             entry = await self._load_entry(detail.id)
+        except ReplayFormatTooOld:
+            await self.user_errors.send(interaction, "common.replay_old_format")
+            return
         except ReplayLoadError:
             await self.user_errors.send(interaction, "common.replay_load_failed")
             return
@@ -206,6 +232,9 @@ class ReplayService:
     ) -> None:
         try:
             entry = await self._load_entry(match_id)
+        except ReplayFormatTooOld:
+            await self.user_errors.send(interaction, "common.replay_old_format")
+            return
         except ReplayLoadError:
             await self.user_errors.send(interaction, "common.replay_load_failed")
             return

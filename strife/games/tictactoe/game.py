@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from strife.engine import (
+    BotRequest,
     BotSpec,
     GameContext,
     GameOutcome,
@@ -89,8 +90,8 @@ class TicTacToe(TurnBasedGame):
     def _turn_number(self) -> int:
         return sum(1 for v in self.board if v is not None) + 1
 
-    def replay_action_status(self, ctx: GameContext, next_actor: int) -> str:
-        return self._action_status(ctx, next_actor)
+    def replay_label(self) -> str | None:
+        return f"Move {self._turn_number()}"
 
     def _action_status(self, ctx: GameContext, seat: int) -> str:
         player = self.players[seat]
@@ -143,24 +144,6 @@ class TicTacToe(TurnBasedGame):
                     description="Draw",
                     player_descriptions={0: "Draw", 1: "Draw"},
                 )
-
-    def render_final(self, ctx: GameContext) -> LayoutView:
-        winner_seat = None
-        winning_line = None
-        for seat in (0, 1):
-            line = self._winning_line(seat)
-            if line is not None:
-                winner_seat = seat
-                winning_line = line
-                break
-        status, status_emoji = self._final_status(winner_seat)
-        return self._board_view(
-            ctx,
-            lead=status,
-            prefix_emoji=status_emoji,
-            highlight=winning_line,
-            controls=False,
-        )
 
     async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
         summary = outcome.summary or {}
@@ -251,6 +234,6 @@ class TicTacToe(TurnBasedGame):
                 return line
         return None
 
-    async def bot_move(self, difficulty: str, seat: int) -> Move:
-        col, row = await run_cpu(choose_move, self, difficulty, seat)
-        return Move(actor_seat=seat, source=f"tile_{col}{row}", args={})
+    async def bot_move(self, request: BotRequest) -> Move:
+        col, row = await run_cpu(choose_move, self, request.difficulty, request.seat)
+        return Move(actor_seat=request.seat, source=f"tile_{col}{row}", args={})
