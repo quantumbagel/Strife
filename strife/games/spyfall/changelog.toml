@@ -1,4 +1,19 @@
 [[release]]
+version = "1.0.3"
+date = "2026-10-04"
+summary = "One accusation each. Leaving keeps the table going."
+changed = [
+  "Each player may make one accusation per game, and a failed one no longer uses up a turn",
+  "A player who leaves is out; the spy leaving hands villagers the win",
+  "A player who leaves always takes a loss, even if their side wins",
+  "Vote results show on the board, and the final screen names the location",
+]
+fixed = [
+  "Spy bots vote guilty on villagers and no longer guess the location at random",
+  "Bot descriptions match what the bots do",
+]
+
+[[release]]
 version = "1.0.2"
 date = "2026-10-03"
 summary = "Bots act during mixed discussion."

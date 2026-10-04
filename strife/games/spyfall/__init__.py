@@ -18,11 +18,12 @@ META = GameMetadata(
     player_count=PlayerCount(minimum=3, maximum=8),
     player_order=PlayerOrder.RANDOM,
     bots=(
-        BotSpec("easy", "Mostly passes, rare accusations"),
-        BotSpec("medium", "Accuses more as time runs out"),
-        BotSpec("hard", "Presses accusations and guesses locations"),
+        BotSpec("easy", "Mostly passes, occasional accusations"),
+        BotSpec("medium", "Accuses more as turns run low"),
+        BotSpec("hard", "Presses accusations; spy blends in without guessing"),
     ),
     bot_takeover_difficulty="medium",
+    supports_player_removal=True,
 )
 
 Spyfall.metadata = META

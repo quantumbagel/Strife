@@ -8,14 +8,11 @@ if TYPE_CHECKING:
 
 
 def choose_move(game: Spyfall, difficulty: str, seat: int) -> Move:
-    # Check if we are in voting phase
     if game.accused_player is not None:
-        # We must vote "guilty" or "innocent"
-        # If we are the spy, we want to vote innocent if accused, or guilty on villagers
-        # To make it simple: vote guilty 60% of the time, except if we are the accused
         if seat == game.accused_player:
             return Move(actor_seat=seat, source="vote", args={"value": "innocent"})
-        
+        if seat == game.spy:
+            return Move(actor_seat=seat, source="vote", args={"value": "guilty"})
         val = "guilty" if game.rng.random() < 0.6 else "innocent"
         return Move(actor_seat=seat, source="vote", args={"value": val})
 
@@ -23,12 +20,7 @@ def choose_move(game: Spyfall, difficulty: str, seat: int) -> Move:
     pressure = 0.2 if difficulty == "easy" else 0.35 if difficulty == "medium" else 0.5
     pressure += 0.12 * max(0, game.turn - 1)
 
-    if is_spy and game.rng.random() < pressure:
-        loc = game.rng.choice(game.LOCATIONS)
-        game.pending_guess[seat] = loc
-        return Move(actor_seat=seat, source="guess_location", args={})
-
-    if game.rng.random() < pressure:
+    if not is_spy and seat not in game._accused_seats and game.rng.random() < pressure:
         others = [s for s in game.alive if s != seat]
         if others:
             target = game.rng.choice(others)
