@@ -111,6 +111,9 @@ class ConnectFour(TurnBasedGame):
             seat = self.current
             sources = {f"col_{c}" for c in self.get_valid_moves()}
             move = await self.take_turn(ctx, sources)
+            if move.source == "timeout":
+                self.current = 1 - seat
+                continue
             if not move.source.startswith("col_"):
                 continue
             line = self._winning_line(seat)
