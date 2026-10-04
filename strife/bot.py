@@ -274,6 +274,7 @@ class StrifeBot(commands.AutoShardedBot):
             encoder=encoder,
             text=self.config.text,
             user_errors=user_errors,
+            wait_until_live_resumed=self.wait_until_live_resumed,
         )
 
         register_play(self.tree, self.lobby, self.game_registry)

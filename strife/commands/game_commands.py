@@ -25,6 +25,7 @@ _SLASH_ERRORS = {
     "cannot_act": "common.cannot_act",
     "invalid_action": "errors.invalid_action",
     "not_a_player": "errors.not_a_player",
+    "match_resuming": "errors.match_resuming",
 }
 
 

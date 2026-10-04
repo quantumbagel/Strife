@@ -99,6 +99,8 @@ class SessionInputMixin:
 
     async def submit(self, inp: InteractionInput) -> bool:
         """Record a click. Returns True when other humans still have to act."""
+        if self.ctx._catching_up:
+            raise SessionError("match_resuming")
         async with self.lock:
             seat = self._seat_for_user(inp.actor.id)
             if seat is None:
@@ -139,6 +141,8 @@ class SessionInputMixin:
     async def handle_slash_command(
         self, user_id: int, command_name: str, args: dict[str, Any]
     ) -> None:
+        if self.ctx._catching_up:
+            raise SessionError("match_resuming")
         async with self.lock:
             seat = self._seat_for_user(user_id)
             if seat is None:
@@ -171,6 +175,9 @@ class SessionInputMixin:
         seat = self._seat_for_user(interaction.user.id)
         if seat is None:
             raise SessionError("not_a_player")
+        if self.ctx._catching_up:
+            # play() is still rebuilding the game; its state isn't safe to show yet.
+            raise SessionError("match_resuming")
 
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True, thinking=False)

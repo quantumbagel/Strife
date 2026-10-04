@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 from dataclasses import dataclass
 
 import discord
@@ -36,6 +38,7 @@ _RUNTIME_ERROR_CODES = {
     "query_failed": "common.error",
     "already_in_session": "errors.already_in_session",
     "game_ending": "errors.game_ending",
+    "match_resuming": "errors.match_resuming",
 }
 
 
@@ -54,6 +57,7 @@ class InteractionRouter:
         encoder: CustomIdEncoder,
         text: TextConfig,
         user_errors: UserErrorPresenter,
+        wait_until_live_resumed: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self.sessions = sessions
         self.replay = replay
@@ -66,6 +70,7 @@ class InteractionRouter:
         self.encoder = encoder
         self.text = text
         self.user_errors = user_errors
+        self._wait_until_live_resumed = wait_until_live_resumed
 
     async def _error(
         self,
@@ -143,6 +148,12 @@ class InteractionRouter:
 
     async def _handle_game(self, route, interaction: discord.Interaction) -> None:
         session = self.sessions.get_game(route.resource_id)
+        if session is None and self._wait_until_live_resumed is not None:
+            # After a restart, live matches register one by one; don't call a
+            # still-resuming match ended (that would disable its board).
+            await self._defer(interaction)
+            await self._wait_until_live_resumed()
+            session = self.sessions.get_game(route.resource_id)
         if session is None:
             await self._disable_and_report_ended(interaction, "common.game_ended")
             return
