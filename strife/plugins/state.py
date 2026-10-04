@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -55,7 +57,9 @@ def load_state(path: Path) -> PluginState:
             installed[str(key)] = InstalledSource(source=value)
             continue
         if not isinstance(value, dict):
-            raise PluginError(f"{path}: installed.{key} must be a mapping or URL string")
+            raise PluginError(
+                f"{path}: installed.{key} must be a mapping or URL string"
+            )
         source = str(value.get("source") or "")
         if not source:
             raise PluginError(f"{path}: installed.{key} is missing 'source'")
@@ -82,7 +86,24 @@ def save_state(state: PluginState) -> None:
         "installed": installed,
     }
     state.path.parent.mkdir(parents=True, exist_ok=True)
-    state.path.write_text(
+    atomic_write_text(
+        state.path,
         yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
     )
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """Write via a temp file in the same directory so a crash never leaves it truncated."""
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise

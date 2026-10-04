@@ -48,7 +48,11 @@ def import_from_path(key: str, root: Path) -> types.ModuleType:
         raise PluginError(f"Cannot import plugin {key} from {root}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[full_name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        unload_plugin_modules("installed", key, root.name)
+        raise
     return module
 
 
@@ -58,7 +62,9 @@ def import_plugin(origin: Origin, root: Path, key: str) -> types.ModuleType:
     return import_from_path(key, root)
 
 
-def unload_plugin_modules(origin: Origin, key: str, folder_name: str | None = None) -> None:
+def unload_plugin_modules(
+    origin: Origin, key: str, folder_name: str | None = None
+) -> None:
     """Drop the plugin's modules from ``sys.modules`` so the next import is fresh."""
     if origin == "builtin":
         prefix = f"strife.games.{folder_name or key}"
@@ -81,7 +87,9 @@ def game_class(module: types.ModuleType) -> type[Game] | None:
     return obj
 
 
-def stamp_versions(game_cls: type[Game], *, version: str, platform_version: str) -> None:
+def stamp_versions(
+    game_cls: type[Game], *, version: str, platform_version: str
+) -> None:
     """Overwrite listing semver from ``plugin.toml``. Authors do not set these on the class."""
     game_cls.metadata = replace(
         game_cls.metadata,

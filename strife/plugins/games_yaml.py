@@ -7,6 +7,7 @@ import yaml
 
 from strife.logging import get_logger
 from strife.plugins.errors import PluginError
+from strife.plugins.state import atomic_write_text
 
 log = get_logger("plugins.games_yaml")
 
@@ -118,9 +119,11 @@ def _read_games(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
 
 def _write_yaml(path: Path, data: dict[str, Any]) -> None:
     try:
-        path.write_text(
-            yaml.safe_dump(data, sort_keys=False, allow_unicode=True, default_flow_style=False),
-            encoding="utf-8",
+        atomic_write_text(
+            path,
+            yaml.safe_dump(
+                data, sort_keys=False, allow_unicode=True, default_flow_style=False
+            ),
         )
     except OSError as exc:
         raise PluginError(f"Cannot write {path}: {exc}") from exc

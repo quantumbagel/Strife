@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -19,7 +20,11 @@ from strife.plugins.deps import (
     pip_install,
 )
 from strife.plugins.errors import PluginError
-from strife.plugins.games_yaml import ensure_game_entry, has_game_entry, remove_game_entry
+from strife.plugins.games_yaml import (
+    ensure_game_entry,
+    has_game_entry,
+    remove_game_entry,
+)
 from strife.plugins.loader import (
     game_class,
     import_plugin,
@@ -31,6 +36,7 @@ from strife.plugins.manifest import (
     Origin,
     PluginManifest,
     PluginRecord,
+    collect_plugin_manifests,
     load_manifest,
     scan_plugin_toml,
 )
@@ -87,6 +93,7 @@ class PluginManager:
         self.games_yaml_path = games_yaml_path
         self._state: PluginState | None = None
         self._pending_installs: dict[str, _InstallUndo] = {}
+        self._builds: dict[str, str] = {}
 
     @classmethod
     def from_paths(
@@ -119,44 +126,63 @@ class PluginManager:
 
     def builtin_records(self, *, include_removed: bool = False) -> list[PluginRecord]:
         records: list[PluginRecord] = []
-        for toml_path in scan_plugin_toml(self.builtins_dir):
-            try:
-                manifest = load_manifest(toml_path)
-            except PluginError as exc:
-                log.error("%s", exc)
+        for manifest in collect_plugin_manifests(self.builtins_dir):
+            if manifest.path is None:
                 continue
             if not include_removed and self.state.is_removed(manifest.key):
                 continue
-            records.append(PluginRecord(manifest=manifest, origin="builtin", root=toml_path.parent))
+            records.append(
+                PluginRecord(manifest=manifest, origin="builtin", root=manifest.path)
+            )
         return records
 
     def installed_records(self) -> list[PluginRecord]:
         records: list[PluginRecord] = []
-        for toml_path in scan_plugin_toml(self.plugins_dir):
-            try:
-                manifest = load_manifest(toml_path)
-            except PluginError as exc:
-                log.error("%s", exc)
+        for manifest in collect_plugin_manifests(self.plugins_dir):
+            if manifest.path is None:
                 continue
-            records.append(PluginRecord(manifest=manifest, origin="installed", root=toml_path.parent))
+            records.append(
+                PluginRecord(manifest=manifest, origin="installed", root=manifest.path)
+            )
         return records
 
     def active_records(self) -> list[PluginRecord]:
         by_key: dict[str, PluginRecord] = {}
         for record in self.builtin_records():
+            existing = by_key.get(record.key)
+            if existing is not None:
+                log.error(
+                    "Duplicate plugin key '%s': %s and %s",
+                    record.key,
+                    existing.root,
+                    record.root,
+                )
+                continue
             by_key[record.key] = record
         for record in self.installed_records():
-            if record.key in by_key:
-                log.error(
-                    "Installed plugin %s collides with builtin %s; skipping installed copy",
-                    record.root,
-                    record.key,
-                )
+            existing = by_key.get(record.key)
+            if existing is not None:
+                if existing.origin == "builtin":
+                    log.error(
+                        "Installed plugin %s collides with builtin %s at %s; skipping installed copy",
+                        record.root,
+                        record.key,
+                        existing.root,
+                    )
+                else:
+                    log.error(
+                        "Duplicate plugin key '%s': %s and %s",
+                        record.key,
+                        existing.root,
+                        record.root,
+                    )
                 continue
             by_key[record.key] = record
         return list(by_key.values())
 
-    def record_for(self, key: str, *, include_removed_builtins: bool = False) -> PluginRecord | None:
+    def record_for(
+        self, key: str, *, include_removed_builtins: bool = False
+    ) -> PluginRecord | None:
         for record in self.builtin_records(include_removed=include_removed_builtins):
             if record.key == key:
                 return record
@@ -164,6 +190,10 @@ class PluginManager:
             if record.key == key:
                 return record
         return None
+
+    def build_for(self, key: str) -> str | None:
+        """Content fingerprint of a successfully loaded plugin, or ``None``."""
+        return self._builds.get(key)
 
     def builtin_keys(self) -> set[str]:
         keys: set[str] = set()
@@ -206,7 +236,11 @@ class PluginManager:
 
     def load(self, registry: GameRegistry) -> None:
         for record in self.active_records():
-            self._load_record(registry, record)
+            try:
+                self._load_record(registry, record)
+            except PluginError as exc:
+                log.error("%s", exc)
+                continue
             if self.games_yaml_path is not None and registry.contains(record.key):
                 try:
                     has_row = has_game_entry(self.games_yaml_path, record.key)
@@ -256,7 +290,11 @@ class PluginManager:
                 f"this host cannot load it"
             )
             return
-        missing = missing_dependencies(record.dependencies)
+        try:
+            missing = missing_dependencies(record.dependencies)
+        except PluginError as exc:
+            fail(f"Plugin {record.key}: {exc}", cause=exc)
+            return
         if missing:
             fail(
                 f"Plugin {record.key} is missing declared dependencies: {', '.join(missing)}"
@@ -266,6 +304,7 @@ class PluginManager:
             module = import_plugin(record.origin, record.root, record.key)
         except Exception as exc:
             log.exception("Failed to import plugin %s from %s", record.key, record.root)
+            unload_plugin_modules(record.origin, record.key, record.root.name)
             fail(f"Failed to import plugin {record.key}: {exc}", cause=exc)
             return
         try:
@@ -293,6 +332,8 @@ class PluginManager:
                 f"Plugin {record.key} did not register "
                 "(invalid metadata, missing capabilities, or duplicate key)"
             )
+            return
+        self._builds[record.key] = _plugin_build(record.root)
 
     def install_from_git(self, url: str, ref: str | None = None) -> PluginManifest:
         """Clone and register a plugin. Call ``confirm_install`` / ``rollback_install`` after loading."""
@@ -352,6 +393,7 @@ class PluginManager:
         undo = self._pending_installs.pop(key, None)
         if undo is None:
             raise PluginError(f"No pending install of '{key}' to roll back")
+        self._builds.pop(key, None)
         errors: list[str] = []
         if undo.origin == "installed":
             folder = self.plugins_dir / key
@@ -377,7 +419,9 @@ class PluginManager:
             except PluginError as exc:
                 errors.append(str(exc))
         if errors:
-            raise PluginError(f"Rollback of '{key}' was incomplete: " + "; ".join(errors))
+            raise PluginError(
+                f"Rollback of '{key}' was incomplete: " + "; ".join(errors)
+            )
 
     def update_from_git(self, key: str, ref: str | None = None) -> PluginUpdate:
         """Swap in the new files, keeping the old folder as a backup.
@@ -416,7 +460,9 @@ class PluginManager:
             backup = _swap_dir(dest, src)
             recorded_ref = _ref_to_record(use_ref, commit)
             try:
-                self.state.installed[key] = InstalledSource(source=url, ref=recorded_ref)
+                self.state.installed[key] = InstalledSource(
+                    source=url, ref=recorded_ref
+                )
                 self.save()
             except Exception:
                 _restore_backup(dest, backup)
@@ -495,6 +541,7 @@ class PluginManager:
             self.state.mark_removed(key)
         self.save()
         unload_plugin_modules(origin, key, record.root.name)
+        self._builds.pop(key, None)
         return UninstallResult(key=key, origin=origin)
 
     def status_lines(
@@ -532,8 +579,14 @@ class PluginManager:
                 origin += f" @ {src.ref}"
             flag = load_flag(record.key).removeprefix(", ")
             status = f" ({flag})" if flag else ""
-            extra = f"  deps: {', '.join(record.dependencies)}" if record.dependencies else ""
-            lines.append(f"{record.key}: installed v{record.manifest.version}{origin}{status}{extra}")
+            extra = (
+                f"  deps: {', '.join(record.dependencies)}"
+                if record.dependencies
+                else ""
+            )
+            lines.append(
+                f"{record.key}: installed v{record.manifest.version}{origin}{status}{extra}"
+            )
         return lines
 
     def _reject_key_collision(self, key: str, *, restoring_builtin: bool) -> None:
@@ -593,9 +646,38 @@ def normalize_source(value: str) -> str | None:
     return None
 
 
+def _plugin_build(root: Path) -> str:
+    """sha256 of sorted relative paths + bytes for ``*.py`` and ``plugin.toml``.
+
+    Skips ``__pycache__`` and any path component that is a dotfile/dot-dir.
+    Truncated to 16 hex characters.
+    """
+    digest = hashlib.sha256()
+    files: list[Path] = []
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root)
+        if any(part == "__pycache__" or part.startswith(".") for part in rel.parts):
+            continue
+        if path.suffix == ".py" or path.name == "plugin.toml":
+            files.append(rel)
+    for rel in sorted(files, key=lambda p: p.as_posix()):
+        digest.update(rel.as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update((root / rel).read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()[:16]
+
+
 def _ref_to_record(ref: str | None, commit: str | None) -> str | None:
     """Remember branches/tags as given; pin commit refs to the full SHA."""
-    if ref and commit and _COMMIT_RE.fullmatch(ref) and commit.lower().startswith(ref.lower()):
+    if (
+        ref
+        and commit
+        and _COMMIT_RE.fullmatch(ref)
+        and commit.lower().startswith(ref.lower())
+    ):
         return commit
     return ref
 
@@ -692,13 +774,20 @@ def _shallow_fetch_commit(url: str, dest: Path, sha: str) -> bool:
         for step, cmd in steps:
             _run_git(cmd, cwd=dest, step=step)
     except PluginError as exc:
-        log.info("Shallow fetch of %s from %s failed (%s); cloning full history", sha, url, exc)
+        log.info(
+            "Shallow fetch of %s from %s failed (%s); cloning full history",
+            sha,
+            url,
+            exc,
+        )
         return False
     return True
 
 
 def _git_head(repo: Path) -> str | None:
     try:
-        return _run_git(["git", "rev-parse", "HEAD"], cwd=repo, step="rev-parse") or None
+        return (
+            _run_git(["git", "rev-parse", "HEAD"], cwd=repo, step="rev-parse") or None
+        )
     except PluginError:
         return None

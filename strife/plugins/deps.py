@@ -49,9 +49,18 @@ def _parse_requirement(requirement: str) -> Requirement:
     if not text or text.startswith("-"):
         raise PluginError(f"Invalid requirement {requirement!r}")
     try:
-        return Requirement(text)
+        req = Requirement(text)
     except InvalidRequirement as exc:
         raise PluginError(f"Invalid requirement {requirement!r}") from exc
+    if req.url:
+        raise PluginError(
+            f"Invalid requirement {requirement!r}: URL, VCS, and path specifiers are not allowed"
+        )
+    if normalize_dist(req.name) in host_protected_distributions():
+        raise PluginError(
+            f"Invalid requirement {requirement!r}: {req.name} is a host-protected distribution"
+        )
+    return req
 
 
 def _requirement_installed(requirement: str) -> bool:
@@ -100,6 +109,11 @@ def collect_requirements(roots: Iterable[Path]) -> list[str]:
                 log.error("%s", exc)
                 continue
             for dep in manifest.dependencies:
+                try:
+                    _parse_requirement(dep)
+                except PluginError as exc:
+                    log.error("%s: %s", toml_path, exc)
+                    continue
                 key = dep.strip()
                 if key and key not in seen:
                     seen.add(key)
@@ -107,19 +121,44 @@ def collect_requirements(roots: Iterable[Path]) -> list[str]:
     return reqs
 
 
+_PIP_TIMEOUT_SECONDS = 600
+
+
 def pip_install(requirements: Sequence[str]) -> None:
     if not requirements:
         return
-    log.info("pip install %s", " ".join(requirements))
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", *requirements],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    validated: list[str] = []
+    for item in requirements:
+        _parse_requirement(item)
+        validated.append(item.strip())
+    log.info("pip install %s", " ".join(validated))
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", *validated],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=_PIP_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        tail = exc.stderr or exc.stdout or ""
+        if isinstance(tail, bytes):
+            tail = tail.decode("utf-8", errors="replace")
+        tail = (tail or "").strip()[-800:]
+        log.error(
+            "pip install timed out after %ss for %s: %s",
+            _PIP_TIMEOUT_SECONDS,
+            validated,
+            tail,
+        )
+        raise PluginError(
+            f"pip install timed out after {_PIP_TIMEOUT_SECONDS}s for {validated}"
+            + (f": {tail}" if tail else "")
+        ) from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()
-        raise PluginError(f"pip install failed for {list(requirements)}: {detail[-800:]}")
+        log.error("pip install failed for %s: %s", validated, detail[-800:])
+        raise PluginError(f"pip install failed for {validated}: {detail[-800:]}")
 
 
 def pip_uninstall(distributions: Sequence[str]) -> None:
