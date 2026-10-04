@@ -64,6 +64,7 @@ class LobbyService(
         )
         self._background_tasks: set[asyncio.Task] = set()
         self._closing = False
+        self._closing_games: set[str] = set()
         registries.on_requests_pruned = self._on_requests_pruned
 
     def _error_ctx(

@@ -86,7 +86,7 @@ class LobbyFlowMixin:
         wait = getattr(self.bot, "wait_until_live_resumed", None)
         if wait is not None:
             await wait()
-        if getattr(self, "_closing", False):
+        if self.is_closing_game(game_key):
             await self._error(interaction, "lobby.already_dead")
             return
         game_cfg = self.config.games.for_game(game_key)
@@ -170,7 +170,7 @@ class LobbyFlowMixin:
             )
             surface.set_prefix(P.LOBBY_JOIN)
             lobby.surface = surface
-            if getattr(self, "_closing", False):
+            if self.is_closing_game(game_key):
                 await self.registries.release_user(interaction.user.id)
                 await self._error(interaction, "lobby.already_dead")
                 return
@@ -380,6 +380,9 @@ class LobbyFlowMixin:
         interaction: discord.Interaction,
     ) -> bool:
         """Seat ``user_id``; on failure, tell the clicker (who may be the creator approving)."""
+        if self.is_closing_game(lobby.game_key):
+            await self._error(interaction, "lobby.already_dead")
+            return False
         if not await self.registries.reserve_user(
             user_id, UserLocation("lobby", lobby.thread_id, lobby.guild_id)
         ):
@@ -398,6 +401,13 @@ class LobbyFlowMixin:
                     lobby=lobby,
                     reason_kwargs={"name": display_name},
                 )
+            return False
+        if (
+            self.is_closing_game(lobby.game_key)
+            or self.registries.get_lobby(lobby.thread_id) is not lobby
+        ):
+            await self.registries.release_user(user_id)
+            await self._error(interaction, "lobby.already_dead")
             return False
         lobby.pending_requests.pop(user_id, None)
         lobby.members.append(LobbyMember(user_id, display_name))
@@ -746,7 +756,7 @@ class LobbyFlowMixin:
 
     def _match_start_still_open(self, lobby: Lobby) -> bool:
         return (
-            not getattr(self, "_closing", False)
+            not self.is_closing_game(lobby.game_key)
             and self.registries.get_lobby(lobby.thread_id) is lobby
         )
 
@@ -967,7 +977,8 @@ class LobbyFlowMixin:
             session._match_code = code
             if not self._match_start_still_open(lobby):
                 raise StartAborted
-            await self.registries.promote(lobby.thread_id, session)
+            if not await self.registries.promote(lobby.thread_id, session):
+                raise StartAborted
             promoted = True
             await session.start()
         except Exception as exc:
@@ -1007,11 +1018,11 @@ class LobbyFlowMixin:
                     lobby.starting = False
                     lobby.launching = False
                     if self.registries.get_lobby(lobby.thread_id) is lobby:
-                        if getattr(self, "_closing", False):
+                        if self.is_closing_game(lobby.game_key):
                             await self._discard_lobby(lobby)
                         else:
                             lobby.ready.clear()
-                if not getattr(self, "_closing", False):
+                if not self.is_closing_game(lobby.game_key):
                     try:
                         await self._error(interaction, "lobby.already_dead")
                     except Exception:
@@ -1065,6 +1076,54 @@ class LobbyFlowMixin:
         container.add_text(TextDisplay(markdown_content=body, size_style=TextSize.BODY))
         view.add_container(container)
         return view
+
+    def begin_closing_game(self, key: str) -> None:
+        self._closing_games.add(key)
+
+    def end_closing_game(self, key: str) -> None:
+        self._closing_games.discard(key)
+
+    def is_closing_game(self, key: str) -> bool:
+        return bool(getattr(self, "_closing", False)) or key in getattr(
+            self, "_closing_games", ()
+        )
+
+    async def close_lobbies_for_game(self, key: str) -> int:
+        """Discard every lobby for ``key``, including ones already starting.
+
+        Takes each matching lobby's lock (same as ``close_all_lobbies``) and
+        loops until none remain. Lobby cards are deleted after discard.
+        """
+        closed: list[Lobby] = []
+        seen: set[int] = set()
+        while True:
+            batch = [
+                lobby
+                for lobby in list(self.registries.lobbies.values())
+                if lobby.game_key == key and lobby.thread_id not in seen
+            ]
+            if not batch:
+                break
+            for lobby in batch:
+                seen.add(lobby.thread_id)
+                closed.append(lobby)
+                try:
+                    async with lobby.lock:
+                        if self.registries.get_lobby(lobby.thread_id) is lobby:
+                            await self._discard_lobby(lobby)
+                except Exception:
+                    log.exception(
+                        "Failed to release lobby %s during close", lobby.thread_id
+                    )
+        for lobby in closed:
+            if lobby.surface:
+                try:
+                    await lobby.surface.delete()
+                except Exception:
+                    log.exception(
+                        "Failed to delete lobby surface while uninstalling %s", key
+                    )
+        return len(closed)
 
     async def close_all_lobbies(self, reason_key: str = "lobby.closed_restart") -> None:
         """Close every open lobby (e.g. at shutdown): release members, mark cards closed.

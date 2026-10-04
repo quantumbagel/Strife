@@ -397,49 +397,55 @@ class AdminCommands(commands.Cog):
 
         n_sessions = n_lobbies = 0
         result = None
-        if present:
-            n_sessions, n_lobbies = await _stop_live(self.bot, key)
-            registry.unregister(key)
-            remove_slash_group_for_game(self.bot.tree, key)
-            try:
-                result = await asyncio.to_thread(manager.uninstall, key)
-            except Exception:
-                if manager.record_for(key) is not None:
-                    try:
-                        manager.load_one(registry, key)
-                    except PluginError:
-                        log.exception("Failed to reload %s after uninstall error", key)
-                    else:
-                        _register_slash(self.bot, registry, key)
-                        _sync_game_overlay(self.bot, key)
-                        _refresh_changelog(self.bot, key)
-                raise
-            _refresh_changelog(self.bot, key, drop=True)
-
+        lobby_svc = getattr(self.bot, "lobby", None)
         try:
-            n_matches = await MatchRepository(self.bot.pool).delete_for_game(key)  # type: ignore[attr-defined]
-            n_stats = await UserRepository(self.bot.pool).delete_stats_for_game(key)  # type: ignore[attr-defined]
-        except Exception as exc:
-            raise PluginError(
-                f"Could not delete match history for `{key}` ({exc}). "
-                f"Re-run `strife/uninstall {key} confirm` to wipe remaining data."
-            ) from exc
+            if present:
+                n_sessions, n_lobbies = await _stop_live(self.bot, key)
+                registry.unregister(key)
+                remove_slash_group_for_game(self.bot.tree, key)
+                try:
+                    result = await asyncio.to_thread(manager.uninstall, key)
+                except Exception:
+                    if manager.record_for(key) is not None:
+                        try:
+                            manager.load_one(registry, key)
+                        except PluginError:
+                            log.exception("Failed to reload %s after uninstall error", key)
+                        else:
+                            _register_slash(self.bot, registry, key)
+                            _sync_game_overlay(self.bot, key)
+                            _refresh_changelog(self.bot, key)
+                    raise
+                _refresh_changelog(self.bot, key, drop=True)
 
-        if result is None:
-            if n_matches == 0 and n_stats == 0:
-                raise PluginError(f"Unknown plugin '{key}'")
+            try:
+                n_matches = await MatchRepository(self.bot.pool).delete_for_game(key)  # type: ignore[attr-defined]
+                n_stats = await UserRepository(self.bot.pool).delete_stats_for_game(key)  # type: ignore[attr-defined]
+            except Exception as exc:
+                raise PluginError(
+                    f"Could not delete match history for `{key}` ({exc}). "
+                    f"Re-run `strife/uninstall {key} confirm` to wipe remaining data."
+                ) from exc
+
+            if result is None:
+                if n_matches == 0 and n_stats == 0:
+                    raise PluginError(f"Unknown plugin '{key}'")
+                await message.reply(
+                    f"Wiped leftover history for `{key}`: "
+                    f"{n_matches} match(es) and {n_stats} stat row(s)."
+                )
+                return
+
             await message.reply(
-                f"Wiped leftover history for `{key}`: "
-                f"{n_matches} match(es) and {n_stats} stat row(s)."
+                f"Uninstalled **{key}** ({result.origin}). "
+                f"Stopped {n_sessions} live match(es) and {n_lobbies} lobby(ies). "
+                f"Deleted {n_matches} match(es) and {n_stats} stat row(s)."
+                f"{await _sync_tree_after_plugin_change(self.bot)}"
             )
-            return
-
-        await message.reply(
-            f"Uninstalled **{key}** ({result.origin}). "
-            f"Stopped {n_sessions} live match(es) and {n_lobbies} lobby(ies). "
-            f"Deleted {n_matches} match(es) and {n_stats} stat row(s)."
-            f"{await _sync_tree_after_plugin_change(self.bot)}"
-        )
+        finally:
+            end = getattr(lobby_svc, "end_closing_game", None)
+            if callable(end):
+                end(key)
 
 
 _SYNC_USAGE = (
@@ -559,6 +565,7 @@ async def _sync_tree_after_plugin_change(bot) -> str:
 
 
 _STOP_LIVE_WAIT_SECONDS = 15.0
+_STOP_LIVE_MAX_PASSES = 5
 
 
 async def _require_no_live(bot, game_key: str, *, action: str) -> None:
@@ -600,48 +607,61 @@ def _count_live(bot, game_key: str) -> tuple[int, int]:
 
 
 async def _stop_live(bot, game_key: str) -> tuple[int, int]:
+    lobby_svc = getattr(bot, "lobby", None)
+    if lobby_svc is not None:
+        begin = getattr(lobby_svc, "begin_closing_game", None)
+        if callable(begin):
+            begin(game_key)
     sessions = getattr(bot, "sessions", None)
     if sessions is None:
         return 0, 0
     n_sessions = 0
     n_lobbies = 0
-    for session in list(sessions.active_games.values()):
-        if getattr(session, "game_key", None) != game_key:
-            continue
-        try:
-            await session.cancel("uninstalled")
-        except Exception:
-            log.exception(
-                "Failed to cancel session %s while uninstalling %s",
-                session.id,
-                game_key,
-            )
-        # A match already ending may still be saving; let it finish before its rows go.
-        task = getattr(session, "task", None)
-        if task is not None and not task.done():
+    seen_sessions: set[int] = set()
+    for _pass in range(_STOP_LIVE_MAX_PASSES):
+        for session in list(sessions.active_games.values()):
+            if getattr(session, "game_key", None) != game_key:
+                continue
+            thread_id = session.thread_id
+            is_new = thread_id not in seen_sessions
+            seen_sessions.add(thread_id)
             try:
-                await asyncio.wait_for(
-                    asyncio.shield(task), timeout=_STOP_LIVE_WAIT_SECONDS
-                )
+                await session.cancel("uninstalled")
             except Exception:
-                log.warning(
-                    "Session %s still finishing while uninstalling %s",
+                log.exception(
+                    "Failed to cancel session %s while uninstalling %s",
                     session.id,
                     game_key,
                 )
-        n_sessions += 1
-    for lobby in list(sessions.lobbies.values()):
-        if lobby.game_key != game_key:
-            continue
-        for member in lobby.members:
-            await sessions.release_user(member.user_id)
-        sessions.remove_lobby(lobby.thread_id)
-        if lobby.surface:
-            try:
-                await lobby.surface.delete()
-            except Exception:
-                log.exception(
-                    "Failed to delete lobby surface while uninstalling %s", game_key
-                )
-        n_lobbies += 1
+            # A match already ending may still be saving; let it finish before its rows go.
+            task = getattr(session, "task", None)
+            if task is not None and not task.done():
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(task), timeout=_STOP_LIVE_WAIT_SECONDS
+                    )
+                except Exception:
+                    log.warning(
+                        "Session %s still finishing while uninstalling %s",
+                        session.id,
+                        game_key,
+                    )
+            if is_new:
+                n_sessions += 1
+        close = getattr(lobby_svc, "close_lobbies_for_game", None)
+        if close is not None:
+            n_lobbies += await close(game_key)
+        n_left, n_lobby_left = _count_live(bot, game_key)
+        if not n_left and not n_lobby_left:
+            break
+    else:
+        n_left, n_lobby_left = _count_live(bot, game_key)
+        if n_left or n_lobby_left:
+            log.warning(
+                "Uninstall of %s still has %s live match(es) and %s lobby(ies) after %s passes",
+                game_key,
+                n_left,
+                n_lobby_left,
+                _STOP_LIVE_MAX_PASSES,
+            )
     return n_sessions, n_lobbies

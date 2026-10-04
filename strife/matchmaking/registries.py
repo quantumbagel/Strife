@@ -81,19 +81,22 @@ class SessionRegistries:
         async with self._lock:
             self.active_games.pop(thread_id, None)
 
-    async def promote(self, lobby_id: int, session: GameSession) -> None:
+    async def promote(self, lobby_id: int, session: GameSession) -> bool:
+        """Move occupancy from lobby to game. False if the lobby was already gone."""
         async with self._lock:
             lobby = self.lobbies.pop(lobby_id, None)
-            if lobby:
-                guild_set = self.guild_lobbies.get(lobby.guild_id)
-                if guild_set:
-                    guild_set.discard(lobby_id)
+            if lobby is None:
+                return False
+            guild_set = self.guild_lobbies.get(lobby.guild_id)
+            if guild_set:
+                guild_set.discard(lobby_id)
             self.active_games[session.thread_id] = session
             for member in session.players:
                 if member.user_id and not member.is_bot:
                     self.user_location[member.user_id] = UserLocation(
                         "game", session.thread_id, session.guild_id
                     )
+            return True
 
     async def register_session(self, session: GameSession) -> None:
         """Put a reconstructed session on the game map and occupy its humans."""

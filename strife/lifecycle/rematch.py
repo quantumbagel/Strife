@@ -256,8 +256,12 @@ class RematchManager:
             return SessionError("already_in_session")
         return RematchMemberBusy(member.user_id, member.display_name)
 
-    def _closing(self) -> bool:
-        return bool(getattr(self.lobby, "_closing", False))
+    def _closing(self, game_key: str | None = None) -> bool:
+        """Shutting down, or this game is being uninstalled."""
+        if getattr(self.lobby, "_closing", False):
+            return True
+        is_closing = getattr(self.lobby, "is_closing_game", None)
+        return bool(callable(is_closing) and game_key is not None and is_closing(game_key))
 
     async def _resolve_parent_channel(
         self, thread_id: int, offer: RematchOffer
@@ -347,7 +351,7 @@ class RematchManager:
     async def _reset_to_lobby(
         self, thread_id: int, offer: RematchOffer, *, voter_id: int = 0
     ) -> None:
-        if self._closing():
+        if self._closing(offer.game_key):
             raise SessionError("rematch_unavailable")
         members = list(offer.members)
         if not members:
@@ -356,7 +360,7 @@ class RematchManager:
         wait = getattr(self.lobby.bot, "wait_until_live_resumed", None)
         if wait is not None:
             await wait()
-        if self._closing():
+        if self._closing(offer.game_key):
             raise SessionError("rematch_unavailable")
 
         members = await self._members_still_in_guild(offer, members)
@@ -381,7 +385,7 @@ class RematchManager:
             mine = next((m for m in busy if m.user_id == voter_id), busy[0])
             raise self._busy_error(mine, voter_id)
 
-        if self._closing():
+        if self._closing(offer.game_key):
             raise SessionError("rematch_unavailable")
 
         # Checks passed: disable the button so a second click can't launch twice.
@@ -410,7 +414,7 @@ class RematchManager:
                     thread_id,
                 )
 
-        if self._closing():
+        if self._closing(offer.game_key):
             raise SessionError("rematch_unavailable")
 
         lobby_id = secrets.randbits(63)
@@ -436,13 +440,13 @@ class RematchManager:
             self.lobby.compiler, prefix=P.LOBBY_JOIN, resource_id=lobby_id
         )
         lobby.surface = surface
-        if self._closing():
+        if self._closing(offer.game_key):
             raise SessionError("rematch_unavailable")
         self.registries.add_lobby(lobby)
 
         reserved: list[int] = []
         try:
-            if self._closing():
+            if self._closing(offer.game_key):
                 raise SessionError("rematch_unavailable")
             for member in members:
                 if not await self.registries.reserve_user(
@@ -455,7 +459,7 @@ class RematchManager:
                 seated_ids = {m.user_id for m in lobby.members}
                 lobby.approved.update(seated_ids)
                 lobby.denied.difference_update(seated_ids)
-            if self._closing():
+            if self._closing(offer.game_key):
                 raise SessionError("rematch_unavailable")
         except SessionError:
             for user_id in reserved:
