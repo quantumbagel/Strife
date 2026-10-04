@@ -118,11 +118,11 @@ Type `strife/<cmd>` at the **start** of the message. Mentions are ignored. Messa
 | `strife/sync [local \| <guild id>]` | Push the slash tree (default: global). Guild sync warns if the tree is also global (duplicates) |
 | `strife/emoji` | Replace application emoji per name and delete stale names (no source file). Uploads `assets/emoji/` plus each plugin `emoji/` as `{key}_{stem}`; a failed name keeps its fallback and is listed |
 | `strife/plugins` | List builtins and git plugins, with loaded / not loaded / hidden status |
-| `strife/install <git-url> [ref]` | Clone, register, sync slash commands. Creates `games.yaml` row if the key is new. Rolled back if load or slash registration fails |
+| `strife/install <git-url> [ref]` | Clone, register, updates the slash tree (published right away only with `STRIFE_SYNC_ON_START=true`; otherwise run `strife/sync`). Creates `games.yaml` row if the key is new. Rolled back if load or slash registration fails |
 | `strife/install <key>` | Restore an uninstalled builtin (does not un-hide `enabled: false`) |
-| `strife/update <key> [ref]` | Replace git files; keep history; refuse while that game has live matches (in memory or stored). Old files and ref restored if reload fails (any reason, including missing extras). Syncs slash commands |
-| `strife/uninstall <key> confirm` | Stop live games, remove plugin, **then** wipe matches/stats. Syncs slash commands |
-| `strife/dbreset confirm` | Wipe the database and re-run migrations. Refused while games or lobbies are live; clears replay caches |
+| `strife/update <key> [ref]` | Replace git files; keep history; refuse while that game has live matches (in memory or stored). Old files and ref restored if reload fails (any reason, including missing extras). Then updates the slash tree (published right away only with `STRIFE_SYNC_ON_START=true`; otherwise run `strife/sync`) |
+| `strife/uninstall <key> confirm` | Stop live games, remove plugin, **then** wipe matches/stats. Then updates the slash tree (published right away only with `STRIFE_SYNC_ON_START=true`; otherwise run `strife/sync`) |
+| `strife/dbreset confirm` | Wipe the database and re-run migrations. Waits for the startup resume pass; refused while games or lobbies are live; clears replay caches |
 
 `strife/clear` and `strife/treediff` are internals. Leave them out of README. `clear` wipes the slash tree and is easy to run by mistake.
 

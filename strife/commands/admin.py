@@ -223,6 +223,8 @@ class AdminCommands(commands.Cog):
         if args != ["confirm"]:
             await message.reply("Run `strife/dbreset confirm` to wipe the database.")
             return
+        # Resume may still be reading and writing live rows right after boot.
+        await self.bot.wait_until_live_resumed()  # type: ignore[attr-defined]
         sessions = getattr(self.bot, "sessions", None)
         n_games = len(sessions.active_games) if sessions is not None else 0
         n_lobbies = len(sessions.lobbies) if sessions is not None else 0
