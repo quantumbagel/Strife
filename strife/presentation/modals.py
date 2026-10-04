@@ -40,6 +40,17 @@ async def send_modal_error(
     await interaction.response.send_message(message, ephemeral=True)
 
 
+async def edit_pager_message(
+    interaction: discord.Interaction,
+    **kwargs,
+) -> None:
+    """Edit the parent pager in place for a component or modal-from-component."""
+    if not interaction.response.is_done():
+        await interaction.response.edit_message(**kwargs)
+        return
+    await interaction.edit_original_response(**kwargs)
+
+
 class PageJumpModal(ui.Modal):
     def __init__(
         self,

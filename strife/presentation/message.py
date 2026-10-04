@@ -100,10 +100,9 @@ class ViewSurface:
         if not interaction.response.is_done():
             await interaction.response.edit_message(**kwargs)
             self._message = await interaction.original_response()
-        elif interaction.message is not None:
-            await interaction.message.edit(**kwargs)
-            self._message = interaction.message
         else:
+            # Deferred component: the original response is the clicked message,
+            # and unlike Message.edit this also reaches ephemeral messages.
             await interaction.edit_original_response(**kwargs)
             self._message = await interaction.original_response()
         return self._message

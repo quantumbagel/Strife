@@ -48,15 +48,24 @@ class CustomIdEncoder:
 
     _MAC_BYTES = 16
 
+    def _signed_bytes(self, prefix: str, resource_id: int, packed: bytes) -> bytes:
+        return f"{prefix}{resource_id}".encode() + packed
+
     def _sign(self, body: bytes) -> str:
-        digest = hmac.new(self._signing_key, body, hashlib.sha256).digest()[: self._MAC_BYTES]
+        digest = hmac.new(self._signing_key, body, hashlib.sha256).digest()[
+            : self._MAC_BYTES
+        ]
         return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
 
     def _verify(self, body: bytes, signature: str) -> None:
         pad = "=" * (-len(signature) % 4)
         expected = base64.urlsafe_b64decode(signature + pad)
-        actual = hmac.new(self._signing_key, body, hashlib.sha256).digest()[: self._MAC_BYTES]
-        if len(expected) != self._MAC_BYTES or not hmac.compare_digest(expected, actual):
+        actual = hmac.new(self._signing_key, body, hashlib.sha256).digest()[
+            : self._MAC_BYTES
+        ]
+        if len(expected) != self._MAC_BYTES or not hmac.compare_digest(
+            expected, actual
+        ):
             raise CustomIdError("invalid signature")
 
     def invalidate_resource(self, resource_id: int) -> None:
@@ -67,10 +76,12 @@ class CustomIdEncoder:
     def _unpack(self, raw: bytes) -> dict:
         return msgpack.unpackb(raw, **_MSGPACK_OPTS)
 
-    def encode(self, prefix: str, resource_id: int, source: str, payload: dict | None) -> str:
+    def encode(
+        self, prefix: str, resource_id: int, source: str, payload: dict | None
+    ) -> str:
         body = {"s": source, "p": payload or {}}
         packed = msgpack.packb(body)
-        signature = self._sign(packed)
+        signature = self._sign(self._signed_bytes(prefix, resource_id, packed))
         blob = base64.urlsafe_b64encode(packed).rstrip(b"=").decode()
         cid = f"{prefix}{resource_id}/{blob}.{signature}"
         if len(cid) <= self._limit:
@@ -86,6 +97,10 @@ class CustomIdEncoder:
         rid_str, _, body = rest.partition("/")
         if not rid_str or not body:
             raise CustomIdError("malformed custom_id")
+        try:
+            resource_id = int(rid_str)
+        except ValueError:
+            raise CustomIdError("malformed custom_id") from None
         if "." not in body:
             raise CustomIdError("missing signature")
         payload_part, signature = body.rsplit(".", 1)
@@ -93,11 +108,11 @@ class CustomIdEncoder:
             raw = self._cache.get(payload_part[1:])
             if raw is None:
                 raise PayloadExpired()
-            self._verify(raw, signature)
+            self._verify(self._signed_bytes(prefix, resource_id, raw), signature)
             data = self._unpack(raw)
         else:
             pad = "=" * (-len(payload_part) % 4)
             raw = base64.urlsafe_b64decode(payload_part + pad)
-            self._verify(raw, signature)
+            self._verify(self._signed_bytes(prefix, resource_id, raw), signature)
             data = self._unpack(raw)
-        return Route(prefix, int(rid_str), data["s"], data.get("p", {}))
+        return Route(prefix, resource_id, data["s"], data.get("p", {}))

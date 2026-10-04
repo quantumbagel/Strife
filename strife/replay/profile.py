@@ -21,7 +21,7 @@ from strife.presentation.components import (
     TextDisplay,
     TextSize,
 )
-from strife.presentation.modals import PageJumpModal
+from strife.presentation.modals import PageJumpModal, edit_pager_message
 from strife.replay.service import ReplayService
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route
@@ -72,7 +72,11 @@ class ProfileService:
             summary = m.outcome.get("summary") or m.outcome
             player_descriptions = (
                 m.outcome.get("player_descriptions")
-                or (summary.get("player_descriptions") if isinstance(summary, dict) else None)
+                or (
+                    summary.get("player_descriptions")
+                    if isinstance(summary, dict)
+                    else None
+                )
                 or {}
             )
             player_desc = None
@@ -93,7 +97,17 @@ class ProfileService:
                     )
             return "success", player_desc
         if m.status == "abandoned":
-            return "error", self.text.get("profile.result_abandoned")
+            if result == "win":
+                stored = self.text.get("profile.result_win")
+            elif result == "loss":
+                stored = self.text.get("profile.result_loss")
+            elif result == "draw":
+                stored = self.text.get("profile.result_draw")
+            elif result:
+                stored = result.capitalize()
+            else:
+                return "error", self.text.get("profile.result_abandoned")
+            return "error", self.text.get("profile.result_forfeit", result=stored)
         return "loading", self.text.get("profile.result_active")
 
     def _build_view(
@@ -163,7 +177,9 @@ class ProfileService:
 
                 players_str = ""
                 if m.player_count is not None:
-                    players_str = f" • {text.get('profile.players_count', count=m.player_count)}"
+                    players_str = (
+                        f" • {text.get('profile.players_count', count=m.player_count)}"
+                    )
 
                 start_time = m.started_at or m.created_at
                 started_str = f" • <t:{int(start_time.timestamp())}:R>"
@@ -196,7 +212,8 @@ class ProfileService:
             recent_title = text.get("profile.recent", page=page + 1, pages=pages)
             container.add_text(
                 TextDisplay(
-                    markdown_content=f"{game_emoji} **{recent_title}**\n" + "\n".join(lines),
+                    markdown_content=f"{game_emoji} **{recent_title}**\n"
+                    + "\n".join(lines),
                     size_style=TextSize.BODY,
                 )
             )
@@ -249,7 +266,13 @@ class ProfileService:
                 label=text.get("catalog.page", page=page + 1, pages=pages),
                 style=ButtonStyle.SECONDARY,
                 route_prefix=P.PROF_NAV,
-                payload={"game": game, "jump": True, "pages": pages, "page": page, "user": user.id},
+                payload={
+                    "game": game,
+                    "jump": True,
+                    "pages": pages,
+                    "page": page,
+                    "user": user.id,
+                },
             )
         )
         nav.add_button(
@@ -282,8 +305,19 @@ class ProfileService:
             if self.replay is not None:
                 await self.replay.user_errors.send(interaction, "errors.guild_only")
             return
+        if not interaction.response.is_done():
+            if edit:
+                await interaction.response.defer()
+            else:
+                await interaction.response.defer(ephemeral=True, thinking=True)
         stats = await self.users.get_stats(user.id, game, guild_id=guild_id)
-        total_matches = await self.matches.count_for_user(user.id, game, guild_id=guild_id)
+        total_matches = await self.matches.count_for_user(
+            user.id, game, guild_id=guild_id
+        )
+        pages = (
+            max(1, math.ceil(total_matches / self._page_size)) if total_matches else 1
+        )
+        page = max(0, min(page, pages - 1))
         match_list = await self.matches.list_for_user(
             user.id,
             game,
@@ -291,8 +325,6 @@ class ProfileService:
             limit=self._page_size,
             offset=page * self._page_size,
         )
-        pages = max(1, math.ceil(total_matches / self._page_size)) if total_matches else 1
-        page = max(0, min(page, pages - 1))
         rate = round((stats.wins / stats.played) * 100) if stats.played else 0
         view = self._build_view(
             user,
@@ -304,17 +336,11 @@ class ProfileService:
             rate=rate,
         )
         compiled = self.compiler.compile(view, resource_id=user.id, prefix=P.PROF_NAV)
-
-        if edit:
-            # Edit through the interaction: Message.edit can't reach ephemeral messages.
-            if not interaction.response.is_done():
-                await interaction.response.edit_message(view=compiled)
-            else:
-                await interaction.edit_original_response(view=compiled)
-        else:
-            await interaction.response.send_message(view=compiled, ephemeral=True)
+        await edit_pager_message(interaction, view=compiled)
 
     async def navigate(self, interaction: discord.Interaction, route: Route) -> None:
+        if not interaction.response.is_done():
+            await interaction.response.defer()
         page = int(route.payload.get("page", 0))
         game = route.payload.get("game")
         user_id = route.payload.get("user")
@@ -326,14 +352,19 @@ class ProfileService:
             user = interaction.user
         await self.show(interaction, user, game, page, edit=True)
 
-    async def open_jump_modal(self, interaction: discord.Interaction, route: Route) -> None:
+    async def open_jump_modal(
+        self, interaction: discord.Interaction, route: Route
+    ) -> None:
         pages = int(route.payload.get("pages", 1))
         page = int(route.payload.get("page", 0))
         game = route.payload.get("game")
         user_id = route.payload.get("user")
 
-        async def on_submit(modal_interaction: discord.Interaction, new_page: int) -> None:
-            await modal_interaction.response.defer()
+        async def on_submit(
+            modal_interaction: discord.Interaction, new_page: int
+        ) -> None:
+            if not modal_interaction.response.is_done():
+                await modal_interaction.response.defer()
             if user_id is not None:
                 user = modal_interaction.client.get_user(int(user_id))
                 if user is None:

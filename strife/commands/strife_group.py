@@ -9,6 +9,7 @@ from strife.commands.autocomplete import (
     bot_remove_name_choices,
     catalog_game_choices,
     named_id_choices,
+    notice_choices,
     open_lobby_creator_choices,
     option_key_choices,
     option_value_choices,
@@ -20,10 +21,13 @@ from strife.commands.catalog import CatalogService
 from strife.commands.server_settings import ServerSettingsService
 from strife.session.errors import SessionError
 from strife.lifecycle.service import LifecycleService
+from strife.logging import get_logger
 from strife.matchmaking.service import LobbyService
 from strife.presentation.user_error import ErrorContext
 from strife.replay.profile import ProfileService
 from strife.replay.service import ReplayService
+
+log = get_logger("commands.strife")
 
 
 def register_strife_group(
@@ -60,7 +64,9 @@ def register_strife_group(
         await catalog.show(interaction, max(0, page - 1))
 
     @group.command(name="profile", description="View player stats and recent matches")
-    @app_commands.describe(user="Player to look up", game="Filter by game", page="Page number")
+    @app_commands.describe(
+        user="Player to look up", game="Filter by game", page="Page number"
+    )
     async def profile_cmd(
         interaction: discord.Interaction,
         user: discord.User | None = None,
@@ -87,7 +93,9 @@ def register_strife_group(
             empty_key="autocomplete.no_games",
         )
 
-    async def _require_user_id(interaction: discord.Interaction, raw: str) -> int | None:
+    async def _require_user_id(
+        interaction: discord.Interaction, raw: str
+    ) -> int | None:
         user_id = parse_user_id(raw)
         if user_id is None:
             await lobby.user_errors.send(interaction, "errors.unknown_user")
@@ -140,9 +148,10 @@ def register_strife_group(
                 await lifecycle.forfeit(loc.thread_id, interaction.user.id)
                 await lobby.user_success.send(interaction, "match.forfeited")
             except SessionError as e:
-                code = {"no_session": "errors.no_session", "game_ending": "errors.game_ending"}.get(
-                    e.code, "common.error"
-                )
+                code = {
+                    "no_session": "errors.no_session",
+                    "game_ending": "errors.game_ending",
+                }.get(e.code, "common.error")
                 await lobby.user_errors.send(interaction, code)
             except PermissionError:
                 await lobby.user_errors.send(
@@ -160,60 +169,69 @@ def register_strife_group(
     async def replay_autocomplete(
         interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        if interaction.guild_id is None:
-            return replay_match_choices_or_notice(
-                [], has_completed=False, current=current, text=replay.text
+        try:
+            if interaction.guild_id is None:
+                return replay_match_choices_or_notice(
+                    [], has_completed=False, current=current, text=replay.text
+                )
+            matches = await replay.autocomplete_matches(
+                interaction.user.id, interaction.guild_id, limit=25
             )
-        matches = await replay.autocomplete_matches(
-            interaction.user.id, interaction.guild_id, limit=25
-        )
-        choices: list[app_commands.Choice[str]] = []
-        has_completed = False
-        for match in matches:
-            if match.status != "completed":
-                continue
-            has_completed = True
-            game_name = _game_name(match.game_key)
+            choices: list[app_commands.Choice[str]] = []
+            has_completed = False
+            for match in matches:
+                if match.status != "completed":
+                    continue
+                has_completed = True
+                game_name = _game_name(match.game_key)
 
-            result = getattr(match, "result", None)
-            result_str = result.capitalize() if result else ""
+                result = getattr(match, "result", None)
+                result_str = result.capitalize() if result else ""
 
-            duration_str = ""
-            if match.started_at and match.ended_at:
-                diff = match.ended_at - match.started_at
-                seconds = int(diff.total_seconds())
-                mins, secs = divmod(seconds, 60)
-                duration_str = f"{mins}m {secs}s"
-            elif match.total_turns:
-                duration_str = f"{match.total_turns} actions"
+                duration_str = ""
+                if match.started_at and match.ended_at:
+                    diff = match.ended_at - match.started_at
+                    seconds = int(diff.total_seconds())
+                    mins, secs = divmod(seconds, 60)
+                    duration_str = f"{mins}m {secs}s"
+                elif match.total_turns:
+                    duration_str = f"{match.total_turns} actions"
 
-            start_time = match.started_at or match.created_at
+                start_time = match.started_at or match.created_at
 
-            parts = [f"#{match.code}", game_name]
-            if result_str:
-                parts.append(result_str)
-            if match.player_count is not None:
-                parts.append(f"{match.player_count} players")
-            if duration_str:
-                parts.append(duration_str)
-            parts.append(start_time.strftime("%Y-%m-%d"))
-            label = " · ".join(parts)
+                parts = [f"#{match.code}", game_name]
+                if result_str:
+                    parts.append(result_str)
+                if match.player_count is not None:
+                    parts.append(f"{match.player_count} players")
+                if duration_str:
+                    parts.append(duration_str)
+                parts.append(start_time.strftime("%Y-%m-%d"))
+                label = " · ".join(parts)
 
-            if current.lower() not in label.lower() and current.lower() not in match.code.lower():
-                continue
-            choices.append(app_commands.Choice(name=label[:100], value=match.code))
-        return replay_match_choices_or_notice(
-            choices,
-            has_completed=has_completed,
-            current=current,
-            text=replay.text,
-        )
+                if (
+                    current.lower() not in label.lower()
+                    and current.lower() not in match.code.lower()
+                ):
+                    continue
+                choices.append(app_commands.Choice(name=label[:100], value=match.code))
+            return replay_match_choices_or_notice(
+                choices,
+                has_completed=has_completed,
+                current=current,
+                text=replay.text,
+            )
+        except Exception:
+            log.exception("Slash autocomplete failed for option %r", "match")
+            return notice_choices(replay.text.get("autocomplete.no_matching_options"))
 
     @group.command(name="about", description="Information about the Strife platform")
     async def about_cmd(interaction: discord.Interaction) -> None:
         await about.show(interaction)
 
-    bot_group = app_commands.Group(name="bot", description="Manage lobby bots", parent=group)
+    bot_group = app_commands.Group(
+        name="bot", description="Manage lobby bots", parent=group
+    )
 
     @bot_group.command(name="add", description="Add bots to your lobby")
     @app_commands.describe(difficulty="Bot difficulty", number="How many bots (1-5)")
@@ -243,7 +261,9 @@ def register_strife_group(
         lobby_obj, _meta = _creator_lobby_meta(interaction.user.id)
         return bot_remove_name_choices(lobby_obj, lobby.text, current)
 
-    lobby_group = app_commands.Group(name="lobby", description="Manage game lobbies", parent=group)
+    lobby_group = app_commands.Group(
+        name="lobby", description="Manage game lobbies", parent=group
+    )
 
     @lobby_group.command(name="join", description="Join a lobby by its creator")
     @app_commands.describe(creator="Lobby creator to join")
@@ -306,7 +326,9 @@ def register_strife_group(
     async def lobby_end(interaction: discord.Interaction) -> None:
         await lobby.end_lobby(interaction)
 
-    @lobby_group.command(name="clear-ready", description="Clear ready for everyone in your lobby")
+    @lobby_group.command(
+        name="clear-ready", description="Clear ready for everyone in your lobby"
+    )
     async def lobby_clear_ready(interaction: discord.Interaction) -> None:
         await lobby.clear_ready(interaction)
 
@@ -315,7 +337,9 @@ def register_strife_group(
     async def lobby_privacy(interaction: discord.Interaction, private: bool) -> None:
         await lobby.set_privacy(interaction, private)
 
-    @lobby_group.command(name="reset-privacy", description="Reset privacy and access lists")
+    @lobby_group.command(
+        name="reset-privacy", description="Reset privacy and access lists"
+    )
     async def lobby_reset_privacy(interaction: discord.Interaction) -> None:
         await lobby.reset_privacy(interaction)
 
@@ -323,9 +347,13 @@ def register_strife_group(
     async def lobby_reset_rules(interaction: discord.Interaction) -> None:
         await lobby.reset_rules(interaction)
 
-    @lobby_group.command(name="option", description="Set a game rule option for your lobby")
+    @lobby_group.command(
+        name="option", description="Set a game rule option for your lobby"
+    )
     @app_commands.describe(key="Option to change", value="New value")
-    async def lobby_option(interaction: discord.Interaction, key: str, value: str) -> None:
+    async def lobby_option(
+        interaction: discord.Interaction, key: str, value: str
+    ) -> None:
         await lobby.set_option(interaction, key, value)
 
     @lobby_option.autocomplete("key")
@@ -395,14 +423,22 @@ def register_strife_group(
             not_creator_key="autocomplete.not_creator_deny",
         )
 
-    @lobby_group.command(name="preapprove", description="Pre-approve a player for a private lobby")
+    @lobby_group.command(
+        name="preapprove", description="Pre-approve a player for a private lobby"
+    )
     @app_commands.describe(user="Player to pre-approve")
-    async def lobby_preapprove(interaction: discord.Interaction, user: discord.User) -> None:
+    async def lobby_preapprove(
+        interaction: discord.Interaction, user: discord.User
+    ) -> None:
         await lobby.preapprove_user(interaction, user.id)
 
-    @lobby_group.command(name="revoke-approval", description="Revoke a player's pre-approval")
+    @lobby_group.command(
+        name="revoke-approval", description="Revoke a player's pre-approval"
+    )
     @app_commands.describe(user="Player to revoke")
-    async def lobby_revoke_approval(interaction: discord.Interaction, user: str) -> None:
+    async def lobby_revoke_approval(
+        interaction: discord.Interaction, user: str
+    ) -> None:
         user_id = await _require_user_id(interaction, user)
         if user_id is None:
             return
@@ -431,14 +467,22 @@ def register_strife_group(
             not_creator_key="autocomplete.not_creator_revoke",
         )
 
-    @lobby_group.command(name="blacklist-add", description="Blacklist a player from your lobby")
+    @lobby_group.command(
+        name="blacklist-add", description="Blacklist a player from your lobby"
+    )
     @app_commands.describe(user="Player to blacklist")
-    async def lobby_blacklist_add(interaction: discord.Interaction, user: discord.User) -> None:
+    async def lobby_blacklist_add(
+        interaction: discord.Interaction, user: discord.User
+    ) -> None:
         await lobby.blacklist_add(interaction, user.id)
 
-    @lobby_group.command(name="blacklist-remove", description="Remove a player from the blacklist")
+    @lobby_group.command(
+        name="blacklist-remove", description="Remove a player from the blacklist"
+    )
     @app_commands.describe(user="Player to unblacklist")
-    async def lobby_blacklist_remove(interaction: discord.Interaction, user: str) -> None:
+    async def lobby_blacklist_remove(
+        interaction: discord.Interaction, user: str
+    ) -> None:
         user_id = await _require_user_id(interaction, user)
         if user_id is None:
             return
@@ -452,7 +496,10 @@ def register_strife_group(
         blocked = []
         if lobby_obj is not None:
             blocked = await user_name_pairs(
-                interaction, list(lobby_obj.blacklist), lobby.text, guild_id=lobby_obj.guild_id
+                interaction,
+                list(lobby_obj.blacklist),
+                lobby.text,
+                guild_id=lobby_obj.guild_id,
             )
         return named_id_choices(
             blocked,

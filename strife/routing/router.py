@@ -94,10 +94,10 @@ class InteractionRouter:
             return
         try:
             route = self.encoder.decode(custom_id)
-        except PayloadExpired:
-            await self._disable_and_report_ended(interaction, "common.button_expired")
+        except PayloadExpired, CustomIdError:
+            await self._error(interaction, "common.button_expired")
             return
-        except (CustomIdError, KeyError, ValueError, TypeError) as exc:
+        except (KeyError, ValueError, TypeError) as exc:
             log.warning("Bad custom_id %s: %s", custom_id, exc)
             await self._error(interaction, "common.error")
             return
@@ -150,6 +150,8 @@ class InteractionRouter:
         args = dict(route.payload)
         is_query = bool(args.pop("q", None))
         if is_query:
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True, thinking=False)
             if await session.handle_query(route.source, interaction):
                 return
             await self._error(interaction, "errors.invalid_action")
@@ -198,7 +200,9 @@ class InteractionRouter:
             )
             return
         frame = int(route.payload.get("frame", 0))
-        await self.replay.render_frame(route.resource_id, frame, interaction, owner_id=owner_id)
+        await self.replay.render_frame(
+            route.resource_id, frame, interaction, owner_id=owner_id
+        )
 
     async def _handle_rematch(self, route, interaction: discord.Interaction) -> None:
         if self.lifecycle is None:
@@ -206,7 +210,9 @@ class InteractionRouter:
             return
         await self._defer(interaction)
         try:
-            await self.lifecycle.register_rematch_vote(route.resource_id, interaction.user)
+            await self.lifecycle.register_rematch_vote(
+                route.resource_id, interaction.user
+            )
         except SessionError as exc:
             busy_id = getattr(exc, "user_id", None)
             if exc.code != "rematch_member_busy" or busy_id is None:
@@ -266,7 +272,10 @@ class InteractionRouter:
             await self._error(interaction, "common.error")
             return
         member = interaction.user
-        if not isinstance(member, discord.Member) or not member.guild_permissions.administrator:
+        if (
+            not isinstance(member, discord.Member)
+            or not member.guild_permissions.administrator
+        ):
             await self._error(interaction, "errors.admin_required")
             return
         if route.prefix == P.SERVER_CHANNEL:
@@ -291,7 +300,9 @@ class InteractionRouter:
         if not interaction.response.is_done():
             await interaction.response.defer()
 
-    async def _disable_and_report_ended(self, interaction: discord.Interaction, message_key: str) -> None:
+    async def _disable_and_report_ended(
+        self, interaction: discord.Interaction, message_key: str
+    ) -> None:
         if interaction.message:
             try:
                 view = discord.ui.LayoutView.from_message(interaction.message)

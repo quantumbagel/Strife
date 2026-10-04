@@ -99,7 +99,9 @@ def build_replay_view(
     if description:
         outcome_text = description
     elif winner_seat is not None and isinstance(winner_seat, int):
-        winner_player = next((p for p in match.players if p.seat_index == winner_seat), None)
+        winner_player = next(
+            (p for p in match.players if p.seat_index == winner_seat), None
+        )
         if winner_player:
             winner_label = player_mention(
                 user_id=winner_player.user_id,
@@ -112,6 +114,8 @@ def build_replay_view(
             outcome_text = text.get("match.winner", winner=f"Seat {winner_seat}")
     elif "winning_faction" in summary:
         outcome_text = text.get("match.winner", winner=summary["winning_faction"])
+    elif match.status != "completed":
+        outcome_text = text.get("replay.abandoned")
     else:
         outcome_text = text.get("match.draw")
 
@@ -130,7 +134,9 @@ def build_replay_view(
             label=turn_label,
         )
     else:
-        turn_info = text.get("replay.action_label", current=frame_index + 1, total=total)
+        turn_info = text.get(
+            "replay.action_label", current=frame_index + 1, total=total
+        )
     if timestamp:
         ts_val = int(timestamp.timestamp())
         turn_info = f"{turn_info} • <t:{ts_val}:f> (<t:{ts_val}:R>)"
@@ -142,10 +148,7 @@ def build_replay_view(
     )
     container.add_text(
         TextDisplay(
-            markdown_content=(
-                f"{outcome_line}\n"
-                f"-# {emoji.get('time')} {turn_info}"
-            ),
+            markdown_content=(f"{outcome_line}\n-# {emoji.get('time')} {turn_info}"),
             size_style=TextSize.BODY,
         )
     )
@@ -206,7 +209,9 @@ def build_replay_view(
     else:
         container.add_text(
             TextDisplay(
-                markdown_content=text.get("replay.action_label", current=frame_index + 1, total=total)
+                markdown_content=text.get(
+                    "replay.action_label", current=frame_index + 1, total=total
+                )
             )
         )
 
@@ -239,7 +244,12 @@ def build_replay_view(
             label=text.get("replay.action_label", current=frame_index + 1, total=total),
             style=ButtonStyle.SECONDARY,
             route_prefix=P.R_NAV,
-            payload={"owner": owner_id, "jump": True, "total": total, "frame": frame_index},
+            payload={
+                "owner": owner_id,
+                "jump": True,
+                "total": total,
+                "frame": frame_index,
+            },
         )
     )
     nav.add_button(

@@ -21,7 +21,7 @@ from strife.presentation.components import (
     TextSize,
 )
 from strife.presentation.emoji import EmojiResolver
-from strife.presentation.modals import PageJumpModal
+from strife.presentation.modals import PageJumpModal, edit_pager_message
 from strife.routing import prefixes as P
 
 
@@ -44,7 +44,9 @@ class CatalogService:
         self._page_size = 3
 
     def _enabled_games(self) -> list:
-        return [m for m in self.registry.all() if self.config.games.for_game(m.key).enabled]
+        return [
+            m for m in self.registry.all() if self.config.games.for_game(m.key).enabled
+        ]
 
     def _build_catalog_view(self, games: list, page: int, pages: int) -> LayoutView:
         chunk = games[page * self._page_size : (page + 1) * self._page_size]
@@ -56,7 +58,9 @@ class CatalogService:
         game_emoji = self.emoji.get("game")
         container.add_text(
             TextDisplay(
-                markdown_content=self.text.get("catalog.header", logo=logo, forward=forward),
+                markdown_content=self.text.get(
+                    "catalog.header", logo=logo, forward=forward
+                ),
                 size_style=TextSize.HEADER,
             )
         )
@@ -87,7 +91,9 @@ class CatalogService:
             diff_emoji = self.emoji.get("difficulty")
             diff_rating = min(max(0, meta.difficulty), 5)
             diff_display = "★" * diff_rating + "☆" * (5 - diff_rating)
-            latest = self.changelogs.latest_for_game(meta.key) if self.changelogs else None
+            latest = (
+                self.changelogs.latest_for_game(meta.key) if self.changelogs else None
+            )
             version_bit = f"v{meta.version}"
             if latest is not None:
                 date = f" · {latest.date}" if latest.date else ""
@@ -157,7 +163,9 @@ class CatalogService:
         pages = max(1, math.ceil(len(games) / self._page_size))
         page = max(0, min(page, pages - 1))
         view = self._build_catalog_view(games, page, pages)
-        compiled = self.compiler.compile(view, resource_id=interaction.user.id, prefix=P.CAT_NAV)
+        compiled = self.compiler.compile(
+            view, resource_id=interaction.user.id, prefix=P.CAT_NAV
+        )
         await interaction.response.send_message(view=compiled, ephemeral=True)
 
     async def navigate(
@@ -170,16 +178,18 @@ class CatalogService:
         pages = max(1, math.ceil(len(games) / self._page_size))
         page = max(0, min(page, pages - 1))
         view = self._build_catalog_view(games, page, pages)
-        compiled = self.compiler.compile(view, resource_id=interaction.user.id, prefix=P.CAT_NAV)
+        compiled = self.compiler.compile(
+            view, resource_id=interaction.user.id, prefix=P.CAT_NAV
+        )
         # Edit through the interaction: Message.edit can't reach ephemeral messages.
-        if not interaction.response.is_done():
-            await interaction.response.edit_message(view=compiled)
-        else:
-            await interaction.edit_original_response(view=compiled)
+        await edit_pager_message(interaction, view=compiled)
 
-    async def open_jump_modal(self, interaction: discord.Interaction, *, pages: int, page: int = 0) -> None:
-        async def on_submit(modal_interaction: discord.Interaction, new_page: int) -> None:
-            await modal_interaction.response.defer()
+    async def open_jump_modal(
+        self, interaction: discord.Interaction, *, pages: int, page: int = 0
+    ) -> None:
+        async def on_submit(
+            modal_interaction: discord.Interaction, new_page: int
+        ) -> None:
             await self.navigate(modal_interaction, new_page)
 
         modal = PageJumpModal(

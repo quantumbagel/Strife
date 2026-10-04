@@ -71,7 +71,9 @@ class ServerSettingsService:
         container.add_separator()
 
         if channel_id is not None:
-            channel_text = self.text.get("server.current_channel", mention=f"<#{channel_id}>")
+            channel_text = self.text.get(
+                "server.current_channel", mention=f"<#{channel_id}>"
+            )
         else:
             channel_text = self.text.get("server.no_channel")
 
@@ -118,7 +120,10 @@ class ServerSettingsService:
             await self.user_errors.send(interaction, "errors.guild_only")
             return False
         member = interaction.user
-        if not isinstance(member, discord.Member) or not member.guild_permissions.administrator:
+        if (
+            not isinstance(member, discord.Member)
+            or not member.guild_permissions.administrator
+        ):
             await self.user_errors.send(interaction, "errors.admin_required")
             return False
         return True
@@ -155,13 +160,17 @@ class ServerSettingsService:
             if not getattr(perms, name)
         ]
 
-    async def open(self, interaction: discord.Interaction, *, edit: bool = False) -> None:
+    async def open(
+        self, interaction: discord.Interaction, *, edit: bool = False
+    ) -> None:
         if not await self._require_admin(interaction):
             return
         await self.guilds.upsert(interaction.guild_id)
         channel_id = await self.guilds.get_default_channel(interaction.guild_id)
         view = self._build_view(interaction.guild_id, channel_id)
-        compiled = self.compiler.compile(view, resource_id=interaction.guild_id, prefix=P.SERVER_NAV)
+        compiled = self.compiler.compile(
+            view, resource_id=interaction.guild_id, prefix=P.SERVER_NAV
+        )
         if edit:
             if interaction.response.is_done():
                 await interaction.edit_original_response(view=compiled)
@@ -170,13 +179,16 @@ class ServerSettingsService:
         else:
             await interaction.response.send_message(view=compiled, ephemeral=True)
 
-    async def set_channel(self, interaction: discord.Interaction, channel_id: int) -> None:
+    async def set_channel(
+        self, interaction: discord.Interaction, channel_id: int
+    ) -> None:
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         if not await self._require_admin(interaction):
             return
         missing = await self._missing_channel_permissions(interaction, channel_id)
         if missing:
             # Put the picker back on the saved channel before explaining why.
-            await interaction.response.defer(ephemeral=True)
             current_id = await self.guilds.get_default_channel(interaction.guild_id)
             view = self._build_view(interaction.guild_id, current_id)
             compiled = self.compiler.compile(
@@ -197,9 +209,10 @@ class ServerSettingsService:
             return
         await self.guilds.upsert(interaction.guild_id)
         await self.guilds.set_default_channel(interaction.guild_id, channel_id)
-        await interaction.response.defer(ephemeral=True)
         view = self._build_view(interaction.guild_id, channel_id)
-        compiled = self.compiler.compile(view, resource_id=interaction.guild_id, prefix=P.SERVER_NAV)
+        compiled = self.compiler.compile(
+            view, resource_id=interaction.guild_id, prefix=P.SERVER_NAV
+        )
         await interaction.edit_original_response(view=compiled)
         await self.user_success.send(
             interaction,
@@ -214,6 +227,8 @@ class ServerSettingsService:
         await self.guilds.clear_default_channel(interaction.guild_id)
         await interaction.response.defer(ephemeral=True)
         view = self._build_view(interaction.guild_id, None)
-        compiled = self.compiler.compile(view, resource_id=interaction.guild_id, prefix=P.SERVER_NAV)
+        compiled = self.compiler.compile(
+            view, resource_id=interaction.guild_id, prefix=P.SERVER_NAV
+        )
         await interaction.edit_original_response(view=compiled)
         await self.user_success.send(interaction, "guild.channel_cleared")
