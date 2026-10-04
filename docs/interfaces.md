@@ -79,7 +79,7 @@ Lobby and board controls that only carry a source + resource id must not expire 
 
 **Marshal.** Join (or Request to Join). Leave / Ready on the same message. Creator opens Settings. When the table can start and every human is ready, a public thread opens, the lobby card becomes a pointer, and `game.play()` runs.
 
-**Play.** Header (no-op) + board. Timeouts warn in-thread, then apply `games.yaml` `turn_timeout_consequence`. Thread locks when the match ends. Results + Rematch + View Replay land on the **old lobby message**.
+**Play.** Header (no-op) + board. Timeouts warn in-thread (`turn_warning_seconds`, clamped to half the timeout; none under 10s), then apply `games.yaml` `turn_timeout_consequence`. A first-to-act (`until="any"`) window just closes on timeout. Thread locks when the match ends. Results + Rematch + View Replay land on the **old lobby message**.
 
 **Hidden info.** Mafia, Spyfall, and Liar’s Dice DM when DMs work; **Peek** always works. Coup is peek-only. Failed DMs post a thread notice — they must not dump the private content.
 
@@ -115,14 +115,14 @@ Type `strife/<cmd>` at the **start** of the message. Mentions are ignored. Messa
 
 | Command | Does |
 |---------|------|
-| `strife/sync [local \| <guild id>]` | Push the slash tree (default: global) |
-| `strife/emoji` | Upload `assets/emoji/` plus each plugin `emoji/` as `{key}_{stem}` |
-| `strife/plugins` | List builtins and git plugins |
-| `strife/install <git-url> [ref]` | Clone, register. Creates `games.yaml` row if the key is new |
+| `strife/sync [local \| <guild id>]` | Push the slash tree (default: global). Guild sync warns if the tree is also global (duplicates) |
+| `strife/emoji` | Upload `assets/emoji/` plus each plugin `emoji/` as `{key}_{stem}`, one name at a time; failures keep their fallback and are listed |
+| `strife/plugins` | List builtins and git plugins, with loaded / not loaded / hidden status |
+| `strife/install <git-url> [ref]` | Clone, register. Creates `games.yaml` row if the key is new. Rolled back if load or slash registration fails |
 | `strife/install <key>` | Restore an uninstalled builtin (does not un-hide `enabled: false`) |
-| `strife/update <key> [ref]` | Replace git files; keep history; refuse while that game is live |
+| `strife/update <key> [ref]` | Replace git files; keep history; refuse while that game is live. Old files and ref restored if reload fails |
 | `strife/uninstall <key> confirm` | Stop live games, remove plugin, **then** wipe matches/stats |
-| `strife/dbreset confirm` | Wipe the database and re-run migrations |
+| `strife/dbreset confirm` | Wipe the database and re-run migrations. Refused while games or lobbies are live; clears replay caches |
 
 `strife/clear` and `strife/treediff` are internals. Leave them out of README. `clear` wipes the slash tree and is easy to run by mistake.
 
@@ -187,7 +187,7 @@ Games type against the protocol. They never construct a host.
 | `self.setting(key)` | On **`Game`**, not `ctx`. Metadata default fallback |
 | `await ctx.update(view)` | Refresh the board |
 | `await ctx.request_input(...)` | One actor |
-| `await ctx.request_inputs(...)` | Simultaneous / first-to-act |
+| `await ctx.request_inputs(...)` | Simultaneous / first-to-act. `until="any"` returns `{}` if its window times out with nobody acting (no seat is penalized) |
 | `await ctx.send_private(seat, view)` | DM; thread notice if DMs fail |
 | `await ctx.record_event(source, arguments)` | One `game` log row. Rejects system names |
 | `await ctx.respond_query(view)` | Only inside `handle_query` |
@@ -247,7 +247,7 @@ Compiler limits fail in the host. CLI should surface the same `LayoutError`.
 ## 7. Still open
 
 - `/strife lobby *` still exists as a parallel surface. Deleting duplicates is optional (`/strife lobby join` stays).
-- Live matches persist only at finalize (kill -9 loses the in-progress game).
+- Live matches persist only at finalize (kill -9 loses the in-progress game). `active_games` tracks live threads so the next boot posts an “interrupted” notice and locks them.
 - Profile `list_recent` still uses a per-row count subquery.
 - `config/emoji.yaml` may keep leftover cache keys until the next `strife/emoji`.
 - `errors.not_on_whitelist` is unused copy.

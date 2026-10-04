@@ -78,6 +78,11 @@ def load_manifest(path: Path) -> PluginManifest:
 
 
 def scan_plugin_toml(root: Path) -> list[Path]:
+    """``*/plugin.toml`` under *root*, skipping dot-folders (update backups, tooling)."""
     if not root.is_dir():
         return []
-    return sorted(path for path in root.glob("*/plugin.toml") if path.is_file())
+    return sorted(
+        path
+        for path in root.glob("*/plugin.toml")
+        if path.is_file() and not path.parent.name.startswith(".")
+    )

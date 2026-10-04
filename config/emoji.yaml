@@ -11,11 +11,11 @@ ban:
   id: 1525857714956144721
   animated: false
 clueless:
-  fallback: null
+  fallback: 🙃
   id: 1525857717665661119
   animated: false
 creator:
-  fallback: null
+  fallback: 👑
   id: 1525857719381135511
   animated: false
 error:
@@ -23,19 +23,19 @@ error:
   id: 1525857722636173543
   animated: false
 explosion:
-  fallback: null
+  fallback: 💥
   id: 1525857723202277378
   animated: true
 facepalm:
-  fallback: null
+  fallback: 🤦
   id: 1525857725110554624
   animated: true
 first:
-  fallback: null
+  fallback: ⏮️
   id: 1525857725643489392
   animated: false
 forward:
-  fallback: null
+  fallback: ➡️
   id: 1525857728256409690
   animated: false
 mafia_game:
@@ -67,63 +67,63 @@ liars_dice_game:
   id: null
   animated: false
 github:
-  fallback: null
+  fallback: 🐙
   id: 1525857730600898620
   animated: false
 hmm:
-  fallback: null
+  fallback: 🤔
   id: 1525857731523903538
   animated: false
 hnn:
-  fallback: null
+  fallback: 😖
   id: null
   animated: false
 join:
-  fallback: null
+  fallback: ➕
   id: 1525857732379283486
   animated: false
 kick:
-  fallback: null
+  fallback: 🦵
   id: 1525857732983521330
   animated: false
 last:
-  fallback: null
+  fallback: ⏭️
   id: 1525857734203801610
   animated: false
 leave:
-  fallback: null
+  fallback: 🚪
   id: 1525857737714569317
   animated: false
 loading:
-  fallback: null
+  fallback: ⏳
   id: 1525857738574401679
   animated: true
 playcord:
-  fallback: null
+  fallback: 🎮
   id: 1525857743955689575
   animated: false
 pointing:
-  fallback: null
+  fallback: 👉
   id: 1525857745134162020
   animated: false
 ready:
-  fallback: null
+  fallback: ✋
   id: 1525857748456181870
   animated: false
 rematch:
-  fallback: null
+  fallback: 🔁
   id: 1525857749165150329
   animated: false
 settings:
-  fallback: null
+  fallback: ⚙️
   id: 1525857750372974662
   animated: false
 space:
-  fallback: null
+  fallback: ▫️
   id: 1525857750964371648
   animated: false
 spectate:
-  fallback: null
+  fallback: 👀
   id: 1525857751744647250
   animated: false
 time:
@@ -135,7 +135,7 @@ timer:
   id: 1525857755418857613
   animated: false
 user:
-  fallback: null
+  fallback: 👤
   id: 1525857756156924055
   animated: false
 play:
@@ -175,15 +175,15 @@ mafia_werewolf:
   id: 1525857741531381822
   animated: false
 game:
-  fallback: null
+  fallback: 🎮
   id: 1525857729015578664
   animated: false
 learn:
-  fallback: null
+  fallback: 🎓
   id: 1525857735193923764
   animated: false
 logo:
-  fallback: null
+  fallback: 🎲
   id: 1525857739190960190
   animated: false
 public:
@@ -219,15 +219,15 @@ difficulty:
   id: 1525857720274522122
   animated: false
 bot:
-  fallback: null
+  fallback: 🤖
   id: 1525857715614650418
   animated: false
 bot_indicator:
-  fallback: null
+  fallback: 🤖
   id: 1525857716587724850
   animated: false
 restart:
-  fallback: null
+  fallback: 🔄
   id: 1525857749789970514
   animated: false
 connect_four_red:
@@ -295,14 +295,14 @@ unlock:
   id: null
   animated: false
 enable_detective:
-  fallback: null
+  fallback: 🔎
   id: 1525857721092542645
   animated: false
 enable_doctor:
-  fallback: null
+  fallback: 🩺
   id: 1525857721973342481
   animated: false
 game_mafia:
-  fallback: null
+  fallback: 🐺
   id: 1525857729300664452
   animated: false

@@ -18,6 +18,21 @@ from strife.matchmaking.service import LobbyService
 
 log = get_logger("lifecycle.service")
 
+# The scheduler ticks every 5s; a shorter warning would land with the timeout.
+_MIN_WARNING_SECONDS = 10.0
+
+
+def _warning_window(timeout: float, configured: float | None) -> float | None:
+    """Seconds before the deadline to warn, or None when there's no room to.
+
+    The configured warning is clamped to half the timeout so 60s turns with the
+    default 30s warning still get one.
+    """
+    if not configured or configured <= 0 or timeout <= 0:
+        return None
+    warning = min(float(configured), timeout / 2)
+    return warning if warning >= _MIN_WARNING_SECONDS else None
+
 
 class LifecycleService:
     def __init__(
@@ -95,12 +110,14 @@ class LifecycleService:
                 timeout = pending.timeout_seconds if pending.timeout_seconds is not None else game_cfg.turn_timeout_seconds
                 deadline = pending.deadline_at if pending.deadline_at is not None else last_move_at + timeout
                 remaining = deadline - now
-                idle = timeout - remaining
-                warning = game_cfg.turn_warning_seconds
+                # First-to-act windows just close on timeout; nobody needs a ping.
+                warning = (
+                    None
+                    if pending.until == "any"
+                    else _warning_window(timeout, game_cfg.turn_warning_seconds)
+                )
                 if (
-                    warning
-                    and warning > 0
-                    and timeout > 2 * warning
+                    warning is not None
                     and remaining <= warning
                     and remaining > 0
                     and session._timeout_warned.get(seat) != pending.timeout_generation
@@ -159,28 +176,42 @@ class LifecycleService:
         await self._execute_consequence(session, seat, consequence, reason="timeout")
 
     async def forfeit(self, thread_id: int, user_id: int) -> None:
+        """Forfeit ``user_id``'s seat.
+
+        Raises ``SessionError("game_ending")`` when the match was already
+        ending (or the forfeit otherwise changed nothing), so callers don't
+        report a forfeit that didn't happen.
+        """
         session = self.registries.get_game(thread_id)
         if session is None:
             raise SessionError("no_session")
         seat = session._seat_for_user(user_id)
-        if seat is None:
+        if seat is None or seat in session._removed_seats:
             raise PermissionError
 
         consequence = determine_consequence(session, seat, reason="forfeit")
-        await self._execute_consequence(session, seat, consequence, reason="forfeit")
+        applied = await self._execute_consequence(
+            session, seat, consequence, reason="forfeit"
+        )
+        if not applied:
+            raise SessionError("game_ending")
 
     async def _execute_consequence(
         self, session, seat: int, consequence: TimeoutConsequence, reason: str
-    ) -> None:
+    ) -> bool:
+        """Apply ``consequence``. Returns False when the match was already ending."""
         async with session.lock:
             if session._finalized or session._ending:
-                return
+                return False
             if reason == "timeout":
                 current = session.pending.get(seat)
                 if current is None or session.players[seat].is_bot:
-                    return
+                    return False
             player = session.players[seat]
             pending = session.pending.get(seat)
+
+        if consequence == TimeoutConsequence.PHASE_ENDS:
+            return await session.expire_phase(seat)
 
         # Occupancy stays "game" until persist finishes on GAME_ENDS. Release
         # immediately when the seat leaves a still-running match (removed here,
@@ -245,9 +276,9 @@ class LifecycleService:
             difficulty = getattr(session.game.metadata, "bot_takeover_difficulty", "hard")
             async with session.lock:
                 if session._finalized or session._ending:
-                    return
+                    return False
                 if reason == "timeout" and session.pending.get(seat) is None:
-                    return
+                    return False
                 player.taken_over = True
                 player.is_bot = True
                 player.bot_difficulty = difficulty
@@ -262,7 +293,7 @@ class LifecycleService:
             if not humans_left:
                 # Nobody is left to play against; don't let bots finish it alone.
                 await session.cancel(reason, forfeiter_seat=seat)
-                return
+                return True
             session._record_system(
                 "bot_takeover",
                 {
@@ -289,16 +320,9 @@ class LifecycleService:
             try:
                 session.game.remove_player(seat)
                 session._removed_seats.add(seat)
-                args = {"reason": "timeout"} if reason == "timeout" else {}
-                await session.force_move(
-                    seat,
-                    Move(
-                        actor_seat=seat,
-                        source="forfeit",
-                        args=args,
-                        kind=LogEntryKind.SYSTEM,
-                    ),
-                )
+                # Logs a system "forfeit" row even when the seat wasn't waiting
+                # on a recorded input (Mafia uses record=False).
+                await session.force_forfeit(seat, reason)
             except Exception as e:
                 log.exception(
                     "Error removing player for session %s (seat %s). Ending game.",
@@ -309,7 +333,9 @@ class LifecycleService:
                 await session.cancel("error", forfeiter_seat=seat)
 
         elif consequence == TimeoutConsequence.GAME_ENDS:
-            await session.cancel(reason, forfeiter_seat=seat)
+            return await session.cancel(reason, forfeiter_seat=seat)
+
+        return True
 
     async def register_rematch_vote(self, thread_id: int, user: discord.User) -> None:
         await self.rematch.vote(thread_id, user.id)

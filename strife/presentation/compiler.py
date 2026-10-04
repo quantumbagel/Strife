@@ -28,6 +28,9 @@ class LayoutError(Exception):
     pass
 
 
+MAX_COMPONENTS = 40
+
+
 _STYLE_MAP = {
     ButtonStyle.PRIMARY: discord.ButtonStyle.primary,
     ButtonStyle.SECONDARY: discord.ButtonStyle.secondary,
@@ -64,16 +67,34 @@ class Compiler:
     def compile(self, view: LayoutView, *, resource_id: int, prefix: str) -> ui.LayoutView:
         self._component_count = 0
         self._text_chars = 0
-        layout = ui.LayoutView(timeout=None)
-        for child in view.children:
-            layout.add_item(self._compile_top(child, resource_id=resource_id, prefix=prefix))
-        if self._component_count > 40:
-            raise LayoutError("Layout exceeds 40 components")
+        compiled = [
+            self._compile_top(child, resource_id=resource_id, prefix=prefix)
+            for child in view.children
+        ]
+        # Check before building the discord.py view, which raises a bare
+        # ValueError once it passes 40.
+        if self._component_count > MAX_COMPONENTS:
+            raise LayoutError(
+                f"Layout has {self._component_count} components "
+                f"(Discord allows {MAX_COMPONENTS}, counting containers, rows and sections)"
+            )
         if self._text_chars > 4000:
             raise LayoutError("Layout exceeds 4000 total text characters")
+        layout = ui.LayoutView(timeout=None)
+        try:
+            for item in compiled:
+                layout.add_item(item)
+        except ValueError as exc:
+            raise LayoutError(str(exc)) from exc
         return layout
 
     def _count(self) -> None:
+        """Count one component toward Discord's 40-per-message total.
+
+        Components V2 counts every component, nested ones included: containers,
+        action rows, sections and their accessories, text, separators, galleries
+        (one each, not per image), buttons and selects.
+        """
         self._component_count += 1
 
     def _prefix_text(self, text: TextDisplay) -> str:
@@ -273,6 +294,7 @@ class Compiler:
             raise LayoutError("ActionRow cannot have more than 1 select")
         if sum(bool(x) for x in (selects, channel_selects, user_selects)) > 1:
             raise LayoutError("ActionRow cannot mix select types")
+        self._count()
         compiled = ui.ActionRow()
         for item in row.items:
             if isinstance(item, Button):
@@ -301,6 +323,7 @@ class Compiler:
         return ui.Section(*compiled_children, accessory=compiled_accessory)
 
     def _compile_container(self, container: Container, *, resource_id: int, prefix: str) -> ui.Container:
+        self._count()
         compiled = ui.Container()
         for child in container.children:
             if isinstance(child, TextDisplay):

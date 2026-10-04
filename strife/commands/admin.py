@@ -14,7 +14,7 @@ from strife.persistence.repositories import MatchRepository, UserRepository
 from strife.plugins.deps import missing_dependencies
 from strife.plugins.errors import PluginError
 from strife.plugins.games_yaml import ensure_game_entry
-from strife.plugins.manager import looks_like_source
+from strife.plugins.manager import PluginUpdate, normalize_source
 from strife.settings import Settings
 
 log = get_logger("commands.admin")
@@ -118,54 +118,81 @@ class AdminCommands(commands.Cog):
                 except Exception:
                     pass
             await self._add_reaction_with_fallback(message, "error", "❌")
-            await message.reply(str(exc))
-        except Exception as e:
+            await message.reply(str(exc)[:1900])
+        except Exception as exc:
+            log.exception("strife/%s %s failed", cmd, " ".join(args))
             if added_loading:
                 try:
                     await message.remove_reaction(added_loading, self.bot.user)
                 except Exception:
                     pass
             await self._add_reaction_with_fallback(message, "error", "❌")
-            raise e
+            try:
+                await message.reply(
+                    f"`strife/{cmd}` failed: {type(exc).__name__}: {exc}"[:1900]
+                    + "\nFull traceback is in the bot log."
+                )
+            except discord.HTTPException:
+                log.exception("Could not report strife/%s failure", cmd)
 
-    async def _sync(self, args: list[str], message: discord.Message) -> None:
+    def _guild_target(
+        self, args: list[str], message: discord.Message, usage: str
+    ) -> tuple[discord.abc.Snowflake | None, str]:
+        """Parse ``[] | local | <guild_id>`` into ``(guild or None for global, label)``."""
+        if len(args) > 1:
+            raise PluginError(usage)
         if not args:
-            synced = await self.bot.tree.sync()
-            await message.reply(f"Globally synced {len(synced)} commands.")
-            return
+            return None, "global"
         target = args[0]
         if target == "local":
             if message.guild is None:
-                await message.reply("local sync requires a guild context")
-                return
-            self.bot.tree.copy_global_to(guild=message.guild)
-            synced = await self.bot.tree.sync(guild=message.guild)
-            await message.reply(f"Synced {len(synced)} commands to this guild.")
-            return
+                raise PluginError(f"`local` needs a server channel, not a DM.\n{usage}")
+            return message.guild, "this guild"
         try:
             guild_id = int(target)
         except ValueError:
-            await message.reply(
-                "Invalid sync target. Omit args for global sync, use `local` "
-                "for this guild, or pass a numeric guild id."
-            )
+            raise PluginError(f"Invalid target `{target}`.\n{usage}") from None
+        return discord.Object(id=guild_id), f"guild {guild_id}"
+
+    async def _sync(self, args: list[str], message: discord.Message) -> None:
+        guild, label = self._guild_target(args, message, _SYNC_USAGE)
+        if guild is None:
+            synced = await self.bot.tree.sync()
+            await message.reply(f"Globally synced {len(synced)} commands.")
             return
-        guild = discord.Object(id=guild_id)
         self.bot.tree.copy_global_to(guild=guild)
         synced = await self.bot.tree.sync(guild=guild)
-        await message.reply(f"Synced {len(synced)} commands to guild {target}.")
+        reply = f"Synced {len(synced)} commands to {label}."
+        clear_cmd = "strife/clear local" if args[0] == "local" else f"strife/clear {args[0]}"
+        try:
+            global_count = len(await self.bot.tree.fetch_commands())
+        except discord.HTTPException:
+            global_count = None
+        if global_count:
+            reply += (
+                f"\nWarning: {global_count} command(s) are also synced globally, so they show "
+                f"twice in {label}. Run `{clear_cmd}` to drop the guild copy."
+            )
+        elif global_count is None:
+            reply += (
+                f"\nIf these are also synced globally they will show twice in {label}; "
+                f"`{clear_cmd}` drops the guild copy."
+            )
+        await message.reply(reply)
 
     async def _clear(self, args: list[str], message: discord.Message) -> None:
-        if not args:
+        guild, label = self._guild_target(args, message, _CLEAR_USAGE)
+        if guild is None:
             self.bot.tree.clear_commands(guild=None)
             await self.bot.tree.sync()
-            await message.reply("Cleared global commands.")
+            await message.reply(
+                "Cleared global commands. Restart the bot before `strife/sync` "
+                "to register them again."
+            )
             return
-        target = args[0]
-        guild = message.guild if target == "local" else discord.Object(id=int(target))
         self.bot.tree.clear_commands(guild=guild)
         await self.bot.tree.sync(guild=guild)
-        await message.reply("Cleared guild commands.")
+        await message.reply(f"Cleared the guild-only command copy for {label}.")
 
     async def _treediff(self, args: list[str], message: discord.Message) -> None:
         guild = message.guild
@@ -186,35 +213,62 @@ class AdminCommands(commands.Cog):
         if args != ["confirm"]:
             await message.reply("Run `strife/dbreset confirm` to wipe the database.")
             return
+        sessions = getattr(self.bot, "sessions", None)
+        n_games = len(sessions.active_games) if sessions is not None else 0
+        n_lobbies = len(sessions.lobbies) if sessions is not None else 0
+        if n_games or n_lobbies:
+            raise PluginError(
+                f"Not resetting: {n_games} live game(s) and {n_lobbies} open lobby(ies). "
+                "Their final saves would fail against the wiped tables. "
+                "Let the games finish and end the lobbies, then retry."
+            )
         migrator = Migrator(self.bot.pool, self.settings.migrations_dir)  # type: ignore[attr-defined]
         await migrator.reset()
-        await message.reply("Database reset and migrations re-applied.")
+        _clear_replay_caches(getattr(self.bot, "replay", None))
+        await message.reply("Database reset and migrations re-applied. Replay cache cleared.")
 
     async def _emoji(self, args: list[str], message: discord.Message) -> None:
         resolver = self.bot.emoji  # type: ignore[attr-defined]
         manager = self.bot.plugin_manager  # type: ignore[attr-defined]
         assets = Path("assets/emoji")
         plugin_dirs = manager.emoji_sources() if manager is not None else []
-        count = await resolver.reupload(self.bot, assets, plugin_dirs=plugin_dirs)
-        await resolver.sync(self.bot)
-        await message.reply(f"Uploaded {count} application emoji(s) and updated emoji.yaml.")
+        result = await resolver.reupload(self.bot, assets, plugin_dirs=plugin_dirs)
+        try:
+            await resolver.sync(self.bot)
+        except discord.HTTPException:
+            log.exception("Emoji sync after re-upload failed")
+        reply = f"Uploaded {result.uploaded} application emoji(s) and updated emoji.yaml."
+        if result.failed:
+            shown = "\n".join(f"- {name}: {why}" for name, why in result.failed[:15])
+            more = len(result.failed) - 15
+            reply += (
+                f"\n{len(result.failed)} failed (those keep their Unicode fallback):\n{shown}"
+                + (f"\n…and {more} more (see log)" if more > 0 else "")
+                + "\nRun `strife/emoji` again to retry."
+            )
+        await message.reply(reply[:1900])
 
     async def _plugins(self, args: list[str], message: discord.Message) -> None:
         manager = self.bot.plugin_manager  # type: ignore[attr-defined]
-        lines = manager.status_lines()
+        registry = getattr(self.bot, "game_registry", None)
+        loaded = {meta.key for meta in registry.all()} if registry is not None else None
+        games = self.bot.config.games  # type: ignore[attr-defined]
+        hidden = {key for key in loaded or () if not games.for_game(key).enabled}
+        lines = manager.status_lines(loaded=loaded, hidden=hidden)
         body = "Plugins:\n" + ("\n".join(lines) if lines else "(none)")
         await message.reply(body[:1900])
 
     async def _install(self, args: list[str], message: discord.Message) -> None:
-        if not args:
+        if not args or len(args) > 2:
             raise PluginError("Usage: strife/install <builtin-key | git-url> [ref]")
         target = args[0]
         ref = args[1] if len(args) > 1 else None
         manager = self.bot.plugin_manager  # type: ignore[attr-defined]
         registry = self.bot.game_registry  # type: ignore[attr-defined]
 
-        if looks_like_source(target):
-            manifest = await asyncio.to_thread(manager.install_from_git, target, ref)
+        source = normalize_source(target)
+        if source is not None:
+            manifest = await asyncio.to_thread(manager.install_from_git, source, ref)
             kind = "git"
         else:
             if ref is not None:
@@ -222,17 +276,35 @@ class AdminCommands(commands.Cog):
             manifest = await asyncio.to_thread(manager.restore_builtin, target)
             kind = "builtin"
 
-        enabled = _sync_game_overlay(self.bot, manifest.key)
-        extra = _load_or_advise_restart(self.bot, registry, manifest.key)
-        _refresh_changelog(self.bot, manifest.key)
+        key = manifest.key
+        try:
+            extra = _load_or_advise_restart(self.bot, registry, key)
+            extra += _register_slash(self.bot, registry, key)
+        except Exception as exc:
+            log.exception("Plugin %s failed to load after install; rolling back", key)
+            registry.unregister(key)
+            remove_slash_group_for_game(self.bot.tree, key)
+            try:
+                await asyncio.to_thread(manager.rollback_install, key)
+            except Exception as rb_exc:
+                raise PluginError(
+                    f"**{key}** was installed but failed to load: {exc}\n"
+                    f"Rolling back also failed ({rb_exc}); run `strife/uninstall {key} confirm`."
+                ) from exc
+            raise PluginError(
+                f"**{key}** failed to load, so the install was rolled back:\n{exc}"
+            ) from exc
+        manager.confirm_install(key)
+        enabled = _sync_game_overlay(self.bot, key)
+        _refresh_changelog(self.bot, key)
         if kind == "git":
             extra += " Run `strife/emoji` if the plugin shipped an emoji/ folder."
         if not enabled:
             extra += " Disabled in games.yaml — set enabled: true to list it in /play."
-        await message.reply(f"Installed **{manifest.key}** v{manifest.version}.{extra}")
+        await message.reply(f"Installed **{key}** v{manifest.version}.{extra}")
 
     async def _update(self, args: list[str], message: discord.Message) -> None:
-        if not args:
+        if not args or len(args) > 2:
             raise PluginError("Usage: strife/update <key> [ref]")
         key = args[0]
         ref = args[1] if len(args) > 1 else None
@@ -244,12 +316,31 @@ class AdminCommands(commands.Cog):
             )
         manager = self.bot.plugin_manager  # type: ignore[attr-defined]
         registry = self.bot.game_registry  # type: ignore[attr-defined]
-        manifest = await asyncio.to_thread(manager.update_from_git, key, ref)
-        extra = _load_or_advise_restart(self.bot, registry, manifest.key, reload=True)
-        _refresh_changelog(self.bot, manifest.key)
+        update = await asyncio.to_thread(manager.update_from_git, key, ref)
+        try:
+            extra = _load_or_advise_restart(self.bot, registry, key, reload=True)
+        except Exception as exc:
+            log.exception("Plugin %s failed to reload after update; restoring old files", key)
+            try:
+                await asyncio.to_thread(manager.revert_update, update)
+            except Exception as rb_exc:
+                log.exception("Could not restore %s after a failed update", key)
+                raise PluginError(
+                    f"**{key}** v{update.manifest.version} failed to load: {exc}\n"
+                    f"Restoring the previous files also failed ({rb_exc}). The old version keeps "
+                    f"running until restart; the backup is at `{update.backup}`."
+                ) from exc
+            raise PluginError(
+                f"**{key}** v{update.manifest.version} failed to load, so the previous files "
+                f"and ref were restored (the running version was not replaced):\n{exc}"
+            ) from exc
+        await asyncio.to_thread(manager.finish_update, update)
+        extra += _register_slash(self.bot, registry, key)
+        _refresh_changelog(self.bot, key)
         extra += " Run `strife/emoji` if the plugin shipped an emoji/ folder."
         await message.reply(
-            f"Updated **{manifest.key}** to v{manifest.version}. Match history was kept.{extra}"
+            f"Updated **{key}** to v{update.manifest.version}."
+            f"{_describe_ref(key, update)} Match history was kept.{extra}"
         )
 
     async def _uninstall(self, args: list[str], message: discord.Message) -> None:
@@ -315,6 +406,41 @@ class AdminCommands(commands.Cog):
         )
 
 
+_SYNC_USAGE = (
+    "Usage: `strife/sync` (global), `strife/sync local` (this guild), "
+    "or `strife/sync <guild_id>`."
+)
+_CLEAR_USAGE = (
+    "Usage: `strife/clear` (global), `strife/clear local` (this guild's copy), "
+    "or `strife/clear <guild_id>`."
+)
+
+
+def _describe_ref(key: str, update: PluginUpdate) -> str:
+    commit = f" (commit `{update.commit[:10]}`)" if update.commit else ""
+    if update.requested_ref is not None:
+        return f" Ref: `{update.ref}`{commit}."
+    if update.reused_ref:
+        return (
+            f" Reused the pinned ref `{update.ref}`{commit} from the last install/update. "
+            f"To follow a branch instead, run `strife/update {key} <branch>` (e.g. `main`)."
+        )
+    return f" Ref: default branch{commit}."
+
+
+def _clear_replay_caches(replay) -> None:
+    if replay is None:
+        return
+    clear = getattr(replay, "clear_cache", None)
+    if callable(clear):
+        clear()
+        return
+    for attr in ("_cache", "_autocomplete_cache"):
+        cache = getattr(replay, attr, None)
+        if cache is not None and hasattr(cache, "clear"):
+            cache.clear()
+
+
 def _sync_game_overlay(bot, key: str) -> bool:
     """Align in-memory catalog enablement with games.yaml. Does not flip an existing row."""
     manager = bot.plugin_manager
@@ -330,7 +456,10 @@ def _sync_game_overlay(bot, key: str) -> bool:
 
 
 def _load_or_advise_restart(bot, registry, key: str, *, reload: bool = False) -> str:
-    """Load the plugin now, or tell the operator to restart so extras can install at boot."""
+    """Load the plugin now, or tell the operator to restart so extras can install at boot.
+
+    Does not register slash commands; call ``_register_slash`` after.
+    """
     manager = bot.plugin_manager
     record = manager.record_for(key)
     missing = missing_dependencies(record.dependencies) if record is not None else []
@@ -346,7 +475,7 @@ def _load_or_advise_restart(bot, registry, key: str, *, reload: bool = False) ->
                 "and load the plugin."
             )
         raise
-    return _register_slash(bot, registry, key)
+    return ""
 
 
 def _register_slash(bot, registry, key: str) -> str:

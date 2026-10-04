@@ -38,11 +38,13 @@ Empty arrays may be omitted.
 
 | Command | What it does |
 |---------|----------------|
-| `strife/plugins` | List builtins and git plugins |
-| `strife/install <git-url> [ref]` | Clone, register, create a `games.yaml` row if the key is new (`enabled: true`). Missing extras load on next boot |
+| `strife/plugins` | List builtins and git plugins, with loaded / NOT loaded / hidden status |
+| `strife/install <git-url> [ref]` | Clone, register, create a `games.yaml` row if the key is new (`enabled: true`). `github.com/you/repo` (no scheme) gets `https://`. If the plugin fails to load, the folder and both rows are rolled back and the error is shown. Missing extras load on next boot |
 | `strife/install <key>` | Restore an uninstalled builtin. Does not un-hide `enabled: false` |
-| `strife/update <key> [ref]` | Replace git files; keep history. Refused while that game has a live match or lobby |
+| `strife/update <key> [ref]` | Replace git files; keep history. Refused while that game has a live match or lobby. If the new code fails to load, the old files and ref are restored. With no `ref`, reuses the ref recorded at install/last update (the reply says which) |
 | `strife/uninstall <key> confirm` | Stop live games, remove files, **then** delete matches/stats. If the plugin is already gone, wipes leftover history |
+
+`ref` may be a branch, tag, or commit SHA (7–40 hex). A short SHA clones full history to resolve it and is recorded as the full SHA. A pinned commit stays pinned: `strife/update <key> main` moves it onto a branch.
 
 You can’t install a git plugin whose key collides with a shipped game — restore the builtin instead. To refresh an installed git plugin, `strife/update`, not uninstall+install.
 
@@ -57,11 +59,11 @@ removed: []          # uninstalled builtins
 installed: {}        # git plugins: key → {source, ref}
 ```
 
-Uninstalling a builtin adds it to `removed`; the files stay in the image. `games.yaml` is hide-vs-show, not installed-vs-not. `strife/install chess` clears the removed mark. A missing `games.yaml` row is created as `enabled: true`; an existing row (including `enabled: false`) is left alone.
+Uninstalling a builtin adds it to `removed`; the files stay in the image. `games.yaml` is hide-vs-show, not installed-vs-not. `strife/install chess` clears the removed mark. A missing `games.yaml` row is created as `enabled: true`; an existing row (including `enabled: false`) is left alone. A loaded game with no row at all (e.g. a folder copied into `plugins/`) is enabled with default tuning.
 
-Git plugins live in `plugins/<key>/` (compose mounts `./plugins`). Uninstall deletes that directory and **fails** (history untouched) if it can’t. Host installs need `git` on PATH.
+Git plugins live in `plugins/<key>/` (compose mounts `./plugins`). During `strife/update` the old copy sits in `plugins/.<key>.previous/` until the new code loads; dot-folders are never loaded. Uninstall deletes that directory and **fails** (history untouched) if it can’t. Host installs need `git` on PATH.
 
-`strife/emoji` uploads plugin files as `{key}_{stem}` and platform files from `assets/emoji/` using names in `strife/presentation/base_emojis.py`.
+`strife/emoji` replaces emoji one name at a time; a failed upload leaves that name on its Unicode `fallback` and is listed in the reply. It uploads plugin files as `{key}_{stem}` and platform files from `assets/emoji/` using names in `strife/presentation/base_emojis.py`.
 
 ## Dependencies
 

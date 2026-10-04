@@ -10,6 +10,8 @@ class TimeoutConsequence(StrEnum):
     SKIP = "skip"
     AUTO_PASS = "auto_pass"
     STRIKE = "strike"
+    # until="any" window closed with nobody acting: no seat is blamed.
+    PHASE_ENDS = "phase_ends"
 
 
 def will_removal_end_game(session: object, seat: int) -> bool:
@@ -44,6 +46,11 @@ def determine_consequence(
 
     # Default timeout consequence logic
     pending = getattr(session, "pending", {}).get(seat)
+
+    # A shared "first to act" window isn't any one seat's turn, so expiry
+    # closes the window instead of punishing whoever is listed first.
+    if pending is not None and getattr(pending, "until", "all") == "any":
+        return TimeoutConsequence.PHASE_ENDS
 
     consequence_type = "abandon"
     if pending and getattr(pending, "timeout_consequence", None) is not None:

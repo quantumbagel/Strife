@@ -8,6 +8,7 @@ itself instead of reaching the command as a bogus name or key.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Iterable, Sequence
 
 import discord
@@ -202,6 +203,58 @@ def named_id_choices(
         ],
         current,
     )
+
+
+async def user_name_pairs(
+    interaction: discord.Interaction,
+    user_ids: Sequence[int],
+    text: TextConfig,
+    *,
+    guild_id: int | None = None,
+    fetch_timeout: float = 1.5,
+) -> list[tuple[int, str]]:
+    """Pair user ids with display names for autocomplete labels.
+
+    Members aren't cached (``MemberCacheFlags.none()``), so fall back to the
+    user cache, then a bounded fetch, then a generic label with the id.
+    ``guild_id`` names the lobby's server when it differs from the interaction's.
+    """
+    ids = list(user_ids)[:25]
+    guild = interaction.guild
+    if guild_id is not None and (guild is None or guild.id != guild_id):
+        guild = interaction.client.get_guild(guild_id) or guild
+    names: dict[int, str] = {}
+    for user_id in ids:
+        member = guild.get_member(user_id) if guild is not None else None
+        if member is not None:
+            names[user_id] = member.display_name
+            continue
+        user = interaction.client.get_user(user_id)
+        if user is not None:
+            names[user_id] = user.display_name
+
+    missing = [user_id for user_id in ids if user_id not in names]
+    if missing and guild is not None:
+        async def _fetch(user_id: int) -> tuple[int, str | None]:
+            try:
+                member = await guild.fetch_member(user_id)
+            except discord.HTTPException:
+                return user_id, None
+            return user_id, member.display_name
+
+        try:
+            fetched = await asyncio.wait_for(
+                asyncio.gather(*(_fetch(user_id) for user_id in missing)),
+                timeout=fetch_timeout,
+            )
+        except TimeoutError:
+            fetched = []
+        names.update({user_id: name for user_id, name in fetched if name})
+
+    return [
+        (user_id, names.get(user_id) or text.get("autocomplete.unknown_user_label", user_id=user_id))
+        for user_id in ids
+    ]
 
 
 def open_lobby_creator_choices(

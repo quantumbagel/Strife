@@ -106,6 +106,8 @@ class SessionLifecycleMixin:
         match_id = 0
         persist_ok = False
         released = False
+        untracked = False
+        interrupted = False
         try:
             finished = FinishedMatch(
                 code=self._match_code,
@@ -221,9 +223,18 @@ class SessionLifecycleMixin:
                         await thread.edit(locked=True)
                     except Exception:
                         log.exception("Failed to lock game thread %s", self.thread_id)
+            # Last, so a crash or shutdown before the thread is locked leaves the
+            # row for the next boot to clean up.
+            await self._untrack()
+            untracked = True
+        except asyncio.CancelledError:
+            interrupted = True
+            raise
         finally:
             encoder = getattr(self.surface.compiler, "encoder", None)
             if encoder is not None:
                 encoder.invalidate_resource(self.thread_id)
             if not released:
                 await self._finalizer.session_complete(self)
+            if not untracked and not interrupted:
+                await self._untrack()

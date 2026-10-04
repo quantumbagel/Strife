@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import random
 import sys
 from pathlib import Path
@@ -156,12 +157,10 @@ class MockContext:
 
 
 def _load_emoji() -> EmojiResolver:
-    from strife.config import load_app_config
-    from strife.settings import get_settings
+    # Read config straight from the repo; Settings would demand a bot token and database URL.
+    from strife.config.emoji import load_emoji_config
 
-    settings = get_settings()
-    config = load_app_config(settings.config_dir)
-    return EmojiResolver(config.emoji)
+    return EmojiResolver(load_emoji_config(ROOT / "config" / "emoji.yaml"))
 
 
 def _parse_scripted(raw: list[str]) -> list[tuple[int, str, dict]]:
@@ -246,6 +245,8 @@ def main() -> int:
         help="After play(), rebuild replay frames from the recorded log",
     )
     args = parser.parse_args()
+    # Plugin discovery resolves config/ and plugins/ against the working directory.
+    os.chdir(ROOT)
     asyncio.run(_run(args))
     return 0
 

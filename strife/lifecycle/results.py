@@ -40,6 +40,7 @@ def build_results_view(
     rematch_count: int = 0,
     rematch_disabled: bool = False,
     rematch_expires_at: int | None = None,
+    rematch_restarting: bool = False,
     replay_disabled: bool = False,
     match_status: str = "completed",
     removed_seats: set[int] | frozenset[int] = frozenset(),
@@ -86,7 +87,12 @@ def build_results_view(
         result = outcome.results.get(player.seat, "—")
         role = f" ({player.role_key})" if player.role_key else ""
 
-        if result == "win":
+        if player.taken_over and outcome.results.get(player.seat):
+            # Matches the stored row: a bot finished this AFK seat, so the
+            # result (even a win) isn't the player's.
+            res_emoji = emoji.get("error")
+            res_text = text.get("match.result_taken_over")
+        elif result == "win":
             res_emoji = emoji.get("success")
             res_text = player_descriptions.get(str(player.seat), "Win")
         elif result == "loss":
@@ -103,15 +109,17 @@ def build_results_view(
             emoji,
             user_id=player.user_id,
             display_name=player.display_name,
-            is_bot=player.is_bot,
-            bot_difficulty=player.bot_difficulty,
+            is_bot=player.is_bot and not player.taken_over,
+            bot_difficulty=None if player.taken_over else player.bot_difficulty,
         )
         lines.append(f"• {name}{role} {forward} {res_emoji} {res_text}")
 
     container.add_text(TextDisplay(markdown_content="\n".join(lines)))
 
     total = len(rematch_eligible(players, removed_seats))
-    if total > 0:
+    if rematch_restarting:
+        rematch_label = text.get("match.rematch_restarting")
+    elif total > 0:
         if rematch_expires_at is not None:
             rematch_label = text.get(
                 "match.rematch_progress_expires",
@@ -133,7 +141,7 @@ def build_results_view(
             emoji="rematch",
             route_prefix=P.REMATCH,
             resource_id=thread_id,
-            disabled=rematch_disabled or total == 0,
+            disabled=rematch_disabled or rematch_restarting or total == 0,
         )
     )
     row.add_button(

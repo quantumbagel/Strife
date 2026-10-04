@@ -42,3 +42,8 @@ class PendingInput:
     deadline_at: float | None = None
     timeout_generation: int = 0
     until: str = "all"
+    # Whether the request path logs the move this future resolves with.
+    record: bool = True
+    # Shared by every seat of one until="any" request; resolving it closes the
+    # window with no move (see ``SessionInputMixin.expire_phase``).
+    phase_timeout: asyncio.Future[None] | None = None

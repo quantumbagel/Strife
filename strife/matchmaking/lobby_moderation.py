@@ -16,11 +16,16 @@ class LobbyModerationMixin:
             return
         values = interaction.data.get("values") if interaction.data else []
         if values:
+            target_id = int(values[0])
+            if target_id not in lobby.pending_requests:
+                # Withdrawn, or seated elsewhere, since this card was drawn.
+                await self._error(interaction, "errors.no_pending_request", lobby=lobby)
+                await self._refresh(lobby, interaction)
+                return
             meta = self._meta(lobby.game_key)
             if lobby.is_full(meta):
-                await self._error(interaction, "errors.lobby_full", lobby=lobby)
+                await self._error(interaction, "errors.lobby_full_creator", lobby=lobby)
                 return
-            target_id = int(values[0])
             if target_id in lobby.blacklist:
                 await self._error(interaction, "errors.blacklisted", lobby=lobby)
                 return
@@ -28,11 +33,19 @@ class LobbyModerationMixin:
                 interaction, lobby, user_id=target_id
             ):
                 return
-            display_name = lobby.pending_requests.pop(target_id, f"User {target_id}")
+            # Re-read: the request can be withdrawn or pruned during the await above.
+            display_name = lobby.pending_requests.get(target_id)
+            if display_name is None:
+                await self._error(interaction, "errors.no_pending_request", lobby=lobby)
+                await self._refresh(lobby, interaction)
+                return
+            if not self._is_lobby_member(lobby, target_id):
+                if not await self._seat_member(lobby, target_id, display_name, interaction):
+                    await self._refresh(lobby, interaction)
+                    return
+            lobby.pending_requests.pop(target_id, None)
             lobby.approved.add(target_id)
             lobby.denied.discard(target_id)
-            if not any(m.user_id == target_id for m in lobby.members):
-                await self._seat_member(lobby, target_id, display_name, interaction)
         await self._sync_lobby_after_creator_edit(lobby, interaction, route)
 
     async def _deny(
@@ -100,7 +113,7 @@ class LobbyModerationMixin:
                 await self._error(interaction, "common.error", lobby=lobby)
                 return
             if lobby.is_full(meta):
-                await self._error(interaction, "errors.lobby_full", lobby=lobby)
+                await self._error(interaction, "errors.lobby_full_creator", lobby=lobby)
                 return
             lobby.bots.append(
                 QueuedBot(
@@ -108,6 +121,7 @@ class LobbyModerationMixin:
                     difficulty=difficulty,
                 )
             )
+            lobby.reset_ready()
         await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="general", edit=True)
         await self._refresh(lobby, interaction)
@@ -125,6 +139,7 @@ class LobbyModerationMixin:
                 await self._error(interaction, "common.error", lobby=lobby)
                 return
             lobby.bots = [bot for bot in lobby.bots if bot.name != name]
+            lobby.reset_ready()
         await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="general", edit=True)
         await self._refresh(lobby, interaction)

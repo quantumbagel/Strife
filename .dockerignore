@@ -11,3 +11,5 @@ __pycache__/
 plans/
 tests/
 *.md
+# Unreferenced source video; keep it out of the image
+assets/emoji/*.mp4

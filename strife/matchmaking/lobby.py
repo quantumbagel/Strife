@@ -67,6 +67,8 @@ class Lobby:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     starting: bool = False
     launching: bool = False
+    # Rules or bots changed while someone was ready; the card asks everyone to ready again.
+    ready_reset: bool = False
 
     @property
     def lobby_id(self) -> int:
@@ -75,6 +77,16 @@ class Lobby:
     @property
     def total_players(self) -> int:
         return len(self.members) + len(self.bots)
+
+    def reset_ready(self) -> None:
+        """Clear every ready flag after a rules or bots change."""
+        if self.ready:
+            self.ready_reset = True
+        self.ready.clear()
+
+    def mark_ready(self, user_id: int) -> None:
+        self.ready.add(user_id)
+        self.ready_reset = False
 
     def is_full(self, meta: GameMetadata) -> bool:
         max_players = meta.player_count.max_players

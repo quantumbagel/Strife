@@ -35,6 +35,7 @@ _RUNTIME_ERROR_CODES = {
     "unknown_game": "errors.unknown_game",
     "query_failed": "common.error",
     "already_in_session": "errors.already_in_session",
+    "game_ending": "errors.game_ending",
 }
 
 
@@ -204,7 +205,21 @@ class InteractionRouter:
             await self._error(interaction, "common.error")
             return
         await self._defer(interaction)
-        await self.lifecycle.register_rematch_vote(route.resource_id, interaction.user)
+        try:
+            await self.lifecycle.register_rematch_vote(route.resource_id, interaction.user)
+        except SessionError as exc:
+            busy_id = getattr(exc, "user_id", None)
+            if exc.code != "rematch_member_busy" or busy_id is None:
+                raise
+            await self.user_errors.send(
+                interaction,
+                "errors.rematch_member_busy",
+                context=ErrorContext(
+                    interaction=interaction,
+                    user_id=interaction.user.id,
+                    reason_kwargs={"player": f"<@{busy_id}>"},
+                ),
+            )
 
     async def _handle_lobby(self, route, interaction: discord.Interaction) -> None:
         if self.lobby is None:
@@ -252,7 +267,7 @@ class InteractionRouter:
             return
         member = interaction.user
         if not isinstance(member, discord.Member) or not member.guild_permissions.administrator:
-            await self._error(interaction, "common.forbidden")
+            await self._error(interaction, "errors.admin_required")
             return
         if route.prefix == P.SERVER_CHANNEL:
             values = interaction.data.get("values") if interaction.data else []
@@ -311,7 +326,11 @@ class InteractionRouter:
                 await self.lobby.user_success.send(interaction, "match.forfeited")
             return
         except SessionError as e:
-            code = "errors.no_session" if e.code == "no_session" else "common.error"
+            code = (
+                _RUNTIME_ERROR_CODES.get(e.code, "common.error")
+                if e.code in ("no_session", "game_ending")
+                else "common.error"
+            )
             await self._error(interaction, code)
         except PermissionError:
             await self._error(interaction, "errors.not_in_game")

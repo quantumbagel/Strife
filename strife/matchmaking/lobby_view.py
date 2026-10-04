@@ -83,6 +83,13 @@ def build_lobby_view(
             size_style=TextSize.BODY,
         )
     )
+    if lobby.ready_reset and not lobby.ready:
+        container.add_text(
+            TextDisplay(
+                markdown_content=text.get("lobby.ready_reset_notice"),
+                size_style=TextSize.BODY,
+            )
+        )
 
     diff_rating = min(max(0, meta.difficulty), 5)
     diff_display = "★" * diff_rating + "☆" * (5 - diff_rating)
@@ -207,7 +214,8 @@ def build_lobby_view(
     # Controls added to the container instead of the view
     container.add_action_row(controls)
 
-    if lobby.pending_requests:
+    # Public lobbies have no approval step; requesters can just press Join.
+    if lobby.private and lobby.pending_requests:
         container.add_separator()
         container.add_text(
             TextDisplay(

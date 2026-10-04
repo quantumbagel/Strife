@@ -66,9 +66,11 @@ class GamesConfig(BaseModel):
         )
 
     def for_game(self, key: str) -> GameConfig:
+        """Tuning for *key*. Games without a row are enabled with the defaults;
+        only an explicit ``enabled: false`` row hides a game."""
         if key in self._merged:
             return self._merged[key]
-        return self._merge_config(key, GameConfig(enabled=False))
+        return self._merge_config(key, GameConfig())
 
     def note_game(self, key: str, *, enabled: bool = True) -> None:
         existing = self.games.get(key)

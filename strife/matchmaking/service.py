@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import discord
 
 from strife.config import AppConfig
@@ -55,6 +57,8 @@ class LobbyService(
         self.lifecycle = lifecycle
         self.user_errors = user_errors or UserErrorPresenter(compiler, emoji, config.text, registries)
         self.user_success = user_success or UserSuccessPresenter(compiler, emoji, config.text)
+        self._background_tasks: set[asyncio.Task] = set()
+        registries.on_requests_pruned = self._on_requests_pruned
 
 
     def _error_ctx(

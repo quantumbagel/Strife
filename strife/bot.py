@@ -25,6 +25,7 @@ from strife.lifecycle.service import LifecycleService
 from strife.logging import configure_logging, get_logger
 from strife.matchmaking.registries import SessionRegistries
 from strife.matchmaking.service import LobbyService, SessionFinalizer
+from strife.persistence.active_games import ActiveGame, ActiveGameRepository
 from strife.persistence.migrator import Migrator
 from strife.persistence.pool import create_pool
 from strife.persistence.repositories import GuildRepository, MatchRepository, MoveRepository, UserRepository
@@ -40,6 +41,10 @@ from strife.routing.router import InteractionRouter
 from strife.settings import Settings
 
 log = get_logger("bot")
+
+# docker compose stop_grace_period is 30s; leave room for pool/gateway close.
+_SHUTDOWN_GAMES_TIMEOUT_SECONDS = 15.0
+_SHUTDOWN_OFFERS_TIMEOUT_SECONDS = 5.0
 
 
 class StrifeCommandTree(app_commands.CommandTree):
@@ -80,6 +85,7 @@ class StrifeBot(commands.AutoShardedBot):
         self.changelogs: ChangelogCatalog | None = None
         self.about: AboutService | None = None
         self._background_tasks: list[asyncio.Task] = []
+        self.active_games: ActiveGameRepository | None = None
 
     async def setup_hook(self) -> None:
         configure_logging(self.settings.log_level)
@@ -94,6 +100,19 @@ class StrifeBot(commands.AutoShardedBot):
         applied = await migrator.run()
         if applied:
             log.info("Applied migrations: %s", ", ".join(applied))
+
+        # Threads left behind by a crash/SIGKILL. Snapshot now, before any new
+        # game can start, and clean them up once the gateway is ready.
+        self.active_games = ActiveGameRepository(self.pool)
+        try:
+            interrupted = await self.active_games.list_all()
+        except Exception:
+            log.exception("Failed to read interrupted game threads")
+            interrupted = []
+        if interrupted:
+            self._background_tasks.append(
+                asyncio.create_task(self._clean_up_interrupted_games(interrupted))
+            )
 
         log.info("Strife %s (platform %s)", __version__, __platform_version__)
         self.plugin_manager = PluginManager.from_paths(
@@ -247,6 +266,61 @@ class StrifeBot(commands.AutoShardedBot):
             len(self.guilds),
         )
 
+    async def _clean_up_interrupted_games(self, games: list[ActiveGame]) -> None:
+        """Tell crashed matches' threads they're over, lock them, and forget them."""
+        await self.wait_until_ready()
+        notice = self.config.text.get("match.interrupted")
+        for game in games:
+            try:
+                thread = self.get_channel(game.thread_id) or await self.fetch_channel(
+                    game.thread_id
+                )
+            except (discord.NotFound, discord.Forbidden):
+                thread = None
+            except Exception:
+                log.exception("Failed to fetch interrupted game thread %s", game.thread_id)
+                thread = None
+            if isinstance(thread, discord.Thread):
+                try:
+                    await thread.send(notice)
+                except discord.HTTPException as exc:
+                    log.warning("Couldn't post interrupt notice in %s: %s", game.thread_id, exc)
+                try:
+                    await thread.edit(locked=True, archived=True)
+                except discord.HTTPException as exc:
+                    log.warning("Couldn't lock interrupted thread %s: %s", game.thread_id, exc)
+            try:
+                await self.active_games.remove(game.thread_id)
+            except Exception:
+                log.exception("Failed to clear interrupted game thread %s", game.thread_id)
+        log.info("Cleaned up %s interrupted game thread(s)", len(games))
+
+    async def _close_rematch_offers(self) -> None:
+        rematch = getattr(self.lifecycle, "rematch", None) if self.lifecycle else None
+        if rematch is None:
+            return
+        try:
+            await asyncio.wait_for(
+                rematch.close_all(), timeout=_SHUTDOWN_OFFERS_TIMEOUT_SECONDS
+            )
+        except TimeoutError:
+            log.warning("Timed out disabling rematch offers during shutdown")
+        except Exception:
+            log.exception("Failed to disable rematch offers during shutdown")
+
+    async def _shutdown_session(self, session) -> None:
+        try:
+            await session.cancel("restart")
+        except Exception:
+            log.exception("Failed to abandon session %s during shutdown", session.id)
+        if session.task and not session.task.done():
+            try:
+                await session.task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                log.exception("Session task failed during shutdown")
+
     async def on_interaction(self, interaction: discord.Interaction) -> None:
         if interaction.type is discord.InteractionType.component and self.router:
             await self.router.dispatch(interaction)
@@ -256,21 +330,40 @@ class StrifeBot(commands.AutoShardedBot):
             await self.lobby.handle_message_deleted(payload.message_id)
 
     async def close(self) -> None:
+        for task in self._background_tasks:
+            task.cancel()
         if self.lifecycle:
             await self.lifecycle.stop()
-        if self.sessions:
-            for session in list(self.sessions.active_games.values()):
+        # Drop open rematch offers first so none turns into a new lobby mid-shutdown.
+        await self._close_rematch_offers()
+        if self.lobby:
+            close_lobbies = getattr(self.lobby, "close_all_lobbies", None)
+            if close_lobbies is not None:
                 try:
-                    await session.cancel("restart")
+                    await close_lobbies()
                 except Exception:
-                    log.exception("Failed to abandon session %s during shutdown", session.id)
-                if session.task and not session.task.done():
-                    try:
-                        await session.task
-                    except asyncio.CancelledError:
-                        pass
-                    except Exception:
-                        log.exception("Session task failed during shutdown")
+                    log.exception("Failed to close lobbies during shutdown")
+        if self.sessions:
+            sessions = list(self.sessions.active_games.values())
+            if sessions:
+                # Each finalize is several Discord calls; run them side by side
+                # so they fit in the container's stop grace period.
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(
+                            *(self._shutdown_session(s) for s in sessions),
+                            return_exceptions=True,
+                        ),
+                        timeout=_SHUTDOWN_GAMES_TIMEOUT_SECONDS,
+                    )
+                except TimeoutError:
+                    log.warning(
+                        "Timed out abandoning %s session(s) during shutdown; "
+                        "the next boot will clean up their threads",
+                        len(sessions),
+                    )
+            # Abandoned matches just registered offers of their own.
+            await self._close_rematch_offers()
         if self.pool:
             await self.pool.close()
         shutdown_workers()

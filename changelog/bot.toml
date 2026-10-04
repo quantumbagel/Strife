@@ -2,6 +2,32 @@
 # Newest first. Game API versions go in platform.toml.
 
 [[release]]
+version = "1.0.6"
+date = "2026-10-04"
+summary = "Private replays and profiles, clearer lobby errors, restart cleanup."
+fixed = [
+  "Replays open by match code only, and only in the server they were played in",
+  "Profiles show this server's matches and stats, not every server's",
+  "/strife server is limited to Administrators and checks the bot's channel permissions",
+  "/play explains missing bot permissions instead of failing with a generic error",
+  "Approving a join request for someone busy elsewhere says so instead of a wrong error",
+  "Rematch tells you who is busy and keeps the button usable",
+  "60-second games send a turn warning again",
+  "Timeouts in first-to-act phases no longer blame whoever is seated first",
+  "Results show a loss when a bot finished your AFK seat",
+  "Forfeits mid-match show up in replays",
+  "Game slash options show their help text and fixed choices",
+]
+added = [
+  "Leave withdraws a pending join request",
+  "Changing rules or bots resets ready so nobody launches under a surprise ruleset",
+  "Restarts close open lobbies and rematch offers, and crashed games get an interrupted notice",
+]
+changed = [
+  "Slash commands only work in servers",
+]
+
+[[release]]
 version = "1.0.5"
 date = "2026-10-03"
 summary = "Lobbies don't get stuck, AFK and rematch fixes, working page jumps."

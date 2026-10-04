@@ -14,6 +14,7 @@ from strife.commands.autocomplete import (
     option_value_choices,
     parse_user_id,
     replay_match_choices_or_notice,
+    user_name_pairs,
 )
 from strife.commands.catalog import CatalogService
 from strife.commands.server_settings import ServerSettingsService
@@ -37,7 +38,12 @@ def register_strife_group(
     server_settings: ServerSettingsService,
     registry,
 ) -> None:
-    group = app_commands.Group(name="strife", description="Strife platform commands")
+    group = app_commands.Group(
+        name="strife",
+        description="Strife platform commands",
+        guild_only=True,
+        allowed_contexts=app_commands.AppCommandContext(guild=True),
+    )
 
     def _creator_lobby_meta(user_id: int):
         lobby_obj = lobby.lobby_by_creator(user_id)
@@ -62,7 +68,13 @@ def register_strife_group(
         page: int = 1,
     ) -> None:
         target = user or interaction.user
-        await profile.show(interaction, target, game, max(0, page - 1))
+        game_key = None
+        if game:
+            game_key = _resolve_game_key(game)
+            if game_key is None:
+                await lobby.user_errors.send(interaction, "errors.unknown_game")
+                return
+        await profile.show(interaction, target, game_key, max(0, page - 1))
 
     @profile_cmd.autocomplete("game")
     async def profile_game_autocomplete(
@@ -82,6 +94,14 @@ def register_strife_group(
             return None
         return user_id
 
+    def _resolve_game_key(raw: str) -> str | None:
+        """Accept a game key or its display name (any case), as typed or picked."""
+        needle = raw.strip().casefold()
+        for meta in registry.all():
+            if needle in (meta.key.casefold(), meta.name.casefold()):
+                return meta.key
+        return None
+
     def _game_name(game_key: str) -> str:
         try:
             return registry.metadata(game_key).name
@@ -93,7 +113,6 @@ def register_strife_group(
         await lobby.open_settings(interaction)
 
     @group.command(name="server", description="Configure server-level Strife settings")
-    @app_commands.default_permissions(administrator=True)
     async def server_cmd(interaction: discord.Interaction) -> None:
         await server_settings.open(interaction)
 
@@ -121,7 +140,9 @@ def register_strife_group(
                 await lifecycle.forfeit(loc.thread_id, interaction.user.id)
                 await lobby.user_success.send(interaction, "match.forfeited")
             except SessionError as e:
-                code = "errors.no_session" if e.code == "no_session" else "common.error"
+                code = {"no_session": "errors.no_session", "game_ending": "errors.game_ending"}.get(
+                    e.code, "common.error"
+                )
                 await lobby.user_errors.send(interaction, code)
             except PermissionError:
                 await lobby.user_errors.send(
@@ -131,7 +152,7 @@ def register_strife_group(
                 )
 
     @group.command(name="replay", description="Open a match replay")
-    @app_commands.describe(match="Match code or ID")
+    @app_commands.describe(match="6-character match code")
     async def replay_cmd(interaction: discord.Interaction, match: str) -> None:
         await replay.open(interaction, match)
 
@@ -139,7 +160,13 @@ def register_strife_group(
     async def replay_autocomplete(
         interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        matches = await replay.autocomplete_matches(interaction.user.id, limit=25)
+        if interaction.guild_id is None:
+            return replay_match_choices_or_notice(
+                [], has_completed=False, current=current, text=replay.text
+            )
+        matches = await replay.autocomplete_matches(
+            interaction.user.id, interaction.guild_id, limit=25
+        )
         choices: list[app_commands.Choice[str]] = []
         has_completed = False
         for match in matches:
@@ -389,11 +416,12 @@ def register_strife_group(
         preapproved = []
         if lobby_obj is not None:
             seated = {member.user_id for member in lobby_obj.members}
-            preapproved = [
-                (user_id, f"User {user_id}")
-                for user_id in lobby_obj.approved
-                if user_id not in seated
-            ]
+            preapproved = await user_name_pairs(
+                interaction,
+                [user_id for user_id in lobby_obj.approved if user_id not in seated],
+                lobby.text,
+                guild_id=lobby_obj.guild_id,
+            )
         return named_id_choices(
             preapproved,
             current,
@@ -423,7 +451,9 @@ def register_strife_group(
         lobby_obj, _meta = _creator_lobby_meta(interaction.user.id)
         blocked = []
         if lobby_obj is not None:
-            blocked = [(user_id, f"User {user_id}") for user_id in lobby_obj.blacklist]
+            blocked = await user_name_pairs(
+                interaction, list(lobby_obj.blacklist), lobby.text, guild_id=lobby_obj.guild_id
+            )
         return named_id_choices(
             blocked,
             current,

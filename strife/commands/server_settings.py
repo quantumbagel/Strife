@@ -17,9 +17,20 @@ from strife.presentation.components import (
     TextSize,
 )
 from strife.presentation.emoji import EmojiResolver
-from strife.presentation.user_error import UserErrorPresenter
+from strife.presentation.user_error import ErrorContext, UserErrorPresenter
 from strife.presentation.user_success import UserSuccessPresenter
 from strife.routing import prefixes as P
+
+# What a lobby channel needs: post the lobby, then open and play in its thread.
+# Keep in step with _GAME_CHANNEL_PERMISSIONS in matchmaking/lobby_flow.py.
+LOBBY_CHANNEL_PERMISSIONS = (
+    "view_channel",
+    "send_messages",
+    "embed_links",
+    "create_public_threads",
+    "send_messages_in_threads",
+    "manage_threads",
+)
 
 
 class ServerSettingsService:
@@ -100,9 +111,52 @@ class ServerSettingsService:
         view.add_container(container)
         return view
 
-    async def open(self, interaction: discord.Interaction, *, edit: bool = False) -> None:
+    async def _require_admin(self, interaction: discord.Interaction) -> bool:
+        # default_permissions is ignored on subcommands, so /strife server is
+        # visible to everyone; enforce the same rule as the settings buttons.
         if interaction.guild is None:
-            await self.user_errors.send(interaction, "common.error")
+            await self.user_errors.send(interaction, "errors.guild_only")
+            return False
+        member = interaction.user
+        if not isinstance(member, discord.Member) or not member.guild_permissions.administrator:
+            await self.user_errors.send(interaction, "errors.admin_required")
+            return False
+        return True
+
+    def _permission_label(self, name: str) -> str:
+        key = f"lobby.permission_{name}"
+        label = self.text.get(key)
+        return label if label != key else name.replace("_", " ").title()
+
+    async def _missing_channel_permissions(
+        self, interaction: discord.Interaction, channel_id: int
+    ) -> list[str]:
+        guild = interaction.guild
+        assert guild is not None
+        channel = guild.get_channel(channel_id)
+        if channel is None:
+            try:
+                channel = await guild.fetch_channel(channel_id)
+            except discord.HTTPException:
+                channel = None
+        me = guild.me
+        if me is None and interaction.client.user is not None:
+            try:
+                me = await guild.fetch_member(interaction.client.user.id)
+            except discord.HTTPException:
+                me = None
+        if channel is None or me is None:
+            # The bot can't even see the channel.
+            return [self._permission_label(name) for name in LOBBY_CHANNEL_PERMISSIONS]
+        perms = channel.permissions_for(me)
+        return [
+            self._permission_label(name)
+            for name in LOBBY_CHANNEL_PERMISSIONS
+            if not getattr(perms, name)
+        ]
+
+    async def open(self, interaction: discord.Interaction, *, edit: bool = False) -> None:
+        if not await self._require_admin(interaction):
             return
         await self.guilds.upsert(interaction.guild_id)
         channel_id = await self.guilds.get_default_channel(interaction.guild_id)
@@ -117,8 +171,29 @@ class ServerSettingsService:
             await interaction.response.send_message(view=compiled, ephemeral=True)
 
     async def set_channel(self, interaction: discord.Interaction, channel_id: int) -> None:
-        if interaction.guild is None:
-            await self.user_errors.send(interaction, "common.error")
+        if not await self._require_admin(interaction):
+            return
+        missing = await self._missing_channel_permissions(interaction, channel_id)
+        if missing:
+            # Put the picker back on the saved channel before explaining why.
+            await interaction.response.defer(ephemeral=True)
+            current_id = await self.guilds.get_default_channel(interaction.guild_id)
+            view = self._build_view(interaction.guild_id, current_id)
+            compiled = self.compiler.compile(
+                view, resource_id=interaction.guild_id, prefix=P.SERVER_NAV
+            )
+            await interaction.edit_original_response(view=compiled)
+            await self.user_errors.send(
+                interaction,
+                "errors.server_channel_missing_permissions",
+                context=ErrorContext(
+                    interaction=interaction,
+                    reason_kwargs={
+                        "channel": f"<#{channel_id}>",
+                        "permissions": ", ".join(missing),
+                    },
+                ),
+            )
             return
         await self.guilds.upsert(interaction.guild_id)
         await self.guilds.set_default_channel(interaction.guild_id, channel_id)
@@ -133,8 +208,7 @@ class ServerSettingsService:
         )
 
     async def clear_channel(self, interaction: discord.Interaction) -> None:
-        if interaction.guild is None:
-            await self.user_errors.send(interaction, "common.error")
+        if not await self._require_admin(interaction):
             return
         await self.guilds.upsert(interaction.guild_id)
         await self.guilds.clear_default_channel(interaction.guild_id)

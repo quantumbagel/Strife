@@ -9,11 +9,17 @@ from discord import app_commands
 from strife.commands.autocomplete import notice_choices
 from strife.config.games import GamesConfig
 from strife.engine.errors import SessionError
-from strife.engine.metadata import ParamType, SlashMove
+from strife.engine.metadata import MoveParam, ParamType, SlashMove
 from strife.engine.registry import GameRegistry
+from strife.logging import get_logger
 from strife.matchmaking.registries import SessionRegistries
 from strife.presentation.user_error import UserErrorPresenter
 from strife.presentation.user_success import UserSuccessPresenter
+
+log = get_logger("commands.game")
+
+# Discord allows at most 25 fixed choices per option.
+_MAX_CHOICES = 25
 
 _SLASH_ERRORS = {
     "cannot_act": "common.cannot_act",
@@ -26,6 +32,58 @@ def _annotation_for(param) -> type:
     if param.type == ParamType.INT:
         return int
     return str
+
+
+def _choice_value(param: MoveParam, raw: str) -> int | str:
+    return int(raw) if param.type == ParamType.INT else str(raw)[:100]
+
+
+def _fixed_choices(game_key: str, param: MoveParam) -> list[app_commands.Choice] | None:
+    """Discord choices for ``param.choices``, or None to leave the option free text."""
+    if not param.choices or param.autocomplete:
+        return None
+    if len(param.choices) > _MAX_CHOICES:
+        log.warning(
+            "%s /%s option %r has %d choices; Discord allows %d, leaving it free text",
+            game_key,
+            param.name,
+            param.name,
+            len(param.choices),
+            _MAX_CHOICES,
+        )
+        return None
+    try:
+        return [
+            app_commands.Choice(name=str(choice)[:100], value=_choice_value(param, choice))
+            for choice in param.choices
+        ]
+    except ValueError:
+        log.warning("%s option %r has non-integer choices for an int param", game_key, param.name)
+        return None
+
+
+def _autocomplete_for(param: MoveParam, user_errors: UserErrorPresenter):
+    """Build a two-argument autocomplete callback, as discord.py requires."""
+
+    async def complete(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice]:
+        try:
+            raw = await param.autocomplete(current)
+            choices = [
+                app_commands.Choice(name=str(c)[:100], value=_choice_value(param, c))
+                for c in raw
+            ][:_MAX_CHOICES]
+            if choices:
+                return choices
+        except Exception:
+            log.exception("Slash autocomplete failed for option %r", param.name)
+        if param.type == ParamType.INT:
+            # Discord rejects a string notice on an integer option.
+            return []
+        return notice_choices(user_errors.text.get("autocomplete.no_matching_options"))
+
+    return complete
 
 
 def create_slash_command(
@@ -54,6 +112,7 @@ def create_slash_command(
             code = _SLASH_ERRORS.get(exc.code, "common.error")
             await user_errors.send(interaction, code)
         except Exception:
+            log.exception("Slash move %s /%s failed", game_key, slash_move.name)
             await user_errors.send(interaction, "common.error")
 
     parameters = [
@@ -82,37 +141,32 @@ def create_slash_command(
     callback.__name__ = f"slash_{game_key}_{slash_move.name}"
     callback.__qualname__ = callback.__name__
 
-    cmd = app_commands.Command(
-        name=slash_move.name,
-        description=slash_move.description,
-        callback=callback,
-    )
-
+    # Option metadata goes on the callback before Command() reads it.
     descriptions = {
         param.name: param.description for param in slash_move.params if param.description
     }
     if descriptions:
-        cmd._params_description = descriptions
+        app_commands.describe(**descriptions)(callback)
+    choices = {
+        param.name: fixed
+        for param in slash_move.params
+        if (fixed := _fixed_choices(game_key, param)) is not None
+    }
+    if choices:
+        app_commands.choices(**choices)(callback)
+    completers = {
+        param.name: _autocomplete_for(param, user_errors)
+        for param in slash_move.params
+        if param.autocomplete
+    }
+    if completers:
+        app_commands.autocomplete(**completers)(callback)
 
-    for param in slash_move.params:
-        if param.autocomplete:
-            async def autocomplete_wrapper(
-                interaction: discord.Interaction, current: str, p=param
-            ):
-                try:
-                    raw = await p.autocomplete(current)
-                    choices = [
-                        discord.app_commands.Choice(name=c[:100], value=c[:100]) for c in raw
-                    ][:25]
-                    if choices:
-                        return choices
-                except Exception:
-                    pass
-                return notice_choices(user_errors.text.get("autocomplete.no_matching_options"))
-
-            cmd.autocomplete(param.name)(autocomplete_wrapper)
-
-    return cmd
+    return app_commands.Command(
+        name=slash_move.name,
+        description=slash_move.description,
+        callback=callback,
+    )
 
 
 def slash_group_for_game(
@@ -123,7 +177,12 @@ def slash_group_for_game(
 ) -> app_commands.Group | None:
     if not meta.slash_moves:
         return None
-    group = app_commands.Group(name=meta.key, description=f"{meta.name} commands")
+    group = app_commands.Group(
+        name=meta.key,
+        description=f"{meta.name} commands",
+        guild_only=True,
+        allowed_contexts=app_commands.AppCommandContext(guild=True),
+    )
     for slash_move in meta.slash_moves:
         cmd = create_slash_command(
             meta.key, slash_move, sessions, user_errors, user_success

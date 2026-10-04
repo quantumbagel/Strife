@@ -79,6 +79,43 @@ def ensure_game_entry(path: Path, key: str) -> bool:
     return bool(entry.get("enabled", True))
 
 
+def has_game_entry(path: Path, key: str) -> bool:
+    """True when ``games.<key>`` exists as a mapping. False when the file is absent."""
+    if not path.exists():
+        return False
+    data, games = _read_games(path)
+    return isinstance(games.get(key), dict)
+
+
+def remove_game_entry(path: Path, key: str) -> bool:
+    """Drop ``games.<key>`` (used to roll back a failed install). Returns True when written."""
+    if not path.exists():
+        return False
+    data, games = _read_games(path)
+    if key not in games:
+        return False
+    del games[key]
+    _write_yaml(path, data)
+    log.info("Removed games.%s from %s", key, path)
+    return True
+
+
+def _read_games(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        raise PluginError(f"Cannot read {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise PluginError(f"{path} must be a mapping")
+    games = data.get("games")
+    if games is None:
+        games = {}
+        data["games"] = games
+    if not isinstance(games, dict):
+        raise PluginError(f"{path}: 'games' must be a mapping")
+    return data, games
+
+
 def _write_yaml(path: Path, data: dict[str, Any]) -> None:
     try:
         path.write_text(

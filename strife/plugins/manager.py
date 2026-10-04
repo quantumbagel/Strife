@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,7 +19,7 @@ from strife.plugins.deps import (
     pip_install,
 )
 from strife.plugins.errors import PluginError
-from strife.plugins.games_yaml import ensure_game_entry
+from strife.plugins.games_yaml import ensure_game_entry, has_game_entry, remove_game_entry
 from strife.plugins.loader import (
     game_class,
     import_plugin,
@@ -27,6 +28,7 @@ from strife.plugins.loader import (
 )
 from strife.plugins.manifest import (
     KEY_RE,
+    Origin,
     PluginManifest,
     PluginRecord,
     load_manifest,
@@ -40,12 +42,34 @@ if TYPE_CHECKING:
 log = get_logger("plugins")
 
 _COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
+_URL_PREFIXES = ("http://", "https://", "git@", "ssh://", "file://", "git://")
 
 
 @dataclass(frozen=True)
 class UninstallResult:
     key: str
     origin: str
+
+
+@dataclass(frozen=True)
+class _InstallUndo:
+    origin: Origin
+    was_removed: bool
+    added_game_row: bool
+
+
+@dataclass(frozen=True)
+class PluginUpdate:
+    """Files are swapped in; call ``finish_update`` or ``revert_update`` once reload is known."""
+
+    manifest: PluginManifest
+    requested_ref: str | None
+    ref: str | None
+    commit: str | None
+    reused_ref: bool
+    previous: InstalledSource
+    root: Path
+    backup: Path
 
 
 class PluginManager:
@@ -62,6 +86,7 @@ class PluginManager:
         self.state_path = state_path
         self.games_yaml_path = games_yaml_path
         self._state: PluginState | None = None
+        self._pending_installs: dict[str, _InstallUndo] = {}
 
     @classmethod
     def from_paths(
@@ -182,6 +207,17 @@ class PluginManager:
     def load(self, registry: GameRegistry) -> None:
         for record in self.active_records():
             self._load_record(registry, record)
+            if self.games_yaml_path is not None and registry.contains(record.key):
+                try:
+                    has_row = has_game_entry(self.games_yaml_path, record.key)
+                except PluginError:
+                    continue
+                if not has_row:
+                    log.info(
+                        "%s has no row for %s; it is enabled with default tuning",
+                        self.games_yaml_path,
+                        record.key,
+                    )
 
     def load_one(self, registry: GameRegistry, key: str) -> None:
         record = self.record_for(key)
@@ -259,12 +295,13 @@ class PluginManager:
             )
 
     def install_from_git(self, url: str, ref: str | None = None) -> PluginManifest:
+        """Clone and register a plugin. Call ``confirm_install`` / ``rollback_install`` after loading."""
         self.plugins_dir.mkdir(parents=True, exist_ok=True)
         tmp = Path(tempfile.mkdtemp(prefix="strife-plugin-"))
         src = tmp / "src"
         dest: Path | None = None
         try:
-            _git_clone(url, src, ref)
+            commit = _git_clone(url, src, ref)
             toml_path = src / "plugin.toml"
             if not toml_path.is_file():
                 raise PluginError("plugin.toml not found at the repository root")
@@ -281,7 +318,9 @@ class PluginManager:
             was_removed = self.state.is_removed(manifest.key)
             try:
                 shutil.move(str(src), str(dest))
-                self.state.installed[manifest.key] = InstalledSource(source=url, ref=ref)
+                self.state.installed[manifest.key] = InstalledSource(
+                    source=url, ref=_ref_to_record(ref, commit)
+                )
                 self.state.unmark_removed(manifest.key)
                 self.save()
             except Exception:
@@ -292,12 +331,60 @@ class PluginManager:
                     self.state.mark_removed(manifest.key)
                 raise
 
-            self._ensure_game_entry(manifest.key)
+            added_row = self._ensure_game_entry(manifest.key)
+            self._pending_installs[manifest.key] = _InstallUndo(
+                origin="installed", was_removed=was_removed, added_game_row=added_row
+            )
             return load_manifest(dest / "plugin.toml")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def update_from_git(self, key: str, ref: str | None = None) -> PluginManifest:
+    def confirm_install(self, key: str) -> None:
+        """The plugin loaded (or will load after a restart); forget the rollback info."""
+        self._pending_installs.pop(key, None)
+
+    def rollback_install(self, key: str) -> None:
+        """Undo ``install_from_git`` / ``restore_builtin`` for a plugin that failed to load.
+
+        Removes the cloned folder, the ``plugins.yaml`` row, and the ``games.yaml`` row the
+        install added (an existing row with the owner's tuning is left alone).
+        """
+        undo = self._pending_installs.pop(key, None)
+        if undo is None:
+            raise PluginError(f"No pending install of '{key}' to roll back")
+        errors: list[str] = []
+        if undo.origin == "installed":
+            folder = self.plugins_dir / key
+            unload_plugin_modules("installed", key, folder.name)
+            if folder.exists():
+                shutil.rmtree(folder, ignore_errors=True)
+                if folder.exists():
+                    errors.append(f"could not delete {folder}")
+            self.state.installed.pop(key, None)
+            if undo.was_removed:
+                self.state.mark_removed(key)
+        else:
+            record = self.record_for(key, include_removed_builtins=True)
+            unload_plugin_modules("builtin", key, record.root.name if record else None)
+            self.state.mark_removed(key)
+        try:
+            self.save()
+        except Exception as exc:
+            errors.append(f"could not write {self.state_path}: {exc}")
+        if undo.added_game_row and self.games_yaml_path is not None:
+            try:
+                remove_game_entry(self.games_yaml_path, key)
+            except PluginError as exc:
+                errors.append(str(exc))
+        if errors:
+            raise PluginError(f"Rollback of '{key}' was incomplete: " + "; ".join(errors))
+
+    def update_from_git(self, key: str, ref: str | None = None) -> PluginUpdate:
+        """Swap in the new files, keeping the old folder as a backup.
+
+        Call ``finish_update`` once the new code is loaded, or ``revert_update`` to put the
+        previous files and ref back.
+        """
         if not KEY_RE.match(key):
             raise PluginError(f"Invalid plugin key {key!r}")
         record = self.record_for(key)
@@ -310,11 +397,12 @@ class PluginManager:
             )
         use_ref = ref if ref is not None else src_info.ref
         url = src_info.source
+        previous = InstalledSource(source=src_info.source, ref=src_info.ref)
 
         tmp = Path(tempfile.mkdtemp(prefix="strife-plugin-"))
         src = tmp / "src"
         try:
-            _git_clone(url, src, use_ref)
+            commit = _git_clone(url, src, use_ref)
             toml_path = src / "plugin.toml"
             if not toml_path.is_file():
                 raise PluginError("plugin.toml not found at the repository root")
@@ -325,17 +413,44 @@ class PluginManager:
                 )
 
             dest = record.root
-            _swap_dir(dest, src)
-            self.state.installed[key] = InstalledSource(source=url, ref=use_ref)
-            self.save()
+            backup = _swap_dir(dest, src)
+            recorded_ref = _ref_to_record(use_ref, commit)
+            try:
+                self.state.installed[key] = InstalledSource(source=url, ref=recorded_ref)
+                self.save()
+            except Exception:
+                _restore_backup(dest, backup)
+                self.state.installed[key] = previous
+                raise
             self._ensure_game_entry(key)
-            return load_manifest(dest / "plugin.toml")
+            return PluginUpdate(
+                manifest=load_manifest(dest / "plugin.toml"),
+                requested_ref=ref,
+                ref=recorded_ref,
+                commit=commit,
+                reused_ref=ref is None and use_ref is not None,
+                previous=previous,
+                root=dest,
+                backup=backup,
+            )
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def finish_update(self, update: PluginUpdate) -> None:
+        shutil.rmtree(update.backup, ignore_errors=True)
+
+    def revert_update(self, update: PluginUpdate) -> None:
+        """Put the pre-update files and ref back (the new code failed to load)."""
+        _restore_backup(update.root, update.backup)
+        self.state.installed[update.manifest.key] = update.previous
+        self.save()
+
     def restore_builtin(self, key: str) -> PluginManifest:
         if not KEY_RE.match(key):
-            raise PluginError(f"Invalid plugin key {key!r}")
+            raise PluginError(
+                f"{key!r} is neither a builtin plugin key nor a git URL "
+                f"(e.g. `https://github.com/you/repo`)"
+            )
         record = self.record_for(key, include_removed_builtins=True)
         if record is None or record.origin != "builtin":
             raise PluginError(f"'{key}' is not a builtin plugin")
@@ -347,7 +462,10 @@ class PluginManager:
             raise PluginError(f"'{key}' is already installed")
         self.state.unmark_removed(key)
         self.save()
-        self._ensure_game_entry(key)
+        added_row = self._ensure_game_entry(key)
+        self._pending_installs[key] = _InstallUndo(
+            origin="builtin", was_removed=True, added_game_row=added_row
+        )
         return record.manifest
 
     def uninstall(self, key: str) -> UninstallResult:
@@ -379,11 +497,30 @@ class PluginManager:
         unload_plugin_modules(origin, key, record.root.name)
         return UninstallResult(key=key, origin=origin)
 
-    def status_lines(self) -> list[str]:
+    def status_lines(
+        self,
+        *,
+        loaded: Collection[str] | None = None,
+        hidden: Collection[str] = (),
+    ) -> list[str]:
+        """One line per plugin. With *loaded*, flag active plugins that failed to load."""
+
+        def load_flag(key: str) -> str:
+            if loaded is None:
+                return ""
+            if key not in loaded:
+                return ", NOT loaded - check the logs"
+            if key in hidden:
+                return ", loaded, hidden by games.yaml"
+            return ", loaded"
+
         lines: list[str] = []
         removed = set(self.state.removed)
         for record in self.builtin_records(include_removed=True):
-            flag = "uninstalled" if record.key in removed else "active"
+            if record.key in removed:
+                flag = "uninstalled"
+            else:
+                flag = "active" + load_flag(record.key)
             extra = ""
             if record.dependencies:
                 extra = f"  deps: {', '.join(record.dependencies)}"
@@ -391,8 +528,12 @@ class PluginManager:
         for record in self.installed_records():
             src = self.state.installed.get(record.key)
             origin = f" from {src.source}" if src else ""
+            if src and src.ref:
+                origin += f" @ {src.ref}"
+            flag = load_flag(record.key).removeprefix(", ")
+            status = f" ({flag})" if flag else ""
             extra = f"  deps: {', '.join(record.dependencies)}" if record.dependencies else ""
-            lines.append(f"{record.key}: installed{origin}{extra}")
+            lines.append(f"{record.key}: installed v{record.manifest.version}{origin}{status}{extra}")
         return lines
 
     def _reject_key_collision(self, key: str, *, restoring_builtin: bool) -> None:
@@ -408,30 +549,62 @@ class PluginManager:
             )
 
     def _ensure_game_entry(self, key: str) -> bool:
-        """Create a playable ``games.yaml`` row if the key is new. Leave existing tuning alone."""
+        """Create a playable ``games.yaml`` row if the key is new. Leave existing tuning alone.
+
+        Returns True when this call added the row.
+        """
         if self.games_yaml_path is None:
-            return True
+            return False
         try:
-            return ensure_game_entry(self.games_yaml_path, key)
+            if has_game_entry(self.games_yaml_path, key):
+                return False
+            ensure_game_entry(self.games_yaml_path, key)
+            return has_game_entry(self.games_yaml_path, key)
         except PluginError as exc:
             log.error("Failed to update %s for %s: %s", self.games_yaml_path, key, exc)
-            return True
+            return False
 
 
-def looks_like_source(value: str) -> bool:
+def normalize_source(value: str) -> str | None:
+    """Return a git URL/path for *value*, or ``None`` when it should be a builtin key.
+
+    Accepts scheme-less ``host/owner/repo`` (``github.com/you/repo``) by prepending
+    ``https://``. Raises for bare ``owner/repo``, which has no host to clone from.
+    """
     text = value.strip()
-    if (
-        text.startswith(("http://", "https://", "git@", "ssh://", "file://"))
-        or text.endswith(".git")
-        or "github.com:" in text
-    ):
-        return True
-    path = Path(text)
-    return path.is_dir() and (path / ".git").exists()
+    if text.startswith(_URL_PREFIXES) or "github.com:" in text:
+        return text
+    path = Path(text).expanduser()
+    if path.is_dir() and (path / ".git").exists():
+        return text
+    if KEY_RE.fullmatch(text):
+        return None
+    if text.startswith(("/", "./", "../", "~")):
+        return text
+    if "/" in text:
+        host = text.split("/", 1)[0]
+        if "." in host or ":" in host:
+            return "https://" + text
+        raise PluginError(
+            f"`{text}` has no host. Use a full URL, e.g. `strife/install github.com/{text}`."
+        )
+    if text.endswith(".git"):
+        return text
+    return None
 
 
-def _swap_dir(dest: Path, new_src: Path) -> None:
-    backup = dest.parent / f".{dest.name}.updating"
+def _ref_to_record(ref: str | None, commit: str | None) -> str | None:
+    """Remember branches/tags as given; pin commit refs to the full SHA."""
+    if ref and commit and _COMMIT_RE.fullmatch(ref) and commit.lower().startswith(ref.lower()):
+        return commit
+    return ref
+
+
+def _swap_dir(dest: Path, new_src: Path) -> Path:
+    """Move *new_src* into *dest*. Returns the backup of the old folder (a dot-folder that
+    plugin discovery skips); delete it with ``shutil.rmtree`` or restore it with
+    ``_restore_backup``."""
+    backup = dest.parent / f".{dest.name}.previous"
     if backup.exists():
         shutil.rmtree(backup)
     dest.rename(backup)
@@ -442,10 +615,18 @@ def _swap_dir(dest: Path, new_src: Path) -> None:
             shutil.rmtree(dest, ignore_errors=True)
         backup.rename(dest)
         raise PluginError(f"Failed to replace plugin directory {dest}: {exc}") from exc
-    shutil.rmtree(backup)
+    return backup
 
 
-def _run_git(cmd: list[str], *, cwd: Path | None = None, step: str = "command") -> None:
+def _restore_backup(dest: Path, backup: Path) -> None:
+    if not backup.exists():
+        raise PluginError(f"Backup {backup} is gone; cannot restore {dest}")
+    if dest.exists():
+        shutil.rmtree(dest)
+    backup.rename(dest)
+
+
+def _run_git(cmd: list[str], *, cwd: Path | None = None, step: str = "command") -> str:
     try:
         result = subprocess.run(
             cmd,
@@ -463,23 +644,61 @@ def _run_git(cmd: list[str], *, cwd: Path | None = None, step: str = "command") 
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()
         raise PluginError(f"git {step} failed: {detail[-800:]}")
+    return result.stdout.strip()
 
 
-def _git_clone(url: str, dest: Path, ref: str | None) -> None:
+def _git_clone(url: str, dest: Path, ref: str | None) -> str | None:
+    """Check out *ref* (branch, tag, or 7-40 char commit SHA) of *url* into *dest*.
+
+    Returns the checked-out commit SHA (``None`` if it could not be read).
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
     if ref and _COMMIT_RE.fullmatch(ref):
-        dest.mkdir(parents=True)
-        steps: list[tuple[str, list[str]]] = [
-            ("init", ["git", "init"]),
-            ("remote add", ["git", "remote", "add", "origin", url]),
-            ("fetch", ["git", "fetch", "--depth", "1", "origin", ref]),
-            ("checkout", ["git", "checkout", "FETCH_HEAD"]),
-        ]
-        for step, cmd in steps:
-            _run_git(cmd, cwd=dest, step=step)
-        return
+        if len(ref) == 40 and _shallow_fetch_commit(url, dest, ref):
+            return _git_head(dest)
+        # Servers only serve full SHAs by name, so a short SHA needs the history to resolve.
+        shutil.rmtree(dest, ignore_errors=True)
+        _run_git(["git", "clone", "--no-checkout", url, str(dest)], step="clone")
+        try:
+            commit = _run_git(
+                ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+                cwd=dest,
+                step="rev-parse",
+            )
+        except PluginError as exc:
+            raise PluginError(
+                f"Commit `{ref}` was not found in {url} (or the short SHA is ambiguous). "
+                "Use a longer SHA, a tag, or a branch."
+            ) from exc
+        _run_git(["git", "checkout", "--detach", commit], cwd=dest, step="checkout")
+        return commit
     cmd = ["git", "clone", "--depth", "1"]
     if ref:
         cmd.extend(["--branch", ref])
     cmd.extend([url, str(dest)])
     _run_git(cmd, step="clone")
+    return _git_head(dest)
+
+
+def _shallow_fetch_commit(url: str, dest: Path, sha: str) -> bool:
+    dest.mkdir(parents=True)
+    steps: list[tuple[str, list[str]]] = [
+        ("init", ["git", "init"]),
+        ("remote add", ["git", "remote", "add", "origin", url]),
+        ("fetch", ["git", "fetch", "--depth", "1", "origin", sha]),
+        ("checkout", ["git", "checkout", "--detach", "FETCH_HEAD"]),
+    ]
+    try:
+        for step, cmd in steps:
+            _run_git(cmd, cwd=dest, step=step)
+    except PluginError as exc:
+        log.info("Shallow fetch of %s from %s failed (%s); cloning full history", sha, url, exc)
+        return False
+    return True
+
+
+def _git_head(repo: Path) -> str | None:
+    try:
+        return _run_git(["git", "rev-parse", "HEAD"], cwd=repo, step="rev-parse") or None
+    except PluginError:
+        return None

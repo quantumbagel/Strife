@@ -10,7 +10,8 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="STRIFE_")
+    # extra="ignore": .env also carries Compose-only keys (e.g. POSTGRES_HOST_PORT).
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="STRIFE_", extra="ignore")
 
     discord_token: str
     database_url: str

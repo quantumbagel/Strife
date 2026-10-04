@@ -98,6 +98,14 @@ def generate_match_code(rng: Any) -> str:
     return "".join(rng.choice(_ALPHABET) for _ in range(6))
 
 
+def normalize_match_code(raw: str) -> str | None:
+    """Return the canonical 6-character code for user input, or None if malformed."""
+    token = str(raw).strip().upper().removeprefix("#")
+    if len(token) == 6 and all(ch in _ALPHABET for ch in token):
+        return token
+    return None
+
+
 class GuildRepository:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
@@ -251,20 +259,28 @@ class MatchRepository:
                 raise RuntimeError("Failed to generate unique match code")
             return match_id, final_code
 
-    async def get(self, ref: str | int) -> MatchDetail | None:
+    async def get(self, ref: str | int, *, guild_id: int | None = None) -> MatchDetail | None:
+        """Look up a match by internal id (int) or 6-character code (str).
+
+        User input is always a code; ids only come from signed custom_ids.
+        ``guild_id`` limits the lookup to matches played in that server.
+        """
+        if isinstance(ref, int):
+            column, key = "id", ref
+        else:
+            code = normalize_match_code(ref)
+            if code is None:
+                return None
+            column, key = "code", code
         async with self._pool.acquire() as conn:
-            if isinstance(ref, int):
-                row = await conn.fetchrow("SELECT * FROM matches WHERE id = $1", ref)
+            if guild_id is None:
+                row = await conn.fetchrow(f"SELECT * FROM matches WHERE {column} = $1", key)
             else:
-                token = str(ref).strip().upper()
-                if token.startswith("#"):
-                    token = token[1:]
-                if len(token) == 6 and all(ch in _ALPHABET for ch in token):
-                    row = await conn.fetchrow("SELECT * FROM matches WHERE code = $1", token)
-                elif token.isdigit():
-                    row = await conn.fetchrow("SELECT * FROM matches WHERE id = $1", int(token))
-                else:
-                    row = await conn.fetchrow("SELECT * FROM matches WHERE code = $1", token)
+                row = await conn.fetchrow(
+                    f"SELECT * FROM matches WHERE {column} = $1 AND guild_id = $2",
+                    key,
+                    guild_id,
+                )
             if row is None:
                 return None
             players = await conn.fetch(
@@ -295,66 +311,42 @@ class MatchRepository:
         user_id: int,
         game_key: str | None,
         *,
+        guild_id: int,
         limit: int = 10,
         offset: int = 0,
     ) -> list[MatchSummary]:
         async with self._pool.acquire() as conn:
-            if game_key:
-                rows = await conn.fetch(
-                    """
-                    SELECT m.id, m.code, m.game_key, m.status, m.outcome, m.created_at, m.started_at, m.ended_at, m.total_turns,
-                           (SELECT count(*) FROM match_players mp2 WHERE mp2.match_id = m.id) AS player_count,
-                           mp.seat_index, mp.role_key, mp.result
-                    FROM matches m
-                    JOIN match_players mp ON mp.match_id = m.id
-                    WHERE mp.user_id = $1 AND m.game_key = $2
-                    ORDER BY m.created_at DESC LIMIT $3 OFFSET $4
-                    """,
-                    user_id,
-                    game_key,
-                    limit,
-                    offset,
-                )
-            else:
-                rows = await conn.fetch(
-                    """
-                    SELECT m.id, m.code, m.game_key, m.status, m.outcome, m.created_at, m.started_at, m.ended_at, m.total_turns,
-                           (SELECT count(*) FROM match_players mp2 WHERE mp2.match_id = m.id) AS player_count,
-                           mp.seat_index, mp.role_key, mp.result
-                    FROM matches m
-                    JOIN match_players mp ON mp.match_id = m.id
-                    WHERE mp.user_id = $1
-                    ORDER BY m.created_at DESC LIMIT $2 OFFSET $3
-                    """,
-                    user_id,
-                    limit,
-                    offset,
-                )
+            rows = await conn.fetch(
+                """
+                SELECT m.id, m.code, m.game_key, m.status, m.outcome, m.created_at, m.started_at, m.ended_at, m.total_turns,
+                       (SELECT count(*) FROM match_players mp2 WHERE mp2.match_id = m.id) AS player_count,
+                       mp.seat_index, mp.role_key, mp.result
+                FROM matches m
+                JOIN match_players mp ON mp.match_id = m.id
+                WHERE mp.user_id = $1 AND m.guild_id = $2 AND ($3::text IS NULL OR m.game_key = $3)
+                ORDER BY m.created_at DESC LIMIT $4 OFFSET $5
+                """,
+                user_id,
+                guild_id,
+                game_key or None,
+                limit,
+                offset,
+            )
             return [self._to_summary(row) for row in rows]
 
-    async def count_for_user(self, user_id: int, game_key: str | None) -> int:
+    async def count_for_user(self, user_id: int, game_key: str | None, *, guild_id: int) -> int:
         async with self._pool.acquire() as conn:
-            if game_key:
-                row = await conn.fetchrow(
-                    """
-                    SELECT count(*) AS total
-                    FROM matches m
-                    JOIN match_players mp ON mp.match_id = m.id
-                    WHERE mp.user_id = $1 AND m.game_key = $2
-                    """,
-                    user_id,
-                    game_key,
-                )
-            else:
-                row = await conn.fetchrow(
-                    """
-                    SELECT count(*) AS total
-                    FROM matches m
-                    JOIN match_players mp ON mp.match_id = m.id
-                    WHERE mp.user_id = $1
-                    """,
-                    user_id,
-                )
+            row = await conn.fetchrow(
+                """
+                SELECT count(*) AS total
+                FROM matches m
+                JOIN match_players mp ON mp.match_id = m.id
+                WHERE mp.user_id = $1 AND m.guild_id = $2 AND ($3::text IS NULL OR m.game_key = $3)
+                """,
+                user_id,
+                guild_id,
+                game_key or None,
+            )
             return int(row["total"]) if row else 0
 
     def _to_summary(self, row: asyncpg.Record) -> MatchSummary:
@@ -510,28 +502,32 @@ class UserRepository:
             async with owned.transaction():
                 await _write(owned)
 
-    async def get_stats(self, user_id: int, game_key: str | None) -> UserStats:
+    async def get_stats(self, user_id: int, game_key: str | None, *, guild_id: int) -> UserStats:
+        """W/L/D for matches played in one server.
+
+        ``user_game_stats`` is global, so count the stored seats instead, with
+        the same rows ``apply_results`` counts: human seats that have a result.
+        AFK seats a bot finished are stored as a human loss.
+        """
         async with self._pool.acquire() as conn:
-            if game_key:
-                row = await conn.fetchrow(
-                    """
-                    SELECT wins, losses, draws, played
-                    FROM user_game_stats WHERE user_id = $1 AND game_key = $2
-                    """,
-                    user_id,
-                    game_key,
-                )
-            else:
-                row = await conn.fetchrow(
-                    """
-                    SELECT COALESCE(SUM(wins),0) AS wins,
-                           COALESCE(SUM(losses),0) AS losses,
-                           COALESCE(SUM(draws),0) AS draws,
-                           COALESCE(SUM(played),0) AS played
-                    FROM user_game_stats WHERE user_id = $1
-                    """,
-                    user_id,
-                )
+            row = await conn.fetchrow(
+                """
+                SELECT count(*) FILTER (WHERE mp.result = 'win') AS wins,
+                       count(*) FILTER (WHERE mp.result = 'loss') AS losses,
+                       count(*) FILTER (WHERE mp.result = 'draw') AS draws,
+                       count(*) AS played
+                FROM match_players mp
+                JOIN matches m ON m.id = mp.match_id
+                WHERE mp.user_id = $1
+                  AND NOT mp.is_bot
+                  AND COALESCE(mp.result, '') <> ''
+                  AND m.guild_id = $2
+                  AND ($3::text IS NULL OR m.game_key = $3)
+                """,
+                user_id,
+                guild_id,
+                game_key or None,
+            )
             if row is None:
                 return UserStats()
             return UserStats(

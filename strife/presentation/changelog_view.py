@@ -24,6 +24,10 @@ from strife.routing import prefixes as P
 RELEASES_PER_PAGE = 3
 GAMES_PER_PAGE = 3
 HUB_GAME_PREVIEWS = 3
+# Discord caps the combined text of a Components V2 message at 4000 characters.
+MESSAGE_TEXT_LIMIT = 4000
+# Headroom for button labels and anything else counted against the cap.
+TEXT_SAFETY_MARGIN = 250
 
 
 def _payload(
@@ -195,18 +199,48 @@ def _add_header(
     title_key: str,
     subtitle: str,
     **title_kwargs: object,
-) -> None:
+) -> int:
+    """Add the title block; return how many characters of text it used."""
     logo = emoji.get("logo")
     forward = emoji.get("forward")
+    title = text.get(title_key, logo=logo, forward=forward, **title_kwargs)
     container.add_text(
         TextDisplay(
-            markdown_content=text.get(title_key, logo=logo, forward=forward, **title_kwargs),
+            markdown_content=title,
             size_style=TextSize.HEADER,
         )
     )
     container.add_text(TextDisplay(markdown_content=subtitle))
     container.add_separator(Separator(visible=False))
     container.add_separator()
+    return len(title) + len(subtitle)
+
+
+def _fit(block: str, budget: int) -> str:
+    """Trim a release that alone exceeds a page, at a line break when possible."""
+    if len(block) <= budget:
+        return block
+    cut = block.rfind("\n", 0, budget - 2)
+    if cut <= 0:
+        cut = budget - 2
+    return block[:cut] + "\n…"
+
+
+def _paginate_releases(blocks: list[str], budget: int) -> list[list[str]]:
+    """Group formatted releases into pages that stay under ``budget`` characters."""
+    pages: list[list[str]] = []
+    current: list[str] = []
+    used = 0
+    for block in blocks:
+        block = _fit(block, budget)
+        if current and (len(current) >= RELEASES_PER_PAGE or used + len(block) > budget):
+            pages.append(current)
+            current, used = [], 0
+        current.append(block)
+        used += len(block)
+    if current:
+        pages.append(current)
+    return pages
 
 
 def _hub(
@@ -279,7 +313,7 @@ def _detail(
 ) -> LayoutView:
     view = LayoutView()
     container = Container()
-    _add_header(
+    header_chars = _add_header(
         container,
         emoji,
         text,
@@ -287,17 +321,19 @@ def _detail(
         subtitle=subtitle,
         **(title_kwargs or {}),
     )
-    releases = changelog.releases
-    pages = max(1, (len(releases) + RELEASES_PER_PAGE - 1) // RELEASES_PER_PAGE)
+    budget = MESSAGE_TEXT_LIMIT - TEXT_SAFETY_MARGIN - header_chars
+    blocks = [format_release(release, emoji) for release in changelog.releases]
+    release_pages = _paginate_releases(blocks, budget)
+    pages = max(1, len(release_pages))
     page = max(0, min(page, pages - 1))
-    chunk = releases[page * RELEASES_PER_PAGE : (page + 1) * RELEASES_PER_PAGE]
+    chunk = release_pages[page] if release_pages else []
     if not chunk:
         container.add_text(TextDisplay(markdown_content=text.get("changes.empty")))
     else:
-        for index, release in enumerate(chunk):
+        for index, block in enumerate(chunk):
             if index > 0:
                 container.add_separator()
-            container.add_text(TextDisplay(markdown_content=format_release(release, emoji)))
+            container.add_text(TextDisplay(markdown_content=block))
     nav = _page_row(text, page=page, pages=pages, scope=scope, game=changelog.key)
     if nav is not None:
         container.add_action_row(nav)

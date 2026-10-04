@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -22,13 +23,27 @@ class SessionRegistries:
         self.guild_lobbies: dict[int, set[int]] = {}
         self.user_location: dict[int, UserLocation] = {}
         self._lock = asyncio.Lock()
+        # Called with the other lobbies whose join requests a reservation dropped.
+        self.on_requests_pruned: Callable[[list[Lobby]], None] | None = None
 
     async def reserve_user(self, user_id: int, loc: UserLocation) -> bool:
         async with self._lock:
             if user_id in self.user_location:
                 return False
             self.user_location[user_id] = loc
-            return True
+            pruned = self._prune_requests(user_id, keep_lobby_id=loc.thread_id)
+        if pruned and self.on_requests_pruned is not None:
+            self.on_requests_pruned(pruned)
+        return True
+
+    def _prune_requests(self, user_id: int, *, keep_lobby_id: int) -> list[Lobby]:
+        """Drop the user's join requests: they are seated now, so the requests are stale."""
+        pruned: list[Lobby] = []
+        for lobby in self.lobbies.values():
+            if lobby.pending_requests.pop(user_id, None) is not None:
+                if lobby.lobby_id != keep_lobby_id:
+                    pruned.append(lobby)
+        return pruned
 
     async def release_user(self, user_id: int, *, thread_id: int | None = None) -> None:
         async with self._lock:

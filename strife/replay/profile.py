@@ -276,10 +276,20 @@ class ProfileService:
         *,
         edit: bool = False,
     ) -> None:
-        stats = await self.users.get_stats(user.id, game)
-        total_matches = await self.matches.count_for_user(user.id, game)
+        # Profiles only show what was played in this server.
+        guild_id = interaction.guild_id
+        if guild_id is None:
+            if self.replay is not None:
+                await self.replay.user_errors.send(interaction, "errors.guild_only")
+            return
+        stats = await self.users.get_stats(user.id, game, guild_id=guild_id)
+        total_matches = await self.matches.count_for_user(user.id, game, guild_id=guild_id)
         match_list = await self.matches.list_for_user(
-            user.id, game, limit=self._page_size, offset=page * self._page_size
+            user.id,
+            game,
+            guild_id=guild_id,
+            limit=self._page_size,
+            offset=page * self._page_size,
         )
         pages = max(1, math.ceil(total_matches / self._page_size)) if total_matches else 1
         page = max(0, min(page, pages - 1))

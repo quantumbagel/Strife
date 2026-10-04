@@ -42,7 +42,7 @@ Skipped (logged, not fatal): missing `GAME`, bad versions, missing extras, capab
 
 `registry.create(key, players, settings, seed)` builds `random.Random(seed)` and constructs the class. Replays use the same seed.
 
-A registered game can still be hidden. `config/games.yaml` `enabled: false` (or a missing key) keeps it out of `/play` and the catalog so old replays still load. Uninstall drops the plugin and deletes that game’s history. See [plugins.md](plugins.md).
+A registered game can still be hidden. `config/games.yaml` `enabled: false` keeps it out of `/play` and the catalog so old replays still load. Uninstall drops the plugin and deletes that game’s history. See [plugins.md](plugins.md).
 
 ```yaml
 games:
@@ -53,7 +53,7 @@ games:
     enabled: false
 ```
 
-Unknown keys are `enabled: false`. `scripts/scaffold_game.py` adds an `enabled: true` row to `games.yaml` when it creates a builtin game.
+A loaded game with no row is enabled with the `defaults` tuning (boot logs that it has no row); only an explicit `enabled: false` hides it. `scripts/scaffold_game.py` adds an `enabled: true` row to `games.yaml` when it creates a builtin game.
 
 | Field | Effect |
 |-------|--------|
@@ -120,7 +120,7 @@ A tight CPU loop (no await) still freezes the process. Use `run_cpu` for heavy w
 
 1. `plugin.toml` + `GAME` export. `changelog.toml` for Changes
 2. Key matches, versions valid, extras installed, not in `plugins.yaml` `removed`
-3. `config/games.yaml` `games.<key>.enabled: true`
+3. Not `enabled: false` in `config/games.yaml` (a missing row means enabled)
 4. Optional `strife/emoji` and `strife/sync` for `slash_moves`
 
 No edits to `bot.py`, the router, or `strife.session`.

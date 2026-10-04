@@ -8,6 +8,7 @@ from typing import Any, Literal
 import discord
 
 from strife.engine.errors import SessionError
+from strife.engine.log import LogEntryKind
 from strife.engine.players import Move
 from strife.presentation.components import LayoutView, move_sources, query_sources
 from strife.routing.router import InteractionInput
@@ -128,6 +129,51 @@ class SessionInputMixin:
         await self.refresh_header()
 
 
+    async def force_forfeit(self, seat: int, reason: str) -> None:
+        """Hand a removed seat's pending input a ``forfeit`` and log the removal.
+
+        The system row is written exactly once: by the request path when the seat
+        was waiting on a recorded input, otherwise here. ``removed`` marks it as a
+        mid-match removal so replays keep going past it.
+        """
+        args = {"reason": reason, "removed": True}
+        async with self.lock:
+            pending = self.pending.get(seat)
+            delivered = pending is not None and not pending.future.done()
+            if delivered:
+                pending.future.set_result(
+                    Move(
+                        actor_seat=seat,
+                        source="forfeit",
+                        args=dict(args),
+                        kind=LogEntryKind.SYSTEM,
+                        created_at=datetime.now(timezone.utc),
+                    )
+                )
+                self.pending.pop(seat, None)
+            if not (delivered and pending.record):
+                self._record_system("forfeit", args, actor_seat=seat)
+        await self.refresh_header()
+
+
+    async def expire_phase(self, seat: int) -> bool:
+        """Close an ``until="any"`` window whose shared deadline passed.
+
+        Nobody is blamed: ``request_inputs`` returns ``{}`` and logs one system
+        ``timeout`` row with no actor. Returns False if the window already closed.
+        """
+        async with self.lock:
+            pending = self.pending.get(seat)
+            if (
+                pending is None
+                or pending.phase_timeout is None
+                or pending.phase_timeout.done()
+            ):
+                return False
+            pending.phase_timeout.set_result(None)
+        return True
+
+
     async def _request_input(
         self,
         view: LayoutView,
@@ -166,6 +212,7 @@ class SessionInputMixin:
                 timeout_consequence=timeout_consequence,
                 deadline_at=deadline,
                 timeout_generation=generation,
+                record=record,
             )
             self.last_move_at = now
             self._timeout_warned.pop(actor, None)
@@ -211,6 +258,10 @@ class SessionInputMixin:
         now = time.monotonic()
         seconds = timeout_seconds if timeout_seconds is not None else self.turn_timeout_seconds
         deadline = now + seconds
+        # One shared "window closed" signal for first-to-act phases.
+        phase_timeout: asyncio.Future[None] | None = (
+            loop.create_future() if until == "any" else None
+        )
         async with self.lock:
             for seat in humans:
                 future: asyncio.Future[Move] = loop.create_future()
@@ -233,6 +284,8 @@ class SessionInputMixin:
                     deadline_at=deadline,
                     timeout_generation=generation,
                     until=until,
+                    record=record,
+                    phase_timeout=phase_timeout,
                 )
                 self._timeout_inflight.discard(seat)
             self.last_move_at = now
@@ -260,11 +313,15 @@ class SessionInputMixin:
                 waiters.append(bot_waiter)
             if not waiters:
                 return results
+            if phase_timeout is not None:
+                waiters.append(phase_timeout)
             done, _pending = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
             try:
                 async with self.lock:
                     for seat, future in futures.items():
-                        if future in done:
+                        # Not just `done`: a submit can land between the deadline
+                        # firing and this lock, and was already accepted.
+                        if future.done() and not future.cancelled():
                             move = future.result()
                             results[seat] = move
                             if record:
@@ -289,7 +346,15 @@ class SessionInputMixin:
                                 "until=any bot move failed",
                                 exc_info=exc,
                             )
+                    if not results and phase_timeout is not None and phase_timeout in done:
+                        # The window closed with nobody acting; no seat is to blame.
+                        self._record_system(
+                            "timeout",
+                            {"reason": "timeout", "until": "any", "seats": sorted(humans)},
+                        )
             finally:
+                if phase_timeout is not None and not phase_timeout.done():
+                    phase_timeout.cancel()
                 if bot_waiter is not None and not bot_waiter.done():
                     bot_waiter.cancel()
                     try:

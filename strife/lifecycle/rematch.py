@@ -20,6 +20,15 @@ from strife.routing import prefixes as P
 log = get_logger("lifecycle.rematch")
 
 
+class RematchMemberBusy(SessionError):
+    """A rematch member (not the clicker) is already in another lobby or game."""
+
+    def __init__(self, user_id: int, display_name: str) -> None:
+        super().__init__("rematch_member_busy")
+        self.user_id = user_id
+        self.display_name = display_name
+
+
 @dataclass
 class RematchOffer:
     eligible: set[int]
@@ -113,7 +122,23 @@ class RematchManager:
         for thread_id, offer in stale:
             await self._disable_offer(thread_id, offer)
 
-    async def _disable_offer(self, thread_id: int, offer: RematchOffer) -> None:
+    async def close_all(self) -> None:
+        """Shutdown: drop every open offer and disable its button with a restart note."""
+        async with self._lock:
+            offers = list(self._offers.items())
+            self._offers.clear()
+        if offers:
+            await asyncio.gather(
+                *(
+                    self._disable_offer(thread_id, offer, restarting=True)
+                    for thread_id, offer in offers
+                ),
+                return_exceptions=True,
+            )
+
+    async def _disable_offer(
+        self, thread_id: int, offer: RematchOffer, *, restarting: bool = False
+    ) -> None:
         lobby_surface = offer.lobby_surface
         if lobby_surface is None:
             return
@@ -130,10 +155,27 @@ class RematchManager:
                 emoji=offer.emoji,
                 rematch_count=len(offer.votes),
                 rematch_disabled=True,
+                rematch_restarting=restarting,
             )
             await lobby_surface.update(results_view)
         except Exception:
             log.exception("Failed to disable rematch button for thread %s", thread_id)
+
+    def _progress_view(self, thread_id: int, offer: RematchOffer):
+        expires_at = int(time.time() + max(0, offer.expires - time.monotonic()))
+        return build_results_view(
+            game_name=offer.game_name,
+            game_key=offer.game_key,
+            outcome=offer.outcome,
+            players=offer.result_players,
+            removed_seats=offer.removed_seats,
+            thread_id=thread_id,
+            match_id=offer.match_id,
+            text=self.text,
+            emoji=offer.emoji,
+            rematch_count=len(offer.votes),
+            rematch_expires_at=expires_at,
+        )
 
     async def vote(self, thread_id: int, user_id: int) -> None:
         launch_offer: RematchOffer | None = None
@@ -158,37 +200,67 @@ class RematchManager:
                     self._offers.pop(thread_id, None)
                     launch_offer = offer
                 elif offer.lobby_surface is not None:
-                    expires_at = int(time.time() + max(0, offer.expires - time.monotonic()))
-                    progress_view = build_results_view(
-                        game_name=offer.game_name,
-                        game_key=offer.game_key,
-                        outcome=offer.outcome,
-                        players=offer.result_players,
-                        removed_seats=offer.removed_seats,
-                        thread_id=thread_id,
-                        match_id=offer.match_id,
-                        text=self.text,
-                        emoji=offer.emoji,
-                        rematch_count=len(offer.votes),
-                        rematch_expires_at=expires_at,
-                    )
+                    progress_view = self._progress_view(thread_id, offer)
                     progress_surface = offer.lobby_surface
         if expired is not None:
             await self._disable_offer(thread_id, expired)
             raise SessionError("rematch_expired")
         if launch_offer is not None:
             try:
-                await self._reset_to_lobby(thread_id, launch_offer)
+                await self._reset_to_lobby(thread_id, launch_offer, voter_id=user_id)
             except SessionError:
+                # Keep the offer (and its button) alive so anyone can retry once
+                # the blocker clears.
                 async with self._lock:
-                    if thread_id not in self._offers:
+                    restored = thread_id not in self._offers
+                    if restored:
                         self._offers[thread_id] = launch_offer
+                if restored and launch_offer.lobby_surface is not None:
+                    try:
+                        await launch_offer.lobby_surface.update(
+                            self._progress_view(thread_id, launch_offer)
+                        )
+                    except Exception:
+                        log.exception("Failed to re-enable rematch button for thread %s", thread_id)
                 raise
             return
         if progress_view is not None and progress_surface is not None:
             await progress_surface.update(progress_view)
 
-    async def _reset_to_lobby(self, thread_id: int, offer: RematchOffer) -> None:
+    def _busy_error(self, member: LobbyMember, voter_id: int) -> SessionError:
+        if member.user_id == voter_id:
+            return SessionError("already_in_session")
+        return RematchMemberBusy(member.user_id, member.display_name)
+
+    async def _reset_to_lobby(
+        self, thread_id: int, offer: RematchOffer, *, voter_id: int = 0
+    ) -> None:
+        members = list(offer.members)
+        if not members:
+            raise SessionError("rematch_unavailable")
+
+        busy = [
+            m
+            for m in members
+            if self.registries.location_of(m.user_id) is not None
+        ]
+        if busy:
+            # Prefer reporting the clicker's own lobby/game: they can fix it.
+            mine = next((m for m in busy if m.user_id == voter_id), busy[0])
+            raise self._busy_error(mine, voter_id)
+
+        thread = self.lobby.bot.get_channel(thread_id)
+        parent_channel = None
+        if isinstance(thread, discord.Thread):
+            parent_channel = thread.parent
+        target_channel = parent_channel or thread
+        if target_channel is None and offer.channel_id:
+            target_channel = self.lobby.bot.get_channel(offer.channel_id)
+        if target_channel is None:
+            raise SessionError("rematch_unavailable")
+
+        # Checks passed: disable the button so a second click can't launch twice.
+        # vote() re-enables it if anything below fails.
         if offer.lobby_surface is not None:
             try:
                 results_view = build_results_view(
@@ -207,28 +279,6 @@ class RematchManager:
                 await offer.lobby_surface.update(results_view)
             except Exception:
                 log.exception("Failed to disable rematch button after success for thread %s", thread_id)
-
-        members = list(offer.members)
-        if not members:
-            raise SessionError("rematch_unavailable")
-
-        busy = [
-            m
-            for m in members
-            if self.registries.location_of(m.user_id) is not None
-        ]
-        if busy:
-            raise SessionError("already_in_session")
-
-        thread = self.lobby.bot.get_channel(thread_id)
-        parent_channel = None
-        if isinstance(thread, discord.Thread):
-            parent_channel = thread.parent
-        target_channel = parent_channel or thread
-        if target_channel is None and offer.channel_id:
-            target_channel = self.lobby.bot.get_channel(offer.channel_id)
-        if target_channel is None:
-            raise SessionError("rematch_unavailable")
 
         lobby_id = secrets.randbits(63)
         creator_id = offer.creator_id
@@ -255,7 +305,7 @@ class RematchManager:
                 if not await self.registries.reserve_user(
                     member.user_id, UserLocation("lobby", lobby_id, offer.guild_id)
                 ):
-                    raise SessionError("already_in_session")
+                    raise self._busy_error(member, voter_id)
                 reserved.append(member.user_id)
                 lobby.members.append(member)
         except SessionError:

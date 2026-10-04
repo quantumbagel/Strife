@@ -121,6 +121,7 @@ class LobbyControlsMixin:
         key = route.payload.get("option_key")
         opt_type = route.payload.get("option_type")
         values = interaction.data.get("values") if interaction.data else []
+        before = dict(lobby.settings)
         if key and values:
             meta = self._meta(lobby.game_key)
             option = next((o for o in meta.settings if o.key == key), None)
@@ -144,6 +145,8 @@ class LobbyControlsMixin:
                     await self._error(interaction, "common.error", lobby=lobby)
                     return
                 lobby.settings[key] = raw
+        if lobby.settings != before:
+            lobby.reset_ready()
         await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="rules", edit=True)
         await self._refresh(lobby, interaction)
@@ -183,7 +186,10 @@ class LobbyControlsMixin:
                     return
                 if await self._reject_frozen_lobby(lobby, modal_interaction):
                     return
+                before = dict(lobby.settings)
                 self._apply_int_setting(lobby, option, value)
+                if lobby.settings != before:
+                    lobby.reset_ready()
                 await modal_interaction.response.defer(ephemeral=True)
                 await self._send_settings(lobby, modal_interaction, tab="rules", edit=True)
                 await self._refresh(lobby, modal_interaction)
@@ -214,7 +220,10 @@ class LobbyControlsMixin:
         if interaction.user.id != lobby.creator_id:
             await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
+        before = lobby.settings
         lobby.settings = self._default_settings(self._meta(lobby.game_key))
+        if lobby.settings != before:
+            lobby.reset_ready()
         await interaction.response.defer(ephemeral=True)
         await self._send_settings(lobby, interaction, tab="rules", edit=True)
         await self._refresh(lobby, interaction)

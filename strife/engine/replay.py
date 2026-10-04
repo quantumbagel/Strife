@@ -54,8 +54,15 @@ def system_replay_info(players: Sequence[Player], move: Move) -> dict | None:
     return None
 
 
+def is_removal_move(move: Move) -> bool:
+    """A system ``forfeit`` row for a seat that left while the match went on."""
+    return move.is_system and move.source == "forfeit" and bool(move.args.get("removed"))
+
+
 def is_terminal_replay_move(move: Move, index: int, total: int) -> bool:
-    if move.is_system and move.source in ("forfeit", "game_end"):
+    if move.is_system and move.source == "game_end":
+        return True
+    if move.is_system and move.source == "forfeit" and not is_removal_move(move):
         return True
     return index == total - 1
 
@@ -64,9 +71,10 @@ def is_terminal_replay_move(move: Move, index: int, total: int) -> bool:
 class ReplayStep:
     """One log row, with replay-frame policy attached.
 
-    System entries that only carry metadata (``bot_takeover``) have
-    ``frame=False``; apply side effects if needed, then skip rendering.
-    The takeover banner is stashed onto the next ``frame=True`` step.
+    System entries that only carry metadata (``bot_takeover``, or a mid-match
+    removal ``forfeit``) have ``frame=False``; apply side effects if needed,
+    then skip rendering. Their banner is stashed onto the next ``frame=True``
+    step.
     """
 
     move: Move
@@ -81,10 +89,17 @@ def iter_replay(moves: Sequence[Move], players: Sequence[Player]) -> Iterator[Re
     """Walk a match log in order, coalescing system metadata onto game frames."""
     pending_takeover: dict | None = None
     total = len(moves)
+    last_game_index = max(
+        (index for index, move in enumerate(moves) if move.is_game), default=-1
+    )
     for index, move in enumerate(moves):
         info = system_replay_info(players, move)
         terminal = is_terminal_replay_move(move, index, total)
-        if move.is_system and move.source == "bot_takeover" and not terminal:
+        if terminal and move.source == "forfeit" and index < last_game_index:
+            # Older logs don't flag removals; play continued, so it wasn't the end.
+            terminal = False
+        metadata_only = move.is_system and move.source in ("bot_takeover", "forfeit")
+        if metadata_only and not terminal:
             if info:
                 pending_takeover = info
             yield ReplayStep(

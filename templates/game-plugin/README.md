@@ -43,9 +43,9 @@ Optional:
 strife/install https://github.com/you/your-game
 ```
 
-Optional ref: `strife/install https://github.com/you/your-game v1.2.0`
+Optional ref (branch, tag, or commit SHA): `strife/install https://github.com/you/your-game v1.2.0`. The `https://` may be omitted.
 
-Then `strife/emoji` if you shipped `emoji/`, `strife/sync` if you declared `slash_moves`. The game appears in `/play` once `games.yaml` has `enabled: true` (install creates that row if the key is new).
+Then `strife/emoji` if you shipped `emoji/`, `strife/sync` if you declared `slash_moves`. The game appears in `/play` unless `games.yaml` has `enabled: false` for it (install creates an `enabled: true` row if the key is new). If the plugin fails to load, the install is rolled back and the error is shown.
 
 Later: `strife/update <key> [ref]` (keeps match history).
 

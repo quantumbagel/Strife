@@ -66,17 +66,20 @@ class ReplayService:
         self.user_errors = user_errors
         self._cache: OrderedDict[int, _ReplayCacheEntry] = OrderedDict()
         self._cache_size = 64
-        self._autocomplete_cache: dict[int, tuple[float, list]] = {}
+        self._autocomplete_cache: dict[tuple[int, int], tuple[float, list]] = {}
 
     async def autocomplete_matches(
-        self, user_id: int, *, limit: int = 25
+        self, user_id: int, guild_id: int, *, limit: int = 25
     ) -> list:
         now = time.monotonic()
-        cached = self._autocomplete_cache.get(user_id)
+        cache_key = (user_id, guild_id)
+        cached = self._autocomplete_cache.get(cache_key)
         if cached and now - cached[0] < 15:
             return cached[1]
-        matches = await self.matches.list_for_user(user_id, None, limit=limit)
-        self._autocomplete_cache[user_id] = (now, matches)
+        matches = await self.matches.list_for_user(
+            user_id, None, guild_id=guild_id, limit=limit
+        )
+        self._autocomplete_cache[cache_key] = (now, matches)
         if len(self._autocomplete_cache) > 256:
             oldest = min(self._autocomplete_cache, key=lambda k: self._autocomplete_cache[k][0])
             self._autocomplete_cache.pop(oldest, None)
@@ -143,9 +146,15 @@ class ReplayService:
         return entry
 
     async def open(self, interaction: discord.Interaction, match: str | int) -> None:
+        """Open a replay by code (user input) or id (signed buttons/selects).
+
+        Only matches played in the server the interaction comes from are found.
+        """
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
-        detail = await self.matches.get(match)
+        detail = None
+        if interaction.guild_id is not None:
+            detail = await self.matches.get(match, guild_id=interaction.guild_id)
         if detail is None:
             await self.user_errors.send(interaction, "common.match_not_found")
             return

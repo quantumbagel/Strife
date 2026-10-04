@@ -3,7 +3,7 @@ from __future__ import annotations
 import discord
 
 from strife.engine.metadata import OptionType, int_setting_bounds
-from strife.matchmaking.lobby import Lobby, QueuedBot, allocate_bot_name, lobby_action
+from strife.matchmaking.lobby import Lobby, LobbyGone, QueuedBot, allocate_bot_name, lobby_action
 from strife.presentation.roster import bot_label
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route
@@ -19,15 +19,15 @@ class LobbyCommandsMixin:
             await self._error(interaction, "errors.creator_not_hosting")
             return
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
-                return
-            if await self._reject_frozen_lobby(lobby, interaction):
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             await self._join_user(lobby, interaction, announce_join=True)
 
     @lobby_action
     async def leave_current(self, interaction: discord.Interaction) -> None:
+        if self.registries.location_of(interaction.user.id) is None:
+            if await self._withdraw_pending_requests(interaction):
+                return
         lobby = await self._require_caller_lobby(
             interaction, require_channel_access=False
         )
@@ -35,10 +35,7 @@ class LobbyCommandsMixin:
             return
         should_start = False
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
-                return
-            if await self._reject_frozen_lobby(lobby, interaction):
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             try:
                 await self._leave_lobby_inner(lobby, interaction.user.id, interaction)
@@ -51,6 +48,29 @@ class LobbyCommandsMixin:
         if should_start:
             await self._start(lobby, Route(P.LOBBY_LEAVE, lobby.thread_id, "leave", {}), interaction)
 
+    async def _withdraw_pending_requests(self, interaction: discord.Interaction) -> bool:
+        """Withdraw the caller's join requests in this server; True if any were pending."""
+        lobby_ids = self.registries.guild_lobbies.get(interaction.guild_id or 0, set())
+        candidates = [
+            lobby
+            for lobby_id in list(lobby_ids)
+            if (lobby := self.registries.get_lobby(lobby_id)) is not None
+            and interaction.user.id in lobby.pending_requests
+        ]
+        withdrawn = False
+        for lobby in candidates:
+            async with lobby.lock:
+                if self.registries.get_lobby(lobby.thread_id) is not lobby:
+                    continue
+                try:
+                    if await self._withdraw_request(lobby, interaction, notify=False):
+                        withdrawn = True
+                except LobbyGone:
+                    withdrawn = True
+        if withdrawn:
+            await self._success(interaction, "lobby.request_withdrawn")
+        return withdrawn
+
     @lobby_action
     async def toggle_ready(self, interaction: discord.Interaction) -> None:
         lobby = await self._require_caller_lobby(interaction)
@@ -59,8 +79,7 @@ class LobbyCommandsMixin:
         should_start = False
         route = Route(P.LOBBY_READY, lobby.thread_id, "ready", {})
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             if interaction.user.id in lobby.ready:
                 lobby.ready.discard(interaction.user.id)
@@ -78,7 +97,7 @@ class LobbyCommandsMixin:
                     reason_kwargs=reason_kwargs,
                 )
                 return
-            lobby.ready.add(interaction.user.id)
+            lobby.mark_ready(interaction.user.id)
             ok_start, _, _ = lobby.can_start(meta, self.text)
             if ok_start:
                 if not interaction.response.is_done():
@@ -91,7 +110,8 @@ class LobbyCommandsMixin:
         if should_start:
             await self._start(lobby, route, interaction)
             # The lobby message already links the thread; drop the deferred "thinking…".
-            if self.registries.get_lobby(lobby.thread_id) is None:
+            # (Only on a real launch: otherwise the original response holds the error.)
+            if self.registries.get_lobby(lobby.thread_id) is None and lobby.launching:
                 try:
                     await interaction.delete_original_response()
                 except discord.HTTPException:
@@ -104,8 +124,7 @@ class LobbyCommandsMixin:
             return
         should_start = False
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             if user_id == lobby.creator_id:
                 await self._error(interaction, "errors.cannot_kick_self", lobby=lobby)
@@ -133,8 +152,7 @@ class LobbyCommandsMixin:
         if lobby is None:
             return
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             await self._teardown(lobby, interaction)
 
@@ -144,8 +162,7 @@ class LobbyCommandsMixin:
         if lobby is None:
             return
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             lobby.ready.clear()
             await self._refresh(lobby, interaction)
@@ -157,8 +174,7 @@ class LobbyCommandsMixin:
         if lobby is None:
             return
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             lobby.private = private
             await self._refresh(lobby, interaction)
@@ -171,8 +187,7 @@ class LobbyCommandsMixin:
         if lobby is None:
             return
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             lobby.private = False
             lobby.approved.clear()
@@ -188,10 +203,12 @@ class LobbyCommandsMixin:
         if lobby is None:
             return
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
+            before = lobby.settings
             lobby.settings = self._default_settings(self._meta(lobby.game_key))
+            if lobby.settings != before:
+                lobby.reset_ready()
             await self._refresh(lobby, interaction)
             await self._success(interaction, "lobby.rules_reset")
 
@@ -203,14 +220,14 @@ class LobbyCommandsMixin:
         if lobby is None:
             return
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             meta = self._meta(lobby.game_key)
             option = next((o for o in meta.settings if o.key == key), None)
             if option is None:
                 await self._error(interaction, "lobby.unknown_option", lobby=lobby)
                 return
+            before = dict(lobby.settings)
             display_value: str
             if option.type == OptionType.BOOL:
                 normalized = value.strip().lower()
@@ -244,6 +261,8 @@ class LobbyCommandsMixin:
                     return
                 lobby.settings[key] = value
                 display_value = value.capitalize() if isinstance(value, str) else str(value)
+            if lobby.settings != before:
+                lobby.reset_ready()
             await self._refresh(lobby, interaction)
             await self._success(
                 interaction,
@@ -258,8 +277,7 @@ class LobbyCommandsMixin:
         if lobby is None:
             return
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             if user_id not in lobby.pending_requests:
                 await self._error(interaction, "errors.no_pending_request", lobby=lobby)
@@ -269,18 +287,25 @@ class LobbyCommandsMixin:
                 return
             meta = self._meta(lobby.game_key)
             if lobby.is_full(meta):
-                await self._error(interaction, "errors.lobby_full", lobby=lobby)
+                await self._error(interaction, "errors.lobby_full_creator", lobby=lobby)
                 return
             if not await self._check_lobby_channel_access(
                 interaction, lobby, user_id=user_id
             ):
                 return
-            display_name = lobby.pending_requests.pop(user_id, f"User {user_id}")
+            # Re-read: the request can be withdrawn or pruned during the await above.
+            display_name = lobby.pending_requests.get(user_id)
+            if display_name is None:
+                await self._error(interaction, "errors.no_pending_request", lobby=lobby)
+                await self._refresh(lobby, interaction)
+                return
+            if not self._is_lobby_member(lobby, user_id):
+                if not await self._seat_member(lobby, user_id, display_name, interaction):
+                    await self._refresh(lobby, interaction)
+                    return
+            lobby.pending_requests.pop(user_id, None)
             lobby.approved.add(user_id)
             lobby.denied.discard(user_id)
-            if not any(m.user_id == user_id for m in lobby.members):
-                if not await self._seat_member(lobby, user_id, display_name, interaction):
-                    return
             await self._refresh(lobby, interaction)
             await self._success(interaction, "lobby.player_approved", name=display_name)
 
@@ -290,8 +315,7 @@ class LobbyCommandsMixin:
         if lobby is None:
             return
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             if user_id not in lobby.pending_requests:
                 await self._error(interaction, "errors.no_pending_request", lobby=lobby)
@@ -307,8 +331,7 @@ class LobbyCommandsMixin:
         if lobby is None:
             return
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             if not lobby.private:
                 await self._error(interaction, "errors.lobby_not_private", lobby=lobby)
@@ -332,8 +355,7 @@ class LobbyCommandsMixin:
         if lobby is None:
             return
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             seated_ids = {member.user_id for member in lobby.members}
             if user_id not in lobby.approved or user_id in seated_ids:
@@ -351,8 +373,7 @@ class LobbyCommandsMixin:
             return
         should_start = False
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             if user_id == lobby.creator_id:
                 await self._error(interaction, "errors.cannot_blacklist_self", lobby=lobby)
@@ -379,8 +400,7 @@ class LobbyCommandsMixin:
         if lobby is None:
             return
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             if user_id not in lobby.blacklist:
                 await self._error(interaction, "errors.not_blacklisted", lobby=lobby)
@@ -396,10 +416,8 @@ class LobbyCommandsMixin:
         lobby = await self._require_caller_lobby(interaction, creator_only=True)
         if lobby is None:
             return
-        should_start = False
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             meta = self._meta(lobby.game_key)
             allowed = {spec.difficulty for spec in meta.bots or ()}
@@ -423,13 +441,12 @@ class LobbyCommandsMixin:
                 )
                 added += 1
             if added == 0:
-                await self._error(interaction, "errors.lobby_full", lobby=lobby)
+                await self._error(interaction, "errors.lobby_full_creator", lobby=lobby)
                 return
+            # A new seat changes the match; everyone confirms again rather than auto-starting.
+            lobby.reset_ready()
             await self._refresh(lobby, interaction)
             await self._success(interaction, "lobby.bot_added", count=added)
-            should_start = self._claim_autostart(lobby)
-        if should_start:
-            await self._start(lobby, Route(P.LOBBY_BOT_ADD, lobby.thread_id, "bot_add", {}), interaction)
 
     @lobby_action
     async def remove_bot(self, interaction: discord.Interaction, name: str) -> None:
@@ -437,14 +454,14 @@ class LobbyCommandsMixin:
         if lobby is None:
             return
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             remaining = [b for b in lobby.bots if b.name != name]
             if len(remaining) == len(lobby.bots):
                 await self._error(interaction, "lobby.bot_not_in_lobby", lobby=lobby)
                 return
             lobby.bots = remaining
+            lobby.reset_ready()
             await self._refresh(lobby, interaction)
             await self._success(interaction, "lobby.bot_removed", name=bot_label(self.emoji, name))
 
@@ -454,8 +471,7 @@ class LobbyCommandsMixin:
         if lobby is None:
             return
         async with lobby.lock:
-            if self.registries.get_lobby(lobby.thread_id) is not lobby:
-                await self._error(interaction, "lobby.already_dead")
+            if not await self._lobby_still_open(lobby, interaction):
                 return
             await self._settings(
                 lobby, Route(P.LOBBY_SETTINGS, lobby.thread_id, "settings", {}), interaction

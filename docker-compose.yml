@@ -13,7 +13,8 @@ services:
       timeout: 5s
       retries: 5
     ports:
-      - "127.0.0.1:5432:5432"
+      # Host port for tools like psql. Change POSTGRES_HOST_PORT if a host Postgres uses 5432.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
 
   bot:
     build: .
@@ -29,7 +30,8 @@ services:
       - ./config:/app/config
       - ./plugins:/app/plugins
     restart: unless-stopped
-    stop_grace_period: 30s
+    # Shutdown waits up to ~30s (offers 5 + lobbies 5 + games 15 + offers 5), then closes the pool.
+    stop_grace_period: 45s
 
 volumes:
   pgdata:

@@ -10,15 +10,13 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
+# Install [project].dependencies from pyproject.toml only, so this layer is cached until
+# the dependency list changes. The strife package itself runs from /app via PYTHONPATH.
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir \
-    "discord.py>=2.6" \
-    "asyncpg>=0.30" \
-    "msgpack>=1.1" \
-    "PyYAML>=6.0" \
-    "pydantic>=2" \
-    "pydantic-settings>=2" \
-    "packaging>=24"
+RUN python -c "import tomllib; print('\\n'.join(tomllib.load(open('pyproject.toml', 'rb'))['project']['dependencies']))" \
+        > /tmp/requirements.txt \
+    && pip install --no-cache-dir -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
 
 COPY strife/ ./strife/
 RUN python -m strife.plugins sync-deps --builtins-only

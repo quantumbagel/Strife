@@ -121,8 +121,29 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
             return frozenset()
         return frozenset(getattr(settings, "owner_ids", ()) or ())
 
+    def _active_games(self):
+        """Crash-recovery tracker from the bot, if persistence is wired."""
+        return getattr(self._bot, "active_games", None) if self._bot is not None else None
+
     async def start(self) -> None:
+        # Record the thread before play begins so a hard crash leaves a trace
+        # the next boot can clean up. Tracking is best effort.
+        tracker = self._active_games()
+        if tracker is not None:
+            try:
+                await tracker.add(self.thread_id, self.guild_id, self.game_key)
+            except Exception:
+                log.exception("Failed to record active game thread %s", self.thread_id)
         self.task = asyncio.create_task(self._run())
+
+    async def _untrack(self) -> None:
+        tracker = self._active_games()
+        if tracker is None:
+            return
+        try:
+            await tracker.remove(self.thread_id)
+        except Exception:
+            log.exception("Failed to clear active game thread %s", self.thread_id)
 
     async def _run(self) -> None:
         from strife.presentation.emoji_context import bind_emoji, reset_emoji

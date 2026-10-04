@@ -125,12 +125,18 @@ The lobby does not deal roles. Declare `RoleSpec` for catalog copy and DMs. Assi
 
 ## Host-injected sources
 
-- `forfeit` — also a live `Move` when `supports_player_removal`
+- `forfeit` — when `supports_player_removal`, a seat that forfeits or times out mid-match is removed (`remove_player`), and a pending input for that seat resolves with this `Move`. The host always logs one **system** row `forfeit` (`actor_seat` = the seat, `args` = `{"reason": "forfeit" | "timeout", "removed": true}`), even under `record=False`. `removed` rows are not the end of the replay: `iter_replay()` gives them `frame=False` and hangs the removal banner on the next frame (like `bot_takeover`). Apply your side effects (e.g. drop the seat from `alive`) before checking `step.frame`
 - `timeout` — live move when the consequence is skip/strike
 - `game_end` — cancelled or timed out
 - `bot_takeover` — **system** row, then the bot’s **game** move. Use `iter_replay()` so the banner sticks to the next frame
 
 Handle these with `system_replay_info()` from `strife.engine.replay`.
+
+## First-to-act timeouts
+
+`request_inputs(..., until="any")` is one shared window, not any one seat’s turn. If its deadline passes with nobody acting, no seat is blamed: no AFK consequence (bot takeover, removal, strike, `timeout_consequence`) applies and no turn warning is sent. `request_inputs` returns **`{}`** and the host logs one **system** `timeout` row with `actor_seat=None` and `args={"reason": "timeout", "until": "any", "seats": [...]}`. Games must treat an empty result as “nobody acted” (e.g. advance the round, as Spyfall does) — re-asking forever never ends the match.
+
+`until="all"` keeps per-seat timeouts: each seat that runs out gets its own consequence.
 
 ## Also
 

@@ -2,6 +2,15 @@
 # Bump when GameContext or types games import change.
 
 [[release]]
+version = "1.0.2"
+date = "2026-10-04"
+summary = "Blameless first-to-act timeouts, logged removals."
+changed = [
+  "until=any windows that time out return {} with no AFK consequence; treat it as nobody acted",
+  "Mid-match removals always log a system forfeit row with removed=true; replays continue past it",
+]
+
+[[release]]
 version = "1.0.1"
 date = "2026-10-03"
 summary = "Faction-aware match end on forfeit."

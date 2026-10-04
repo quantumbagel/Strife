@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import random
 import secrets
 
@@ -33,12 +34,25 @@ _LOBBY_MEMBER_PREFIXES = frozenset({
 })
 
 # Actions that can leave every remaining member ready without anyone pressing Ready.
+# Adding bots is not one: it clears ready, like any other rules change.
 _ROSTER_CHANGE_PREFIXES = frozenset({
     P.LOBBY_LEAVE,
     P.LOBBY_KICK,
     P.LOBBY_ADD_BLACKLIST,
-    P.LOBBY_BOT_ADD,
 })
+
+# What Strife needs in the lobby channel to post the card and open the game thread.
+_GAME_CHANNEL_PERMISSIONS = (
+    ("view_channel", "lobby.permission_view_channel"),
+    ("send_messages", "lobby.permission_send_messages"),
+    ("embed_links", "lobby.permission_embed_links"),
+    ("create_public_threads", "lobby.permission_create_public_threads"),
+    ("send_messages_in_threads", "lobby.permission_send_messages_in_threads"),
+    ("manage_threads", "lobby.permission_manage_threads"),
+)
+
+# Upper bound on how long closing every lobby card may take at shutdown.
+_CLOSE_ALL_TIMEOUT_SECONDS = 5.0
 
 
 class LobbyFlowMixin:
@@ -53,7 +67,7 @@ class LobbyFlowMixin:
             await self._error(interaction, "errors.game_disabled")
             return
         if interaction.guild is None or interaction.guild_id is None:
-            await self._error(interaction, "errors.need_text_channel")
+            await self._error(interaction, "errors.guild_only")
             return
 
         channel = interaction.channel
@@ -83,6 +97,19 @@ class LobbyFlowMixin:
             return
         if isinstance(channel, discord.Thread):
             await self._error(interaction, "errors.need_text_channel")
+            return
+        missing_code = (
+            "errors.bot_missing_permissions_default"
+            if posted_elsewhere
+            else "errors.bot_missing_permissions"
+        )
+        missing = self._missing_bot_permissions(channel, interaction)
+        if missing:
+            await self._error(
+                interaction,
+                missing_code,
+                reason_kwargs=self._missing_permissions_kwargs(channel, missing),
+            )
             return
 
         lobby_id = secrets.randbits(63)
@@ -132,14 +159,52 @@ class LobbyFlowMixin:
             else:
                 await surface.send(interaction, view)
             lobby.message_id = surface.message_id
-        except Exception:
+        except Exception as exc:
             self.registries.remove_lobby(lobby_id)
             await self.registries.release_user(interaction.user.id)
             try:
-                await self._error(interaction, "errors.lobby_failed_to_start")
+                if isinstance(exc, discord.Forbidden):
+                    # Permissions we could not see up front (e.g. a channel override).
+                    missing = self._missing_bot_permissions(channel, interaction) or [
+                        self.text.get(key) for _, key in _GAME_CHANNEL_PERMISSIONS
+                    ]
+                    await self._error(
+                        interaction,
+                        missing_code,
+                        reason_kwargs=self._missing_permissions_kwargs(channel, missing),
+                    )
+                else:
+                    await self._error(interaction, "errors.lobby_failed_to_start")
             except Exception:
                 log.exception("Failed to report lobby creation error to user")
             return
+
+    def _missing_bot_permissions(
+        self, channel, interaction: discord.Interaction | None = None
+    ) -> list[str]:
+        """Labels of the channel permissions Strife lacks; empty if it can't tell."""
+        perms: discord.Permissions | None = None
+        channel_id = getattr(channel, "id", None)
+        if (
+            interaction is not None
+            and interaction.guild_id is not None
+            and channel_id is not None
+            and interaction.channel_id == channel_id
+        ):
+            perms = interaction.app_permissions
+        elif isinstance(channel, discord.abc.GuildChannel) and channel.guild.me is not None:
+            perms = channel.permissions_for(channel.guild.me)
+        if perms is None:
+            return []
+        return [
+            self.text.get(key)
+            for attr, key in _GAME_CHANNEL_PERMISSIONS
+            if not getattr(perms, attr)
+        ]
+
+    def _missing_permissions_kwargs(self, channel, missing: list[str]) -> dict:
+        mention = getattr(channel, "mention", None) or f"<#{getattr(channel, 'id', 0)}>"
+        return {"channel": mention, "permissions": ", ".join(missing)}
 
     @lobby_action
     async def handle(self, route: Route, interaction: discord.Interaction) -> None:
@@ -181,6 +246,13 @@ class LobbyFlowMixin:
                 return
             if route.prefix == P.LOBBY_JOIN:
                 pass
+            elif (
+                route.prefix == P.LOBBY_LEAVE
+                and interaction.user.id in lobby.pending_requests
+                and not self._is_lobby_member(lobby, interaction.user.id)
+            ):
+                await self._withdraw_request(lobby, interaction)
+                return
             elif route.prefix in _LOBBY_MEMBER_PREFIXES:
                 require_channel = route.prefix != P.LOBBY_LEAVE
                 if not await self._require_lobby_member(
@@ -229,15 +301,27 @@ class LobbyFlowMixin:
     async def _seat_member(
         self, lobby: Lobby, user_id: int, display_name: str, interaction: discord.Interaction
     ) -> bool:
+        """Seat ``user_id``; on failure, tell the clicker (who may be the creator approving)."""
         if not await self.registries.reserve_user(
             user_id, UserLocation("lobby", lobby.thread_id, lobby.guild_id)
         ):
-            await self._error(
-                interaction,
-                "errors.already_in_session",
-                user_id=user_id,
-            )
+            if user_id == interaction.user.id:
+                await self._error(
+                    interaction,
+                    "errors.already_in_session",
+                    user_id=user_id,
+                )
+            else:
+                # Their request can't be honoured while they're busy elsewhere; drop it.
+                lobby.pending_requests.pop(user_id, None)
+                await self._error(
+                    interaction,
+                    "errors.request_target_busy",
+                    lobby=lobby,
+                    reason_kwargs={"name": display_name},
+                )
             return False
+        lobby.pending_requests.pop(user_id, None)
         lobby.members.append(LobbyMember(user_id, display_name))
         return True
 
@@ -273,11 +357,13 @@ class LobbyFlowMixin:
         if member is None:
             try:
                 member = await guild.fetch_member(user_id)
-            except discord.NotFound:
-                await self._error(interaction, "errors.lobby_no_server_access", lobby=lobby)
-                return False
             except discord.HTTPException:
-                await self._error(interaction, "errors.lobby_no_server_access", lobby=lobby)
+                code = (
+                    "errors.lobby_target_no_channel_access"
+                    if user_id != interaction.user.id
+                    else "errors.lobby_no_server_access"
+                )
+                await self._error(interaction, code, lobby=lobby)
                 return False
 
         channel = guild.get_channel(lobby.channel_id)
@@ -353,6 +439,15 @@ class LobbyFlowMixin:
             return None
         return lobby
 
+    async def _lobby_still_open(
+        self, lobby: Lobby, interaction: discord.Interaction
+    ) -> bool:
+        """Re-check with ``lobby.lock`` held: it may have ended or started while we waited."""
+        if self.registries.get_lobby(lobby.thread_id) is not lobby:
+            await self._error(interaction, "lobby.already_dead")
+            return False
+        return not await self._reject_frozen_lobby(lobby, interaction)
+
     async def _join_user(
         self,
         lobby: Lobby,
@@ -381,6 +476,10 @@ class LobbyFlowMixin:
                 return
             if user.id in lobby.pending_requests:
                 await self._error(interaction, "errors.request_pending", lobby=lobby)
+                return
+            if self.registries.location_of(user.id) is not None:
+                # Approval could never seat them; make them leave their current spot first.
+                await self._error(interaction, "errors.already_in_session", user_id=user.id)
                 return
             lobby.pending_requests[user.id] = user.display_name
             if not interaction.response.is_done():
@@ -411,6 +510,17 @@ class LobbyFlowMixin:
             await self._leave_lobby_inner(lobby, interaction.user.id, interaction)
         except PermissionError:
             await self._error(interaction, "errors.not_in_lobby", lobby=lobby)
+
+    async def _withdraw_request(
+        self, lobby: Lobby, interaction: discord.Interaction, *, notify: bool = True
+    ) -> bool:
+        """Drop the caller's pending join request. Call with ``lobby.lock`` held."""
+        if lobby.pending_requests.pop(interaction.user.id, None) is None:
+            return False
+        await self._refresh(lobby, interaction)
+        if notify:
+            await self._success(interaction, "lobby.request_withdrawn")
+        return True
 
     async def _reject_frozen_lobby(
         self, lobby: Lobby, interaction: discord.Interaction
@@ -454,8 +564,10 @@ class LobbyFlowMixin:
         self, lobby: Lobby, route: Route, interaction: discord.Interaction
     ) -> bool:
         if interaction.user.id in lobby.ready:
+            # One shared button toggles; say so, or a double-click silently un-readies.
             lobby.ready.discard(interaction.user.id)
             await self._refresh(lobby, interaction)
+            await self._success(interaction, "lobby.ready_off")
             return False
         meta = self._meta(lobby.game_key)
         ok, reason_key, reason_kwargs = lobby.can_ready(meta, self.text)
@@ -468,7 +580,7 @@ class LobbyFlowMixin:
                 reason_kwargs=reason_kwargs,
             )
             return False
-        lobby.ready.add(interaction.user.id)
+        lobby.mark_ready(interaction.user.id)
         ok_start, _, _ = lobby.can_start(meta, self.text)
         if ok_start:
             if not interaction.response.is_done():
@@ -513,7 +625,14 @@ class LobbyFlowMixin:
         if isinstance(channel, discord.Thread):
             parent = channel.parent or channel
         starter = await parent.send(starter_text)
-        thread = await starter.create_thread(name=name, auto_archive_duration=1440)
+        try:
+            thread = await starter.create_thread(name=name, auto_archive_duration=1440)
+        except Exception:
+            try:
+                await starter.delete()
+            except discord.HTTPException:
+                log.warning("Could not delete orphan thread starter %s", starter.id)
+            raise
 
         for player in players:
             if not player.user_id or player.is_bot:
@@ -541,7 +660,11 @@ class LobbyFlowMixin:
                 return
             meta = self._meta(lobby.game_key)
             ok, reason_key, reason_kwargs = lobby.can_start(meta, self.text)
-            if not ok:
+            if self.registries.get_lobby(lobby.thread_id) is not lobby:
+                # Ended or closed while the start was queued; nothing to launch.
+                lobby.starting = False
+                start_error = ("lobby.already_dead", None)
+            elif not ok:
                 lobby.starting = False
                 start_error = (reason_key, reason_kwargs)
             else:
@@ -564,7 +687,6 @@ class LobbyFlowMixin:
         promoted = False
         thread = None
         session = None
-        marshal_replaced = False
         try:
             seed = secrets.randbits(63)
             rng = random.Random(seed)
@@ -599,9 +721,7 @@ class LobbyFlowMixin:
                 seed,
             )
             if lobby.surface is None:
-                lobby.starting = False
-                lobby.launching = False
-                await self._error(interaction, "common.error", lobby=lobby)
+                await self._abort_start(lobby, interaction, "common.error")
                 return
 
             match_code = generate_match_code(random.Random())
@@ -613,6 +733,21 @@ class LobbyFlowMixin:
             )
             if channel is None:
                 channel = interaction.channel
+            missing = self._missing_bot_permissions(channel, interaction)
+            if missing:
+                await self._abort_start(
+                    lobby,
+                    interaction,
+                    "errors.bot_missing_permissions_start",
+                    self._missing_permissions_kwargs(channel, missing),
+                )
+                return
+            if self.registries.get_lobby(lobby.thread_id) is not lobby:
+                # Closed (e.g. shutdown) after the snapshot; don't open an orphan thread.
+                lobby.starting = False
+                lobby.launching = False
+                await self._error(interaction, "lobby.already_dead")
+                return
             thread_name = f"{meta.name} (#{match_code})"
             try:
                 thread = await self._open_public_game_thread(
@@ -622,35 +757,18 @@ class LobbyFlowMixin:
                     players=players,
                 )
             except NeedTextChannel:
-                lobby.starting = False
-                lobby.launching = False
-                lobby.ready.clear()
-                await self._error(interaction, "errors.need_text_channel", lobby=lobby)
+                await self._abort_start(lobby, interaction, "errors.need_text_channel")
                 return
 
-            ended_view = LayoutView()
-            brand = self.emoji.get("logo")
-            container = Container()
-            container.add_text(
-                TextDisplay(
-                    markdown_content=f"### {brand} {self.text.get('lobby.title', game_name=meta.name)}",
-                    size_style=TextSize.HEADER,
-                )
+            ended_view = self._build_notice_card(
+                meta,
+                self.text.get("lobby.game_started", mention=thread.mention),
+                emoji=self.emoji.get("logo"),
             )
-            container.add_text(
-                TextDisplay(
-                    markdown_content=self.text.get(
-                        "lobby.game_started", mention=thread.mention
-                    ),
-                    size_style=TextSize.BODY,
-                )
-            )
-            ended_view.add_container(container)
             try:
                 await lobby.surface.update(ended_view)
             except discord.NotFound:
                 log.warning("Lobby message for %s was deleted; starting anyway", lobby.thread_id)
-            marshal_replaced = True
 
             game_compiler = self.compiler.for_game(lobby.game_key)
             header_surface = ViewSurface(
@@ -693,9 +811,7 @@ class LobbyFlowMixin:
             promoted = True
             await session.start()
         except Exception:
-            lobby.starting = False
-            lobby.launching = False
-            lobby.ready.clear()
+            log.exception("Failed to start lobby %s", lobby.thread_id)
             if session is not None:
                 session._ending = True
                 session._finalized = True
@@ -708,15 +824,105 @@ class LobbyFlowMixin:
                     await thread.edit(archived=True, locked=True)
                 except Exception:
                     log.exception("Failed to archive orphan game thread %s", thread.id)
-            if marshal_replaced:
+            await self._abort_start(lobby, interaction, "common.error")
+            return
+
+    async def _abort_start(
+        self,
+        lobby: Lobby,
+        interaction: discord.Interaction,
+        code: str,
+        reason_kwargs: dict | None = None,
+    ) -> None:
+        """Unfreeze a lobby whose start failed, clear ready, and redraw its card."""
+        async with lobby.lock:
+            lobby.starting = False
+            lobby.launching = False
+            lobby.ready.clear()
+            if self.registries.get_lobby(lobby.thread_id) is lobby:
                 try:
                     await self._refresh(lobby, interaction)
                 except Exception:
                     log.exception("Failed to restore lobby card after start failure")
+        # Never raise: callers inside _start's try would abort a second time.
+        try:
             if not interaction.response.is_done():
                 await interaction.response.defer(ephemeral=True)
-            await self._error(interaction, "common.error", lobby=lobby)
+            await self._error(interaction, code, lobby=lobby, reason_kwargs=reason_kwargs)
+        except Exception:
+            log.exception("Failed to report start failure for lobby %s", lobby.thread_id)
+
+    def _build_notice_card(self, meta, body: str, *, emoji: str) -> LayoutView:
+        """A control-free lobby card: the title plus one line of status."""
+        view = LayoutView()
+        container = Container()
+        container.add_text(
+            TextDisplay(
+                markdown_content=f"### {emoji} {self.text.get('lobby.title', game_name=meta.name)}",
+                size_style=TextSize.HEADER,
+            )
+        )
+        container.add_text(TextDisplay(markdown_content=body, size_style=TextSize.BODY))
+        view.add_container(container)
+        return view
+
+    async def close_all_lobbies(self, reason_key: str = "lobby.closed_restart") -> None:
+        """Close every open lobby (e.g. at shutdown): release members, mark cards closed.
+
+        Card edits run concurrently and are bounded by ``_CLOSE_ALL_TIMEOUT_SECONDS``;
+        a failed edit is logged and skipped.
+        """
+        lobbies = list(self.registries.lobbies.values())
+        for lobby in lobbies:
+            try:
+                await self._discard_lobby(lobby)
+            except Exception:
+                log.exception("Failed to release lobby %s during close", lobby.thread_id)
+        cards = [self._show_closed_card(lobby, reason_key) for lobby in lobbies if lobby.surface]
+        if not cards:
             return
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*cards, return_exceptions=True),
+                timeout=_CLOSE_ALL_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            log.warning("Timed out closing lobby cards; some may still show controls")
+
+    async def _show_closed_card(self, lobby: Lobby, reason_key: str) -> None:
+        try:
+            meta = self._meta(lobby.game_key)
+            view = self._build_notice_card(
+                meta,
+                self.text.get(reason_key),
+                emoji=self.emoji.get_game_emoji(meta.key),
+            )
+            await lobby.surface.update(view)
+        except Exception as exc:
+            log.warning("Failed to mark lobby %s closed: %s", lobby.thread_id, exc)
+
+    def _on_requests_pruned(self, lobbies: list[Lobby]) -> None:
+        """A requester was seated elsewhere; redraw the lobbies that listed them."""
+        for lobby in lobbies:
+            task = asyncio.create_task(self._refresh_card_quietly(lobby))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+    async def _refresh_card_quietly(self, lobby: Lobby) -> None:
+        async with lobby.lock:
+            if (
+                self.registries.get_lobby(lobby.thread_id) is not lobby
+                or lobby.starting
+                or lobby.launching
+                or lobby.surface is None
+            ):
+                return
+            try:
+                await lobby.surface.update(
+                    self._build_lobby_view(lobby, self._meta(lobby.game_key))
+                )
+            except Exception as exc:
+                log.warning("Failed to refresh lobby %s card: %s", lobby.thread_id, exc)
 
     async def handle_message_deleted(self, message_id: int) -> None:
         """Close a lobby whose message was deleted so its members aren't stuck in it."""
