@@ -2,6 +2,19 @@
 # Newest first. Game API versions go in platform.toml.
 
 [[release]]
+version = "1.0.3"
+date = "2026-10-03"
+summary = "Forfeits, occupancy, rematch, and mixed-bot tables."
+fixed = [
+  "Ending a match no longer drops you from a new one you'd already joined",
+  "Forfeits don't hand wins to every other seat, including the other faction",
+  "A two-human lobby with bots no longer ends when one person forfeits",
+  "Mafia can keep playing below the lobby minimum after a removal",
+  "Two Rematch clicks at once can't spawn two lobbies",
+  "Bots in mixed tables can act when the game is waiting for anyone",
+]
+
+[[release]]
 version = "1.0.2"
 date = "2026-09-10"
 summary = "Slash autocompletes and empty lobby lists explain themselves."

@@ -1,4 +1,13 @@
 [[release]]
+version = "1.0.2"
+date = "2026-10-03"
+summary = "Forfeits follow factions. Games can continue with three."
+fixed = [
+  "A forfeit awards the winning faction, not every remaining player",
+  "A started game can continue below the lobby's four-player minimum",
+]
+
+[[release]]
 version = "1.0.1"
 date = "2026-09-10"
 summary = "Hard bots hunt doctors. Empty night targets say so."

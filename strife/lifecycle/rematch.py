@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import secrets
 import time
 from dataclasses import dataclass, field
@@ -46,6 +47,7 @@ class RematchManager:
         self.lobby = lobby_service
         self.text = text
         self._offers: dict[int, RematchOffer] = {}
+        self._lock = asyncio.Lock()
 
     def start_offer(self, thread_id: int, eligible: set[int], match_id: int, outcome: object) -> None:
         session = self.registries.get_game(thread_id)
@@ -95,12 +97,16 @@ class RematchManager:
 
     async def expire_stale(self) -> None:
         now = time.monotonic()
-        for thread_id in list(self._offers):
-            offer = self._offers.get(thread_id)
-            if offer is None or now <= offer.expires:
-                continue
-            if self._offers.pop(thread_id, None) is not None:
-                await self._disable_offer(thread_id, offer)
+        stale: list[tuple[int, RematchOffer]] = []
+        async with self._lock:
+            for thread_id in list(self._offers):
+                offer = self._offers.get(thread_id)
+                if offer is None or now <= offer.expires:
+                    continue
+                if self._offers.pop(thread_id, None) is not None:
+                    stale.append((thread_id, offer))
+        for thread_id, offer in stale:
+            await self._disable_offer(thread_id, offer)
 
     async def _disable_offer(self, thread_id: int, offer: RematchOffer) -> None:
         lobby_surface = offer.lobby_surface
@@ -124,38 +130,56 @@ class RematchManager:
             log.exception("Failed to disable rematch button for thread %s", thread_id)
 
     async def vote(self, thread_id: int, user_id: int) -> None:
-        offer = self._offers.get(thread_id)
-        if offer is None:
-            raise SessionError("rematch_unavailable")
-        if user_id not in offer.eligible:
-            raise SessionError("rematch_not_eligible")
-        if time.monotonic() > offer.expires:
-            if self._offers.pop(thread_id, None) is not None:
-                await self._disable_offer(thread_id, offer)
+        launch_offer: RematchOffer | None = None
+        expired: RematchOffer | None = None
+        progress_view = None
+        progress_surface = None
+        async with self._lock:
+            offer = self._offers.get(thread_id)
+            if offer is None:
+                raise SessionError("rematch_unavailable")
+            if user_id not in offer.eligible:
+                raise SessionError("rematch_not_eligible")
+            if time.monotonic() > offer.expires:
+                if self._offers.pop(thread_id, None) is not None:
+                    expired = offer
+                else:
+                    expired = None
+            else:
+                expired = None
+                offer.votes.add(user_id)
+                if offer.votes >= offer.eligible:
+                    self._offers.pop(thread_id, None)
+                    launch_offer = offer
+                elif offer.lobby_surface is not None:
+                    expires_at = int(time.time() + max(0, offer.expires - time.monotonic()))
+                    progress_view = build_results_view(
+                        game_name=offer.game_name,
+                        game_key=offer.game_key,
+                        outcome=offer.outcome,
+                        players=offer.result_players,
+                        thread_id=thread_id,
+                        match_id=offer.match_id,
+                        text=self.text,
+                        emoji=offer.emoji,
+                        rematch_count=len(offer.votes),
+                        rematch_expires_at=expires_at,
+                    )
+                    progress_surface = offer.lobby_surface
+        if expired is not None:
+            await self._disable_offer(thread_id, expired)
             raise SessionError("rematch_expired")
-        offer.votes.add(user_id)
-        if offer.votes >= offer.eligible:
-            self._offers.pop(thread_id, None)
+        if launch_offer is not None:
             try:
-                await self._reset_to_lobby(thread_id, offer)
+                await self._reset_to_lobby(thread_id, launch_offer)
             except SessionError:
-                self._offers[thread_id] = offer
+                async with self._lock:
+                    if thread_id not in self._offers:
+                        self._offers[thread_id] = launch_offer
                 raise
-        elif offer.lobby_surface is not None:
-            expires_at = int(time.time() + max(0, offer.expires - time.monotonic()))
-            results_view = build_results_view(
-                game_name=offer.game_name,
-                game_key=offer.game_key,
-                outcome=offer.outcome,
-                players=offer.result_players,
-                thread_id=thread_id,
-                match_id=offer.match_id,
-                text=self.text,
-                emoji=offer.emoji,
-                rematch_count=len(offer.votes),
-                rematch_expires_at=expires_at,
-            )
-            await offer.lobby_surface.update(results_view)
+            return
+        if progress_view is not None and progress_surface is not None:
+            await progress_surface.update(progress_view)
 
     async def _reset_to_lobby(self, thread_id: int, offer: RematchOffer) -> None:
         if offer.lobby_surface is not None:

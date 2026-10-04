@@ -99,9 +99,9 @@ class Coup(Game):
         if self.state_phase == "block_challenge_window":
             return "Anyone except the blocker can Challenge or Pass."
         if self.state_phase == "block_window":
+            if self.current_action in ("assassinate", "steal"):
+                return "The target can Block or Pass."
             return "Anyone except the actor can Block or Pass."
-        if self.current_action in ("assassinate", "steal"):
-            return "The target can Block. Anyone except the actor can Challenge or Pass."
         return "Anyone except the actor can Challenge or Pass."
 
     def _pick_challenge(self, moves: dict[int, Move]) -> tuple[int | None, Move | None]:
@@ -217,6 +217,120 @@ class Coup(Game):
         )
         return False, False
 
+    def _timeout_coup_target(self, actor: int) -> int | None:
+        if self.selected_target not in (None, "none"):
+            try:
+                target = int(self.selected_target)
+            except (TypeError, ValueError):
+                target = None
+            if target is not None and target in self.alive and target != actor:
+                return target
+        others = [seat for seat in self.alive if seat != actor]
+        if not others:
+            return None
+        return self.rng.choice(others)
+
+    async def _run_challenge_window(
+        self,
+        ctx: GameContext,
+        actor: int,
+        challenge_card: str,
+        action_type: str,
+    ) -> bool:
+        """Anyone except the actor may challenge. Returns True if the action failed."""
+        self.state_phase = "challenge_window"
+        opponents = set(self.alive) - {actor}
+        if not opponents:
+            return False
+        react_moves = await ctx.request_inputs(
+            self._public_board_view(
+                ctx,
+                status=f"Challenge {self.players[actor].display_name}'s {challenge_card.title()} claim?",
+            ),
+            actors=opponents,
+            sources={"challenge", "pass"},
+            record=False,
+            description=self._challenge_wait_description(actor, challenge_card, action_type),
+            timeout_seconds=10.0,
+            timeout_consequence="skip",
+        )
+        challenger_seat, react_move = self._pick_challenge(react_moves)
+        if react_move is not None and challenger_seat is not None:
+            return await self._resolve_action_challenge(
+                ctx, actor, challenger_seat, challenge_card
+            )
+        return False
+
+    async def _run_block_window(
+        self,
+        ctx: GameContext,
+        actor: int,
+        action_type: str,
+        blockers: set[int],
+    ) -> bool:
+        """Optional block, then an optional challenge of that block.
+
+        Returns True if the action is blocked.
+        """
+        blockers = {seat for seat in blockers if seat in self.alive}
+        if not blockers:
+            return False
+        self.state_phase = "block_window"
+        block_sources = self._valid_block_sources(action_type) | {"pass"}
+        if len(blockers) == 1:
+            blocker_name = self.players[next(iter(blockers))].display_name
+            status = f"Waiting for {blocker_name} to block..."
+        else:
+            status = "Waiting for blocks..."
+        block_moves = await ctx.request_inputs(
+            self._public_board_view(ctx, status=status),
+            actors=blockers,
+            sources=block_sources,
+            record=False,
+            description=self._block_wait_description(action_type),
+            timeout_seconds=10.0,
+            timeout_consequence="skip",
+        )
+        blocker_seat, block_move = self._pick_block(block_moves, action_type)
+        if block_move is None or blocker_seat is None:
+            return False
+
+        claim = block_move.source.split("block_")[1]
+        self.current_blocker = blocker_seat
+        self.current_block_claim = claim
+        await ctx.record_event(
+            "block_declare",
+            {
+                "blocker": blocker_seat,
+                "action": action_type,
+                "claim": claim,
+            },
+        )
+
+        self.state_phase = "block_challenge_window"
+        block_challengers = set(self.alive) - {blocker_seat}
+        if not block_challengers:
+            return True
+        challenge_moves = await ctx.request_inputs(
+            self._public_board_view(
+                ctx,
+                status=f"{self.players[blocker_seat].display_name} blocks with {claim.title()}. Challenge?",
+            ),
+            actors=block_challengers,
+            sources={"challenge", "pass"},
+            record=False,
+            description=self._block_challenge_wait_description(blocker_seat, claim),
+            timeout_seconds=10.0,
+            timeout_consequence="skip",
+        )
+        block_challenger, block_challenge_move = self._pick_challenge(challenge_moves)
+        if block_challenge_move is not None and block_challenger is not None:
+            blocked, _ = await self._resolve_block_challenge(
+                ctx, actor, blocker_seat, claim, block_challenger
+            )
+            return blocked
+        return True
+
     def _role_emoji(self, ctx: GameContext, role: str) -> str:
         fallback = {"duke": "👑", "assassin": "🗡️", "captain": "⚓", "ambassador": "💼", "contessa": "🛡️"}.get(role, "🎴")
         return ctx.emoji.get(role) or fallback
@@ -286,6 +400,16 @@ class Coup(Game):
                 )
 
                 if move.source == "timeout":
+                    if forced_coup:
+                        coup_target = self._timeout_coup_target(actor)
+                        if coup_target is not None:
+                            self.history.append(
+                                f"{ctx.emoji.get('timer', base=True)} {self.players[actor].mention} "
+                                "timed out and was forced to coup."
+                            )
+                            action_type = "coup"
+                            target = coup_target
+                            break
                     penalty = False
                     if self.coins[actor] > 0:
                         self.coins[actor] -= 1
@@ -297,6 +421,10 @@ class Coup(Game):
                         msg += " Action skipped."
                     self.history.append(msg)
                     action_type = "skipped"
+                    await ctx.record_event(
+                        "turn_skip",
+                        {"player": actor, "penalty": penalty, "coins": dict(self.coins)},
+                    )
                     break
 
                 if ctx.is_bot(actor) or move.source == "submit_action":
@@ -347,7 +475,7 @@ class Coup(Game):
             elif action_type == "assassinate":
                 self.coins[actor] -= 3
 
-            # Challenge Phase
+            # Challenge, then (if the action is still live) a separate block window.
             challenge_card = {
                 "tax": "duke",
                 "assassinate": "assassin",
@@ -359,154 +487,23 @@ class Coup(Game):
             action_failed = False
 
             if challenge_card is not None:
-                self.state_phase = "challenge_window"
-                opponents = set(self.alive) - {actor}
-
-                if action_type in ("assassinate", "steal") and target is not None:
-                    block_claims = {
-                        "assassinate": {"block_contessa"},
-                        "steal": {"block_captain", "block_ambassador"},
-                    }[action_type]
-                    per_seat_sources = {
-                        seat: (
-                            {"challenge", "pass"} | block_claims
-                            if seat == target
-                            else {"challenge", "pass"}
-                        )
-                        for seat in opponents
-                    }
-                    react_moves = await ctx.request_inputs(
-                        self._public_board_view(
-                            ctx,
-                            status=(
-                                f"React to {self.players[actor].display_name}'s Assassinate (Assassin claim)..."
-                                if action_type == "assassinate"
-                                else f"React to {self.players[actor].display_name}'s Steal (Captain claim)..."
-                            )
-                        ),
-                        actors=opponents,
-                        sources={"challenge", "pass"},
-                        per_seat_sources=per_seat_sources,
-                        record=False,
-                        description=self._challenge_wait_description(actor, challenge_card, action_type),
-                        timeout_seconds=10.0,
-                        timeout_consequence="skip"
-                    )
-
-                    challenger_seat, react_move = self._pick_challenge(react_moves)
-                    if react_move is not None and challenger_seat is not None:
-                        action_failed = await self._resolve_action_challenge(
-                            ctx, actor, challenger_seat, challenge_card
-                        )
-
-                    if not action_failed:
-                        target_move = react_moves.get(target)
-                        if target_move is not None and target_move.source in block_claims:
-                            blocker_seat = target
-                            claim = target_move.source.split("block_")[1]
-                            self.current_blocker = blocker_seat
-                            self.current_block_claim = claim
-                            await ctx.record_event("block_declare", {
-                                "blocker": blocker_seat,
-                                "action": action_type,
-                                "claim": claim,
-                            })
-
-                            self.state_phase = "block_challenge_window"
-                            block_challengers = set(self.alive) - {blocker_seat}
-                            challenge_moves = await ctx.request_inputs(
-                                self._public_board_view(
-                                    ctx,
-                                    status=f"{self.players[blocker_seat].display_name} blocks with {claim.title()}. Challenge?"
-                                ),
-                                actors=block_challengers,
-                                sources={"challenge", "pass"},
-                                record=False,
-                                description=self._block_challenge_wait_description(blocker_seat, claim),
-                                timeout_seconds=10.0,
-                                timeout_consequence="skip"
-                            )
-                            block_challenger, block_challenge_move = self._pick_challenge(challenge_moves)
-                            if block_challenge_move is not None and block_challenger is not None:
-                                blocked, _ = await self._resolve_block_challenge(
-                                    ctx, actor, blocker_seat, claim, block_challenger
-                                )
-                                action_blocked = blocked
-                            else:
-                                action_blocked = True
-                else:
-                    react_moves = await ctx.request_inputs(
-                        self._public_board_view(
-                            ctx,
-                            status=f"Challenge {self.players[actor].display_name}'s {challenge_card.title()} claim?"
-                        ),
-                        actors=opponents,
-                        sources={"challenge", "pass"},
-                        record=False,
-                        description=self._challenge_wait_description(actor, challenge_card, action_type),
-                        timeout_seconds=10.0,
-                        timeout_consequence="skip"
-                    )
-
-                    challenger_seat, react_move = self._pick_challenge(react_moves)
-                    if react_move is not None and challenger_seat is not None:
-                        action_failed = await self._resolve_action_challenge(
-                            ctx, actor, challenger_seat, challenge_card
-                        )
+                action_failed = await self._run_challenge_window(
+                    ctx, actor, challenge_card, action_type
+                )
 
             if action_failed and action_type == "assassinate":
                 self.coins[actor] += 3  # Refund assassination fee on failed challenge
 
-            # Block Phase
-            if not action_failed and action_type == "foreign_aid":
-                self.state_phase = "block_window"
-                blockers = (set(self.alive) - {actor}) & self.alive
-
-                block_sources = self._valid_block_sources(action_type) | {"pass"}
-                block_moves = await ctx.request_inputs(
-                    self._public_board_view(ctx, status="Waiting for blocks..."),
-                    actors=blockers,
-                    sources=block_sources,
-                    record=False,
-                    description=self._block_wait_description(action_type),
-                    timeout_seconds=10.0,
-                    timeout_consequence="skip"
+            if not action_failed and action_type in ("foreign_aid", "assassinate", "steal"):
+                if action_type == "foreign_aid":
+                    blockers = set(self.alive) - {actor}
+                elif target is not None and target in self.alive:
+                    blockers = {target}
+                else:
+                    blockers = set()
+                action_blocked = await self._run_block_window(
+                    ctx, actor, action_type, blockers
                 )
-
-                blocker_seat, block_move = self._pick_block(block_moves, action_type)
-
-                if block_move is not None and blocker_seat is not None:
-                    claim = block_move.source.split("block_")[1]
-                    self.current_blocker = blocker_seat
-                    self.current_block_claim = claim
-                    await ctx.record_event("block_declare", {
-                        "blocker": blocker_seat,
-                        "action": action_type,
-                        "claim": claim,
-                    })
-
-                    self.state_phase = "block_challenge_window"
-                    block_challengers = set(self.alive) - {blocker_seat}
-                    challenge_moves = await ctx.request_inputs(
-                        self._public_board_view(
-                            ctx,
-                            status=f"{self.players[blocker_seat].display_name} blocks with {claim.title()}. Challenge?"
-                        ),
-                        actors=block_challengers,
-                        sources={"challenge", "pass"},
-                        record=False,
-                        description=self._block_challenge_wait_description(blocker_seat, claim),
-                        timeout_seconds=10.0,
-                        timeout_consequence="skip"
-                    )
-                    block_challenger, block_challenge_move = self._pick_challenge(challenge_moves)
-                    if block_challenge_move is not None and block_challenger is not None:
-                        blocked, _ = await self._resolve_block_challenge(
-                            ctx, actor, blocker_seat, claim, block_challenger
-                        )
-                        action_blocked = blocked
-                    else:
-                        action_blocked = True
 
             # Resolve Action Effects
             if not action_failed and not action_blocked:
@@ -1235,11 +1232,17 @@ class Coup(Game):
                 block_pending = False
                 continue
 
-            if move.source == "timeout":
+            if move.source in ("timeout", "turn_skip"):
                 _resolve_pending_action()
-                actor = move.actor_seat
+                actor = self._replay_seat(move, "player") if move.source == "turn_skip" else move.actor_seat
                 if actor is not None:
-                    if self.coins[actor] > 0:
+                    if move.source == "turn_skip":
+                        coins = move.args.get("coins")
+                        if coins is not None:
+                            self.coins = {int(k): int(v) for k, v in coins.items()}
+                        elif self.coins[actor] > 0:
+                            self.coins[actor] -= 1
+                    elif self.coins[actor] > 0:
                         self.coins[actor] -= 1
                     self.current = self._next_player(actor)
                 view = self._public_board_view_replay(ctx, status="Turn timed out")

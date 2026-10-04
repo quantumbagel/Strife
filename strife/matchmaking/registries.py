@@ -30,8 +30,13 @@ class SessionRegistries:
             self.user_location[user_id] = loc
             return True
 
-    async def release_user(self, user_id: int) -> None:
+    async def release_user(self, user_id: int, *, thread_id: int | None = None) -> None:
         async with self._lock:
+            loc = self.user_location.get(user_id)
+            if loc is None:
+                return
+            if thread_id is not None and loc.thread_id != thread_id:
+                return
             self.user_location.pop(user_id, None)
 
     def location_of(self, user_id: int) -> UserLocation | None:

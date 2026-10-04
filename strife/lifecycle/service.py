@@ -190,7 +190,9 @@ class LifecycleService:
         # finishes on GAME_ENDS. Release immediately only when the seat
         # actually leaves a still-running match.
         if consequence == TimeoutConsequence.REMOVED and player.user_id:
-            await self.registries.release_user(player.user_id)
+            await self.registries.release_user(
+                player.user_id, thread_id=session.thread_id
+            )
 
         if consequence == TimeoutConsequence.SKIP:
             await session.force_move(

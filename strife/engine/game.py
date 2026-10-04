@@ -7,6 +7,7 @@ from typing import Any, ClassVar
 
 from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.metadata import GameMetadata
+from strife.engine.outcomes import forfeit_outcome
 from strife.engine.players import GameOutcome, Move, Player
 from strife.presentation.components import LayoutView
 
@@ -18,7 +19,7 @@ class Game(ABC):
     * ``parse_replay`` — required when ``supports_replay``.
     * ``bot_move`` — required when ``metadata.bots`` is set.
     * ``remove_player`` — required when ``supports_player_removal``.
-    * ``final_view``, ``handle_query`` — optional.
+    * ``final_view``, ``handle_query``, ``forfeit_end_outcome`` — optional.
     * Peek/help buttons: ``query=True`` and ``handle_query``. Not moves.
     * Group inputs: ``request_inputs(..., record=False)`` then one
       ``record_event`` — not one log row per player.
@@ -61,6 +62,22 @@ class Game(ABC):
 
     def remove_player(self, seat: int) -> None:
         """Called when a player is removed mid-game. Override if ``supports_player_removal``."""
+
+    def forfeit_end_outcome(self, forfeiter_seat: int, reason: str = "forfeit") -> GameOutcome:
+        """Outcome when the host ends the match because ``forfeiter_seat`` quit.
+
+        Default: the forfeiter and anyone already out of play lose; remaining
+        active seats win. Faction games should override this.
+        """
+        outcome = forfeit_outcome(
+            self.players,
+            forfeiter_seat,
+            alive_seats=self.active_seats(),
+            reason=reason,
+            must_end=True,
+        )
+        assert outcome is not None
+        return outcome
 
     async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
         return None

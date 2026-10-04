@@ -10,7 +10,7 @@ Every game is a plugin: builtins in `strife/games/`, third-party clones in `plug
 
 ```toml
 key = "chess"
-version = "1.1.0"
+version = "1.1.1"
 platform_version = "1.0.0"
 dependencies = [
   "chess>=1.11.2",

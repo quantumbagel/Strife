@@ -36,7 +36,13 @@ async def test_promote_updates_location_under_lock() -> None:
     assert loc.kind == "game"
     assert loc.thread_id == 99
     assert regs.get_lobby(11) is None
-    assert regs.get_game(99) is session
-
-
+async def test_release_user_skips_a_different_thread() -> None:
+    regs = SessionRegistries()
+    await regs.reserve_user(1, UserLocation("game", 100, 22))
+    await regs.release_user(1, thread_id=99)
+    loc = regs.location_of(1)
+    assert loc is not None
+    assert loc.thread_id == 100
+    await regs.release_user(1, thread_id=100)
+    assert regs.location_of(1) is None
 

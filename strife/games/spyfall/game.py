@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from strife.engine.context import GameContext, ReplayFrame
 from strife.engine.game import Game
+from strife.engine.outcomes import forfeit_outcome
 from strife.engine.workers import run_cpu
 from strife.engine.players import GameOutcome, Move
 from strife.engine.replay import ReplayBuilder, iter_replay
@@ -74,10 +75,7 @@ class Spyfall(Game):
         return self.players[seat].mention
 
     def _discussion_round_done(self) -> bool:
-        return all(
-            seat in self._passes or self.players[seat].is_bot
-            for seat in self.alive
-        ) or self._passes >= self.alive
+        return self.alive <= self._passes
 
     def _phase_status(self, ctx: GameContext) -> str:
         if self.accused_player is not None:
@@ -269,7 +267,9 @@ class Spyfall(Game):
                 "history": list(self.history),
             })
 
-        # Compile final outcome
+        return self._faction_outcome(winner_faction)
+
+    def _faction_outcome(self, winner_faction: str) -> GameOutcome:
         results = {}
         player_descriptions = {}
         for p in self.players:
@@ -287,6 +287,23 @@ class Spyfall(Game):
             description=f"The {winner_faction} won!",
             player_descriptions=player_descriptions,
         )
+
+    def forfeit_end_outcome(self, forfeiter_seat: int, reason: str = "forfeit") -> GameOutcome:
+        self.alive.discard(forfeiter_seat)
+        if forfeiter_seat == self.spy:
+            return self._faction_outcome("villagers")
+        remaining_villagers = self.alive - {self.spy}
+        if not remaining_villagers:
+            return self._faction_outcome("spy")
+        outcome = forfeit_outcome(
+            self.players,
+            forfeiter_seat,
+            alive_seats=self.alive,
+            reason=reason,
+            must_end=True,
+        )
+        assert outcome is not None
+        return outcome
 
     def _discussion_view_replay(self, ctx: GameContext) -> LayoutView:
         view = LayoutView()

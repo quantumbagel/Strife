@@ -13,7 +13,12 @@ class TimeoutConsequence(StrEnum):
 
 
 def will_removal_end_game(session: object, seat: int) -> bool:
-    """Check if removing ``seat`` from the game will cause it to end."""
+    """Check if removing ``seat`` from the game will cause it to end.
+
+    Lobby ``min_players`` is a start constraint, not a mid-game floor.
+    Play continues while any active seats and at least one human remain;
+    the game itself decides when a faction or seat count has lost.
+    """
     game = session.game  # type: ignore[attr-defined]
     after = game.active_seats() - {seat}
     remaining_humans = [
@@ -21,9 +26,7 @@ def will_removal_end_game(session: object, seat: int) -> bool:
         for player in session.players  # type: ignore[attr-defined]
         if player.seat in after and not player.is_bot
     ]
-    if not after or not remaining_humans:
-        return True
-    return len(after) < game.metadata.player_count.min_players
+    return not after or not remaining_humans
 
 
 def determine_consequence(
@@ -32,10 +35,6 @@ def determine_consequence(
     """Determine what consequence applies when ``seat`` fails to make a move (timeout or forfeit)."""
     # Forfeits skip interactive options and bot takeover, going straight to removal or end game.
     if reason == "forfeit":
-        humans = [p for p in getattr(session, "players", []) if not p.is_bot]
-        if len(humans) == 2:
-            return TimeoutConsequence.GAME_ENDS
-
         meta = session.game.metadata  # type: ignore[attr-defined]
         if meta.supports_player_removal:
             if will_removal_end_game(session, seat):

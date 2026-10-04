@@ -2,6 +2,18 @@
 # Bump when GameContext or types games import change.
 
 [[release]]
+version = "1.0.1"
+date = "2026-10-03"
+summary = "Faction-aware match end on forfeit."
+added = [
+  "Game.forfeit_end_outcome() — override when the host ends the match on a forfeit",
+]
+changed = [
+  "forfeit_outcome() can force an end and distinguish timeout vs forfeit",
+  "until=any waits for a delayed bot move when humans are also acting",
+]
+
+[[release]]
 version = "1.0.0"
 date = "2026-08-21"
 summary = "plugin.toml, GameContext, live / CLI / replay."

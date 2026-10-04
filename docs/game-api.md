@@ -17,7 +17,7 @@ Talk to the host through `GameContext`: input, board updates, DMs, `record_event
 
 ## Versions
 
-This host is **platform 1.0.0**.
+This host is **platform 1.0.1**.
 
 | Field | Meaning |
 |-------|---------|
@@ -45,6 +45,7 @@ Missing a required method **skips the game** (error log). Default `supports_repl
 |--------|------|
 | `final_view(ctx, outcome)` | End-state UI |
 | `handle_query(seat, source, ctx)` | Peek / extra UI. Return `True` if handled |
+| `forfeit_end_outcome(seat, reason)` | Results when the host ends the match on a forfeit |
 
 ## Moves vs queries vs links
 

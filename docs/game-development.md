@@ -43,7 +43,7 @@ Override `render_final()` if the finished board looks different.
 
 Attach metadata with `@game_metadata_from(...)` or `@game_metadata(META)`.
 
-In `plugin.toml`: `version` is this game’s semver; `platform_version` is the API it targets (now `1.0.0`). The host copies both onto metadata and skips the game if the platform doesn’t match. See [game-api.md](game-api.md#versions).
+In `plugin.toml`: `version` is this game’s semver; `platform_version` is the API it targets (now `1.0.1`). The host copies both onto metadata and skips the game if the platform doesn’t match. See [game-api.md](game-api.md#versions).
 
 `changelog.toml` sits next to `plugin.toml`. Newest `[[release]]` first. Bump it when you bump `version`. Players see it in `/strife about` → Changes.
 
@@ -198,7 +198,7 @@ Helpers in [`game_ui.py`](../strife/presentation/game_ui.py): `action_status`, `
 
 ## Forfeits
 
-The host injects `forfeit` and `game_end`. Use `forfeit_outcome()` from [`outcomes.py`](../strife/engine/outcomes.py). If `supports_player_removal`, implement `remove_player(seat)`.
+The host injects `forfeit` and `game_end`. Use `forfeit_outcome()` from [`outcomes.py`](../strife/engine/outcomes.py). If `supports_player_removal`, implement `remove_player(seat)`. Faction games should override `forfeit_end_outcome(seat, reason)` so a timeout doesn't award every other seat.
 
 ## Checklist
 

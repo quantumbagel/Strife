@@ -1,4 +1,12 @@
 [[release]]
+version = "1.0.2"
+date = "2026-10-03"
+summary = "Bots act during mixed discussion."
+fixed = [
+  "Spy bots can guess and villager bots can accuse when humans are at the table",
+]
+
+[[release]]
 version = "1.0.1"
 date = "2026-09-10"
 summary = "Accuse and guess explain invalid clicks."

@@ -13,6 +13,8 @@ from strife.presentation.components import LayoutView, move_sources, query_sourc
 from strife.routing.router import InteractionInput
 from strife.session.types import PendingInput, QUERY_TIMEOUT_SECONDS, log
 
+_UNTIL_ANY_BOT_DELAY_SECONDS = 8.0
+
 
 class SessionInputMixin:
     def _resolve_sources(
@@ -230,21 +232,60 @@ class SessionInputMixin:
         await self.refresh_header()
 
         if until == "any":
-            if not futures:
+            bot_waiter: asyncio.Task | None = None
+            if bots:
+                delay = min(_UNTIL_ANY_BOT_DELAY_SECONDS, max(2.0, seconds * 0.2))
+
+                async def _bot_contender() -> tuple[int, Move]:
+                    await asyncio.sleep(delay)
+                    bot_seat = self.game.rng.choice(sorted(bots))
+                    difficulty = self.players[bot_seat].bot_difficulty or "medium"
+                    move = await self.game.bot_move(difficulty, bot_seat)
+                    return bot_seat, move
+
+                bot_waiter = asyncio.create_task(_bot_contender())
+
+            waiters: list[asyncio.Future] = list(futures.values())
+            if bot_waiter is not None:
+                waiters.append(bot_waiter)
+            if not waiters:
                 return results
-            done, pending_futures = await asyncio.wait(
-                futures.values(), return_when=asyncio.FIRST_COMPLETED
-            )
-            async with self.lock:
-                for seat, future in futures.items():
-                    if future in done:
-                        move = future.result()
-                        results[seat] = move
-                        if record:
-                            self._record_move(move)
-                    elif not future.done():
-                        future.cancel()
-                    self.pending.pop(seat, None)
+            done, _pending = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+            try:
+                async with self.lock:
+                    for seat, future in futures.items():
+                        if future in done:
+                            move = future.result()
+                            results[seat] = move
+                            if record:
+                                self._record_move(move)
+                        elif not future.done():
+                            future.cancel()
+                        self.pending.pop(seat, None)
+                    if (
+                        not results
+                        and bot_waiter is not None
+                        and bot_waiter in done
+                        and not bot_waiter.cancelled()
+                    ):
+                        exc = bot_waiter.exception()
+                        if exc is None:
+                            bot_seat, move = bot_waiter.result()
+                            results[bot_seat] = move
+                            if record:
+                                self._record_move(move)
+                        else:
+                            log.exception(
+                                "until=any bot move failed",
+                                exc_info=exc,
+                            )
+            finally:
+                if bot_waiter is not None and not bot_waiter.done():
+                    bot_waiter.cancel()
+                    try:
+                        await bot_waiter
+                    except asyncio.CancelledError:
+                        pass
             await self.refresh_header()
             return results
 

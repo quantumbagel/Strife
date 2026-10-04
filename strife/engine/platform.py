@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-PLATFORM_VERSION = "1.0.0"
+PLATFORM_VERSION = "1.0.1"
 
 
 def parse_version(value: str) -> tuple[int, int, int] | None:

@@ -1,4 +1,14 @@
 [[release]]
+version = "1.0.2"
+date = "2026-10-03"
+summary = "Forced coups, sequential blocks, skipped turns in replay."
+fixed = [
+  "Ten coins still forces a coup if you time out",
+  "You can challenge an assassination or steal, then block if it stands",
+  "A skipped turn shows up in the replay",
+]
+
+[[release]]
 version = "1.0.1"
 date = "2026-09-10"
 summary = "Bot difficulties actually differ. Reaction hints."

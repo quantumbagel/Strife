@@ -11,6 +11,7 @@ from strife.engine import (
     Player,
     ReplayBuilder,
     ReplayFrame,
+    forfeit_outcome,
     iter_replay,
     run_cpu,
     select_value,
@@ -613,6 +614,22 @@ class Mafia(Game):
 
     def remove_player(self, seat: int) -> None:
         self.alive.discard(seat)
+
+    def forfeit_end_outcome(self, forfeiter_seat: int, reason: str = "forfeit") -> GameOutcome:
+        self.alive.discard(forfeiter_seat)
+        self.death_reason.setdefault(forfeiter_seat, "forfeit")
+        winner = self._winner()
+        if winner:
+            return self._finish(winner)
+        outcome = forfeit_outcome(
+            self.players,
+            forfeiter_seat,
+            alive_seats=self.alive,
+            reason=reason,
+            must_end=True,
+        )
+        assert outcome is not None
+        return outcome
 
     async def bot_move(self, difficulty: str, seat: int) -> Move:
         source, args = await run_cpu(choose_mafia_move, self, difficulty, seat)

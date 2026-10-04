@@ -24,42 +24,27 @@ class SessionLifecycleMixin:
         if task is not None and not task.done() and task is not asyncio.current_task():
             task.cancel()
         self._append_log_entry("game_end", {"reason": reason, "cancelled": True}, kind=LogEntryKind.SYSTEM)
-        results = {}
-        summary = {"reason": reason}
-        player_descriptions = {}
         if forfeiter_seat is not None:
-            for player in self.players:
-                if player.seat == forfeiter_seat:
-                    results[player.seat] = "loss"
-                    player_descriptions[player.seat] = "Timed out" if reason == "timeout" else "Forfeited"
-                else:
-                    results[player.seat] = "win"
-                    player_descriptions[player.seat] = "Opponent timed out" if reason == "timeout" else "Opponent forfeited"
-            opponents = [p.seat for p in self.players if p.seat != forfeiter_seat]
-            if len(opponents) == 1:
-                summary["winner"] = opponents[0]
-            forfeiter_mention = str(self.players[forfeiter_seat])
-            action_str = "timed out" if reason == "timeout" else "forfeited"
-            description = f"{forfeiter_mention} {action_str}"
+            outcome = self.game.forfeit_end_outcome(forfeiter_seat, reason)
         elif reason == "restart":
-            description = self.text.get("match.session_restarted_description")
-            for player in self.players:
-                player_descriptions[player.seat] = "Abandoned (bot restart)"
             await self._notify_thread(self.text.get("match.session_restarted"))
+            outcome = GameOutcome(
+                results={},
+                summary={"reason": reason},
+                description=self.text.get("match.session_restarted_description"),
+                player_descriptions={
+                    player.seat: "Abandoned (bot restart)" for player in self.players
+                },
+            )
         else:
-            description = reason.capitalize()
-            for player in self.players:
-                player_descriptions[player.seat] = "Abandoned"
+            outcome = GameOutcome(
+                results={},
+                summary={"reason": reason},
+                description=reason.capitalize(),
+                player_descriptions={player.seat: "Abandoned" for player in self.players},
+            )
 
-        await self._finalize(
-            GameOutcome(
-                results=results,
-                summary=summary,
-                description=description,
-                player_descriptions=player_descriptions,
-            ),
-            status="abandoned",
-        )
+        await self._finalize(outcome, status="abandoned")
         return True
 
 

@@ -71,6 +71,10 @@ class LiveContext:
     def is_bot(self, seat: int) -> bool:
         return self._host().players[seat].is_bot
 
+    @property
+    def turn_timeout_seconds(self) -> float | None:
+        return float(self._host().turn_timeout_seconds)
+
     async def update(self, view: LayoutView) -> None:
         self._touch()
         await self._host()._update_surface(view)

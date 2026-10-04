@@ -40,4 +40,6 @@ class SessionFinalizer:
         await self.registries.drop_game(session.thread_id)
         for player in session.players:
             if player.user_id:
-                await self.registries.release_user(player.user_id)
+                await self.registries.release_user(
+                    player.user_id, thread_id=session.thread_id
+                )

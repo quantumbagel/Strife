@@ -1,4 +1,12 @@
 [[release]]
+version = "1.1.1"
+date = "2026-10-03"
+summary = "Illegal moves no longer reset the clock."
+fixed = [
+  "A rejected move keeps the remaining clock instead of starting it over",
+]
+
+[[release]]
 version = "1.1.0"
 date = "2026-09-10"
 summary = "Variants, clocks you type, pick your color."
