@@ -46,7 +46,9 @@ class MyGame(TurnBasedGame):
     def replay_label(self) -> str | None:
         return f"Turn {self.current + 1}"
 
-    def render_replay(self, ctx: GameContext, live_view: LayoutView | None) -> LayoutView | None:
+    def render_replay(
+        self, ctx: GameContext, live_view: LayoutView | None
+    ) -> LayoutView | None:
         """Override to reveal hidden information; default shows the live board."""
         return live_view
 

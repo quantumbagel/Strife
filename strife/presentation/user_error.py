@@ -62,7 +62,9 @@ def resolve_lobby_link(lobby: Lobby | None, guild_id: int | None = None) -> str 
         return None
     gid = guild_id or lobby.guild_id
     if lobby.message_id and lobby.channel_id:
-        return f"https://discord.com/channels/{gid}/{lobby.channel_id}/{lobby.message_id}"
+        return (
+            f"https://discord.com/channels/{gid}/{lobby.channel_id}/{lobby.message_id}"
+        )
     if lobby.channel_id:
         return f"https://discord.com/channels/{gid}/{lobby.channel_id}"
     return f"https://discord.com/channels/{gid}"
@@ -211,8 +213,12 @@ class UserErrorPresenter:
         builders: dict[str, ActionBuilder] = {
             "errors.already_in_session": lambda p, c: p._session_fix_actions(c),
             "errors.not_in_lobby": lambda p, c: [p._browse_games(c)],
-            "errors.in_game_use_forfeit": lambda p, c: p._session_fix_actions(c) or [p._browse_games(c)],
-            "errors.wrong_game_command": lambda p, c: p._session_fix_actions(c) or [p._browse_games(c)],
+            "errors.in_game_use_forfeit": lambda p, c: (
+                p._session_fix_actions(c) or [p._browse_games(c)]
+            ),
+            "errors.wrong_game_command": lambda p, c: (
+                p._session_fix_actions(c) or [p._browse_games(c)]
+            ),
             "errors.not_in_game": lambda p, c: p._not_in_game_actions(c),
             "errors.not_on_whitelist": lambda p, c: p._lobby_context_actions(c),
             "errors.request_pending": lambda p, c: p._lobby_context_actions(c),
@@ -221,7 +227,9 @@ class UserErrorPresenter:
             "errors.game_disabled": lambda p, c: [p._browse_games(c)],
             "errors.unknown_game": lambda p, c: [p._browse_games(c)],
             "errors.no_game_in_channel": lambda p, c: [p._browse_games(c)],
-            "errors.not_a_player": lambda p, c: p._session_fix_actions(c) or [p._browse_games(c)],
+            "errors.not_a_player": lambda p, c: (
+                p._session_fix_actions(c) or [p._browse_games(c)]
+            ),
             "common.cannot_act": lambda p, c: [],
             "errors.invalid_action": lambda p, c: [],
             "lobby.creator_only": lambda p, c: p._lobby_context_actions(c),
@@ -230,7 +238,9 @@ class UserErrorPresenter:
             "lobby.game_has_no_bots": lambda p, c: p._lobby_context_actions(c),
             "lobby.unknown_bot_difficulty": lambda p, c: p._lobby_context_actions(c),
             "lobby.bot_not_in_lobby": lambda p, c: p._lobby_context_actions(c),
-            "errors.unknown_user": lambda p, c: p._lobby_context_actions(c) or [p._browse_games(c)],
+            "errors.unknown_user": lambda p, c: (
+                p._lobby_context_actions(c) or [p._browse_games(c)]
+            ),
             "lobby.closed": lambda p, c: [p._browse_games(c)],
             "lobby.already_dead": lambda p, c: [p._browse_games(c)],
             "common.game_ended": lambda p, c: [p._browse_games(c)],
@@ -318,17 +328,21 @@ class UserErrorPresenter:
         if help_text == help_key:
             return self.text.get("common_help.error")
         kwargs = dict(ctx.reason_kwargs or {})
-        if code in {
-            "errors.not_on_whitelist",
-            "errors.request_pending",
-            "errors.request_denied",
-            "errors.blacklisted",
-        } and ctx.lobby:
+        if (
+            code
+            in {
+                "errors.not_on_whitelist",
+                "errors.request_pending",
+                "errors.request_denied",
+                "errors.blacklisted",
+            }
+            and ctx.lobby
+        ):
             kwargs["creator"] = f"<@{ctx.lobby.creator_id}>"
         if kwargs:
             try:
                 return help_text.format(**kwargs)
-            except (KeyError, ValueError):
+            except KeyError, ValueError:
                 pass
         return help_text
 

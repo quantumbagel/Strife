@@ -43,7 +43,7 @@ def _canonical_json(value: Any) -> Any:
 def args_equal(a: dict[str, Any], b: dict[str, Any]) -> bool:
     try:
         return _canonical_json(a) == _canonical_json(b)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         # Non-JSON args can never match a stored row; report it as a divergence.
         return False
 

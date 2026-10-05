@@ -55,11 +55,17 @@ def _fixed_choices(game_key: str, param: MoveParam) -> list[app_commands.Choice]
         return None
     try:
         return [
-            app_commands.Choice(name=str(choice)[:100], value=_choice_value(param, choice))
+            app_commands.Choice(
+                name=str(choice)[:100], value=_choice_value(param, choice)
+            )
             for choice in param.choices
         ]
     except ValueError:
-        log.warning("%s option %r has non-integer choices for an int param", game_key, param.name)
+        log.warning(
+            "%s option %r has non-integer choices for an int param",
+            game_key,
+            param.name,
+        )
         return None
 
 
@@ -107,7 +113,9 @@ def create_slash_command(
         try:
             if not interaction.response.is_done():
                 await interaction.response.defer(ephemeral=True)
-            await session.handle_slash_command(interaction.user.id, slash_move.name, args)
+            await session.handle_slash_command(
+                interaction.user.id, slash_move.name, args
+            )
             await user_success.send(interaction, "game.move_submitted")
         except SessionError as exc:
             code = _SLASH_ERRORS.get(exc.code, "common.error")
@@ -144,7 +152,9 @@ def create_slash_command(
 
     # Option metadata goes on the callback before Command() reads it.
     descriptions = {
-        param.name: param.description for param in slash_move.params if param.description
+        param.name: param.description
+        for param in slash_move.params
+        if param.description
     }
     if descriptions:
         app_commands.describe(**descriptions)(callback)

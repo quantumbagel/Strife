@@ -73,7 +73,11 @@ def build_results_view(
     outcome_emoji = emoji.get("error") if failed_match else emoji.get("success")
     if description:
         body_text = f"{outcome_emoji} **{description}**"
-    elif winner_seat is not None and isinstance(winner_seat, int) and 0 <= winner_seat < len(players):
+    elif (
+        winner_seat is not None
+        and isinstance(winner_seat, int)
+        and 0 <= winner_seat < len(players)
+    ):
         winner = players[winner_seat]
         winner_label = winner.mention_for(emoji)
         body = text.get("match.winner", winner=winner_label)
@@ -88,7 +92,11 @@ def build_results_view(
     container.add_text(TextDisplay(markdown_content=body_text))
     container.add_separator()
 
-    raw_player_descriptions = getattr(outcome, "player_descriptions", None) or summary.get("player_descriptions") or {}
+    raw_player_descriptions = (
+        getattr(outcome, "player_descriptions", None)
+        or summary.get("player_descriptions")
+        or {}
+    )
     player_descriptions = {str(k): v for k, v in raw_player_descriptions.items()}
 
     lines = []
@@ -115,14 +123,18 @@ def build_results_view(
             res_text = player_descriptions.get(str(player.seat), "Draw")
         else:
             res_emoji = emoji.get("bullet")
-            res_text = player_descriptions.get(str(player.seat)) or (str(result).capitalize() if result else "—")
+            res_text = player_descriptions.get(str(player.seat)) or (
+                str(result).capitalize() if result else "—"
+            )
 
         name = member_line(
             emoji,
             user_id=player.user_id,
             display_name=player.display_name,
             is_bot=player.is_bot and player.seat not in taken_over_seats,
-            bot_difficulty=None if player.seat in taken_over_seats else player.bot_difficulty,
+            bot_difficulty=None
+            if player.seat in taken_over_seats
+            else player.bot_difficulty,
         )
         lines.append(f"• {name}{role} {forward} {res_emoji} {res_text}")
 
@@ -140,7 +152,9 @@ def build_results_view(
                 expires=rematch_expires_at,
             )
         else:
-            rematch_label = text.get("match.rematch_progress", count=rematch_count, total=total)
+            rematch_label = text.get(
+                "match.rematch_progress", count=rematch_count, total=total
+            )
     else:
         rematch_label = text.get("match.rematch_label")
 

@@ -63,6 +63,8 @@ def test_full_lobby_explains_missing_join_and_approve() -> None:
     assert "Lobby is full. Leave or remove a bot" in body
     assert "Free a seat before approving" in body
     assert "Only the lobby creator can approve" in body
-    sources = {item.source for item in walk_interactive(view) if isinstance(item, Select)}
+    sources = {
+        item.source for item in walk_interactive(view) if isinstance(item, Select)
+    }
     assert "approve" not in sources
     assert "deny" in sources

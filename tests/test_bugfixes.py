@@ -28,7 +28,12 @@ from tests.test_registries import _FakeSession
 def _players(*names: str, bots: set[int] | None = None) -> list[Player]:
     bots = bots or set()
     return [
-        Player(seat=i, user_id=None if i in bots else 100 + i, display_name=name, is_bot=i in bots)
+        Player(
+            seat=i,
+            user_id=None if i in bots else 100 + i,
+            display_name=name,
+            is_bot=i in bots,
+        )
         for i, name in enumerate(names)
     ]
 
@@ -55,25 +60,39 @@ class _FakeSessionState:
 
 def test_will_removal_not_use_lobby_min_players() -> None:
     players = _players("A", "B", "C", "D")
-    session = _FakeSessionState(players, _FakeGame(4, min_players=4, removal=True, bots=True))
+    session = _FakeSessionState(
+        players, _FakeGame(4, min_players=4, removal=True, bots=True)
+    )
     assert will_removal_end_game(session, 0) is False
 
 
 def test_forfeit_two_humans_with_bots_removes_instead_of_ending() -> None:
     players = _players("A", "B", "Bot1", "Bot2", "Bot3", "Bot4", bots={2, 3, 4, 5})
-    session = _FakeSessionState(players, _FakeGame(6, min_players=4, removal=True, bots=True))
-    assert determine_consequence(session, 0, reason="forfeit") == ResolvedTimeoutConsequence.REMOVED
+    session = _FakeSessionState(
+        players, _FakeGame(6, min_players=4, removal=True, bots=True)
+    )
+    assert (
+        determine_consequence(session, 0, reason="forfeit")
+        == ResolvedTimeoutConsequence.REMOVED
+    )
 
 
 def test_forfeit_last_human_ends_game() -> None:
     players = _players("A", "Bot", bots={1})
-    session = _FakeSessionState(players, _FakeGame(2, min_players=2, removal=True, bots=True))
-    assert determine_consequence(session, 0, reason="forfeit") == ResolvedTimeoutConsequence.GAME_ENDS
+    session = _FakeSessionState(
+        players, _FakeGame(2, min_players=2, removal=True, bots=True)
+    )
+    assert (
+        determine_consequence(session, 0, reason="forfeit")
+        == ResolvedTimeoutConsequence.GAME_ENDS
+    )
 
 
 def test_forfeit_outcome_does_not_award_already_dead() -> None:
     players = _players("A", "B", "C")
-    outcome = forfeit_outcome(players, 0, alive_seats={0, 1}, reason="timeout", must_end=True)
+    outcome = forfeit_outcome(
+        players, 0, alive_seats={0, 1}, reason="timeout", must_end=True
+    )
     assert outcome is not None
     assert outcome.results == {0: "loss", 1: "win", 2: "loss"}
     assert outcome.player_descriptions[2] == "Removed from play"
@@ -81,7 +100,11 @@ def test_forfeit_outcome_does_not_award_already_dead() -> None:
 
 def test_mafia_forfeit_uses_faction_winner() -> None:
     players = _players("M1", "M2", "T1", "T2")
-    game = Mafia(players, {"mafia_count": 2, "enable_doctor": False, "enable_detective": False}, random.Random(0))
+    game = Mafia(
+        players,
+        {"mafia_count": 2, "enable_doctor": False, "enable_detective": False},
+        random.Random(0),
+    )
     mafia_seats = [p.seat for p in players if game.role[p.seat] == "mafia"]
     town_seats = [p.seat for p in players if game.role[p.seat] != "mafia"]
     # Remove one town so the remaining town forfeit yields mafia parity.
@@ -115,7 +138,9 @@ def test_chess_illegal_attempt_consumes_clock_without_increment() -> None:
     from strife.games.chess import Chess
 
     players = _players("White", "Black")
-    game = Chess(players, {"clock_minutes": 1, "increment_seconds": 5}, random.Random(0))
+    game = Chess(
+        players, {"clock_minutes": 1, "increment_seconds": 5}, random.Random(0)
+    )
     start = datetime(2020, 1, 1, tzinfo=timezone.utc).replace(tzinfo=None)
     game.last_move_time = start
     move = Move(
@@ -162,7 +187,10 @@ async def test_session_complete_preserves_occupancy_in_another_match() -> None:
     old = _FakeSession(
         1,
         22,
-        [Player(seat=0, user_id=7, display_name="A"), Player(seat=1, user_id=8, display_name="B")],
+        [
+            Player(seat=0, user_id=7, display_name="A"),
+            Player(seat=1, user_id=8, display_name="B"),
+        ],
     )
     regs.active_games[1] = old  # type: ignore[assignment]
     await regs.reserve_user(7, UserLocation("game", 2, 22))

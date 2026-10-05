@@ -22,14 +22,13 @@ from strife.presentation.roster import member_line
 from strife.routing import prefixes as P
 
 
-
 def build_lobby_view(
-        lobby: Lobby,
-        meta: GameMetadata,
-        emoji: EmojiResolver,
-        text: TextConfig,
-        *,
-        owner_ids: frozenset[int] = frozenset(),
+    lobby: Lobby,
+    meta: GameMetadata,
+    emoji: EmojiResolver,
+    text: TextConfig,
+    *,
+    owner_ids: frozenset[int] = frozenset(),
 ) -> LayoutView:
     game_emoji = emoji.get_game_emoji(meta.key)
     view = LayoutView()
@@ -48,7 +47,7 @@ def build_lobby_view(
         title_section.add_text(
             TextDisplay(
                 markdown_content=f"### {game_emoji} {text.get('lobby.title', game_name=meta.name)}",
-                size_style=TextSize.HEADER
+                size_style=TextSize.HEADER,
             )
         )
         container.add_section(title_section)
@@ -56,7 +55,7 @@ def build_lobby_view(
         container.add_text(
             TextDisplay(
                 markdown_content=f"### {game_emoji} {text.get('lobby.title', game_name=meta.name)}",
-                size_style=TextSize.HEADER
+                size_style=TextSize.HEADER,
             )
         )
 
@@ -118,7 +117,11 @@ def build_lobby_view(
 
     roster_lines = []
     for member in lobby.members:
-        status = text.get("lobby.ready") if member.user_id in lobby.ready else text.get("lobby.not_ready")
+        status = (
+            text.get("lobby.ready")
+            if member.user_id in lobby.ready
+            else text.get("lobby.not_ready")
+        )
         roster_lines.append(
             member_line(
                 emoji,
@@ -159,7 +162,8 @@ def build_lobby_view(
         )
         container.add_text(
             TextDisplay(
-                markdown_content=f"{text.get('lobby.rules_title')}\n" + "\n".join(rule_lines),
+                markdown_content=f"{text.get('lobby.rules_title')}\n"
+                + "\n".join(rule_lines),
                 size_style=TextSize.BODY,
             )
         )
@@ -186,10 +190,22 @@ def build_lobby_view(
             else text.get("lobby.join_button")
         )
         controls.add_button(
-            Button(source="join", label=join_label, style=join_style, emoji="join", route_prefix=P.LOBBY_JOIN)
+            Button(
+                source="join",
+                label=join_label,
+                style=join_style,
+                emoji="join",
+                route_prefix=P.LOBBY_JOIN,
+            )
         )
     controls.add_button(
-        Button(source="leave", label=text.get("lobby.leave_button"), style=ButtonStyle.SECONDARY, emoji="leave", route_prefix=P.LOBBY_LEAVE)
+        Button(
+            source="leave",
+            label=text.get("lobby.leave_button"),
+            style=ButtonStyle.SECONDARY,
+            emoji="leave",
+            route_prefix=P.LOBBY_LEAVE,
+        )
     )
     if can_r or lobby.ready:
         controls.add_button(

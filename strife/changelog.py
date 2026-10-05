@@ -40,7 +40,9 @@ class Release:
     removed: tuple[str, ...] = ()
 
     def has_notes(self) -> bool:
-        return bool(self.summary or self.added or self.changed or self.fixed or self.removed)
+        return bool(
+            self.summary or self.added or self.changed or self.fixed or self.removed
+        )
 
 
 @dataclass(frozen=True)
@@ -87,7 +89,9 @@ def _parse_release(raw: object, *, path: Path, index: int) -> Release | None:
         return None
     date = str(raw.get("date") or "").strip()
     if date and not _valid_date(date):
-        log.error("%s release %s has invalid date %r (use YYYY-MM-DD)", path, index, date)
+        log.error(
+            "%s release %s has invalid date %r (use YYYY-MM-DD)", path, index, date
+        )
         date = ""
     summary = str(raw.get("summary") or "").strip()
     release = Release(

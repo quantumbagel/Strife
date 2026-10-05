@@ -210,7 +210,11 @@ class ReplayService:
                 self._inflight[match_id] = inflight
         entry = await asyncio.shield(inflight)
         # A rebuild started for another server's request must not leak here.
-        if entry is not None and guild_id is not None and entry.detail.guild_id != guild_id:
+        if (
+            entry is not None
+            and guild_id is not None
+            and entry.detail.guild_id != guild_id
+        ):
             return None
         return entry
 
@@ -356,9 +360,7 @@ class ReplayService:
         if not interaction.response.is_done():
             await interaction.response.defer()
         try:
-            entry = await self._load_entry(
-                match_id, guild_id=interaction.guild_id
-            )
+            entry = await self._load_entry(match_id, guild_id=interaction.guild_id)
         except ReplayFormatTooOld:
             await self.user_errors.send(interaction, "common.replay_old_format")
             return

@@ -149,7 +149,9 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
             self._move_writer.submit(move)
 
     def _owner_ids(self) -> frozenset[int]:
-        settings = getattr(self._bot, "settings", None) if self._bot is not None else None
+        settings = (
+            getattr(self._bot, "settings", None) if self._bot is not None else None
+        )
         if settings is None:
             return frozenset()
         return frozenset(getattr(settings, "owner_ids", ()) or ())
@@ -237,7 +239,9 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
                         GameOutcome(
                             results={},
                             summary={"reason": "cancelled"},
-                            description=self.text.get("match.session_cancelled_description"),
+                            description=self.text.get(
+                                "match.session_cancelled_description"
+                            ),
                             player_descriptions={
                                 player.seat: "Abandoned" for player in self.players
                             },
@@ -283,7 +287,9 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
                         GameOutcome(
                             results={},
                             summary={"error": True},
-                            description=self.text.get("match.session_crashed_description"),
+                            description=self.text.get(
+                                "match.session_crashed_description"
+                            ),
                             player_descriptions={
                                 player.seat: "Abandoned" for player in self.players
                             },

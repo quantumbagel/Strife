@@ -70,7 +70,9 @@ class ViewSurface:
         *,
         ephemeral: bool = False,
     ) -> discord.Message:
-        compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
+        compiled = self.compiler.compile(
+            view, resource_id=self._resource_id, prefix=self._prefix
+        )
         files = to_discord_files(view.files)
         if isinstance(target, discord.Interaction):
             kwargs: dict = {"view": compiled}
@@ -92,7 +94,9 @@ class ViewSurface:
         interaction: discord.Interaction,
         view: LayoutView,
     ) -> discord.Message:
-        compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
+        compiled = self.compiler.compile(
+            view, resource_id=self._resource_id, prefix=self._prefix
+        )
         files = to_discord_files(view.files)
         kwargs: dict = {"view": compiled}
         if files:
@@ -116,16 +120,24 @@ class ViewSurface:
             return
         self._mirrors.append(message)
 
-    async def _edit_bound_message(self, message: discord.Message, view: LayoutView) -> None:
-        compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
+    async def _edit_bound_message(
+        self, message: discord.Message, view: LayoutView
+    ) -> None:
+        compiled = self.compiler.compile(
+            view, resource_id=self._resource_id, prefix=self._prefix
+        )
         files = to_discord_files(view.files)
         kwargs: dict = {"content": None, "embeds": [], "view": compiled}
         if files:
             kwargs["attachments"] = files
         await message.edit(**kwargs)
 
-    async def send_to_thread(self, thread: discord.Thread, view: LayoutView) -> discord.Message:
-        compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
+    async def send_to_thread(
+        self, thread: discord.Thread, view: LayoutView
+    ) -> discord.Message:
+        compiled = self.compiler.compile(
+            view, resource_id=self._resource_id, prefix=self._prefix
+        )
         files = to_discord_files(view.files)
         kwargs: dict = {"view": compiled}
         if files:
@@ -145,7 +157,6 @@ class ViewSurface:
                 continue
             remaining.append(mirror)
         self._mirrors = remaining
-
 
     async def replace(self, view: LayoutView) -> None:
         await self.update(view)
@@ -170,7 +181,9 @@ class ViewSurface:
         user: discord.abc.User,
         view: LayoutView,
     ) -> None:
-        compiled = self.compiler.compile(view, resource_id=self._resource_id, prefix=self._prefix)
+        compiled = self.compiler.compile(
+            view, resource_id=self._resource_id, prefix=self._prefix
+        )
         files = to_discord_files(view.files)
         try:
             dm = user.dm_channel or await user.create_dm()

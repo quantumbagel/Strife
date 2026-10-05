@@ -92,7 +92,9 @@ class _ExchangeForfeitCtx:
         self.turns += 1
         if self.turns > 1:
             raise _Stop()
-        return Move(actor_seat=actor, source="submit_action", args={"action": "exchange"})
+        return Move(
+            actor_seat=actor, source="submit_action", args={"action": "exchange"}
+        )
 
 
 class _Stop(Exception):
@@ -165,7 +167,12 @@ async def test_parse_replay_forfeit_removes_seat() -> None:
                 "coins": {i: 2 for i in range(3)},
             },
         ),
-        Move(1, "forfeit", {"reason": "forfeit", "removed": True}, kind=LogEntryKind.SYSTEM),
+        Move(
+            1,
+            "forfeit",
+            {"reason": "forfeit", "removed": True},
+            kind=LogEntryKind.SYSTEM,
+        ),
         Move(0, "action_declare", {"player": 0, "type": "income", "target": None}),
         Move(
             None,

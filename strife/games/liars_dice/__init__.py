@@ -31,8 +31,22 @@ META = GameMetadata(
     ),
     bot_takeover_difficulty="medium",
     settings=(
-        SettingOption("dice_count", "Dice Count", "Starting dice per player", OptionType.INT, default=5, minimum=2, maximum=6),
-        SettingOption("wild_ones", "Wild Ones", "Whether 1s count as wildcards", OptionType.BOOL, default=True),
+        SettingOption(
+            "dice_count",
+            "Dice Count",
+            "Starting dice per player",
+            OptionType.INT,
+            default=5,
+            minimum=2,
+            maximum=6,
+        ),
+        SettingOption(
+            "wild_ones",
+            "Wild Ones",
+            "Whether 1s count as wildcards",
+            OptionType.BOOL,
+            default=True,
+        ),
     ),
 )
 

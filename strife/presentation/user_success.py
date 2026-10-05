@@ -23,7 +23,9 @@ class SuccessContext:
     format_kwargs: dict = field(default_factory=dict)
 
 
-SuccessActionBuilder = Callable[["UserSuccessPresenter", SuccessContext], list[FeedbackAction]]
+SuccessActionBuilder = Callable[
+    ["UserSuccessPresenter", SuccessContext], list[FeedbackAction]
+]
 
 
 def _detail_section(code: str) -> str:
@@ -81,7 +83,7 @@ class UserSuccessPresenter:
         if kwargs:
             try:
                 return detail.format(**kwargs)
-            except (KeyError, ValueError):
+            except KeyError, ValueError:
                 pass
         return detail
 

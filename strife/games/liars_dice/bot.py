@@ -18,10 +18,16 @@ def choose_move(game: LiarsDice, difficulty: str, seat: int) -> Move:
     # If first bid of the round
     if game.current_bid is None:
         if difficulty == "easy" or not my_dice:
-            val = game.bot_rng.choice(my_dice) if my_dice else game.bot_rng.choice(legal_faces)
+            val = (
+                game.bot_rng.choice(my_dice)
+                if my_dice
+                else game.bot_rng.choice(legal_faces)
+            )
             if val not in legal_faces:
                 val = game.bot_rng.choice(legal_faces)
-            return Move(actor_seat=seat, source="bid", args={"quantity": 1, "value": val})
+            return Move(
+                actor_seat=seat, source="bid", args={"quantity": 1, "value": val}
+            )
 
         counts = {v: my_dice.count(v) for v in range(1, 7)}
         wilds = game.settings.get("wild_ones", True)
@@ -31,24 +37,34 @@ def choose_move(game: LiarsDice, difficulty: str, seat: int) -> Move:
         )
         q = counts[best_val] + (counts[1] if wilds else 0)
         q = max(1, min(q, total_dice))
-        return Move(actor_seat=seat, source="bid", args={"quantity": q, "value": best_val})
+        return Move(
+            actor_seat=seat, source="bid", args={"quantity": q, "value": best_val}
+        )
 
     curr_q, curr_v = game.current_bid
     if game._is_max_bid():
         return Move(actor_seat=seat, source="challenge", args={})
 
     wilds = game.settings.get("wild_ones", True)
-    match_count = my_dice.count(curr_v) + (my_dice.count(1) if wilds and curr_v != 1 else 0)
+    match_count = my_dice.count(curr_v) + (
+        my_dice.count(1) if wilds and curr_v != 1 else 0
+    )
 
     prob_single = 1.0 / 3.0 if wilds and curr_v != 1 else 1.0 / 6.0
     expected_others = other_dice_count * prob_single
     total_expected = match_count + expected_others
 
-    std_dev = math.sqrt(other_dice_count * prob_single * (1.0 - prob_single)) if other_dice_count > 0 else 0.5
+    std_dev = (
+        math.sqrt(other_dice_count * prob_single * (1.0 - prob_single))
+        if other_dice_count > 0
+        else 0.5
+    )
     threshold = total_expected + (0.5 * std_dev if difficulty == "hard" else 0.0)
 
     if difficulty == "easy":
-        if curr_q > total_dice or (curr_q > total_expected + 2 and game.bot_rng.random() < 0.3):
+        if curr_q > total_dice or (
+            curr_q > total_expected + 2 and game.bot_rng.random() < 0.3
+        ):
             return Move(actor_seat=seat, source="challenge", args={})
         return _make_raise(game, seat, curr_q, curr_v, total_dice, legal_faces)
 
@@ -75,7 +91,9 @@ def _make_raise(
         if curr_q >= total_dice:
             return Move(actor_seat=seat, source="challenge", args={})
         next_q = min(curr_q + 1, total_dice)
-        return Move(actor_seat=seat, source="bid", args={"quantity": next_q, "value": curr_v})
+        return Move(
+            actor_seat=seat, source="bid", args={"quantity": next_q, "value": curr_v}
+        )
 
     counts = {v: my_dice.count(v) for v in range(1, 7)}
     best_val = max(
@@ -95,4 +113,6 @@ def _make_raise(
     next_q = min(curr_q + 1, total_dice)
     if next_q == curr_q and best_val <= curr_v:
         return Move(actor_seat=seat, source="challenge", args={})
-    return Move(actor_seat=seat, source="bid", args={"quantity": next_q, "value": best_val})
+    return Move(
+        actor_seat=seat, source="bid", args={"quantity": next_q, "value": best_val}
+    )

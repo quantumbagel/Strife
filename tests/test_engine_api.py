@@ -37,7 +37,9 @@ def test_query_and_move_sources() -> None:
     row = ActionRow()
     row.add_button(Button(source="pass", label="Pass"))
     row.add_button(Button(source="peek", label="Peek", query=True))
-    row.add_button(Button(label="Rules", style=ButtonStyle.LINK, url="https://example.com"))
+    row.add_button(
+        Button(label="Rules", style=ButtonStyle.LINK, url="https://example.com")
+    )
     row.add_select(Select(source="vote", choices=[SelectChoice(label="A", value="a")]))
     container.add_action_row(row)
     view.add_container(container)

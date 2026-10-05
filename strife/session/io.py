@@ -18,8 +18,9 @@ class SessionIOMixin:
     def set_bot(self, bot) -> None:
         self._bot = bot
 
-
-    async def _respond_query(self, interaction: discord.Interaction, view: LayoutView) -> None:
+    async def _respond_query(
+        self, interaction: discord.Interaction, view: LayoutView
+    ) -> None:
         compiled = self.surface.compiler.compile(
             view,
             resource_id=self.surface.resource_id,
@@ -34,13 +35,11 @@ class SessionIOMixin:
         else:
             await interaction.followup.send(**kwargs)
 
-
     def _seat_for_user(self, user_id: int) -> int | None:
         for player in self.players:
             if player.user_id == user_id and not player.is_bot:
                 return player.seat
         return None
-
 
     async def _notify_thread(self, content: str) -> None:
         if self._bot is None or not content:
@@ -143,8 +142,9 @@ class SessionIOMixin:
             await self._finalizer.set_board_message(self._match_id, message_id)
             self._board_message_saved = True
         except Exception:
-            log.exception("Failed to persist board message for thread %s", self.thread_id)
-
+            log.exception(
+                "Failed to persist board message for thread %s", self.thread_id
+            )
 
     async def refresh_header(self) -> None:
         if self.header_surface is None or self._finalized:
@@ -192,7 +192,9 @@ class SessionIOMixin:
                     for seat in human_pending:
                         pending_input = self.pending.get(seat)
                         if pending_input and pending_input.timeout_seconds is not None:
-                            timeout_val = min(timeout_val, pending_input.timeout_seconds)
+                            timeout_val = min(
+                                timeout_val, pending_input.timeout_seconds
+                            )
                     remaining = timeout_val - (now - self.last_move_at)
                 deadline_unix = int(time.time() + max(0, remaining))
                 header_descriptions = {
@@ -209,7 +211,9 @@ class SessionIOMixin:
             timeout_consequence_text = None
             if human_pending:
                 key = timeout_consequence(self, human_pending[0]).value
-                timeout_consequence_text = self.text.get(f"lobby.timeout_consequence_{key}")
+                timeout_consequence_text = self.text.get(
+                    f"lobby.timeout_consequence_{key}"
+                )
             view = build_game_thread_header_view(
                 players=self.players,
                 text=self.text,
@@ -225,17 +229,20 @@ class SessionIOMixin:
         except Exception:
             log.exception("Failed to update game thread header message")
 
-
     async def _send_private(self, seat: int, view: LayoutView) -> None:
         player = self.players[seat]
         # A taken-over seat keeps its user id, but that person has left the match.
         if player.user_id is None or player.is_bot or self._bot is None:
             return
         compiled_surface = ViewSurface(
-            self.surface.compiler, prefix=self.surface.prefix, resource_id=self.surface.resource_id
+            self.surface.compiler,
+            prefix=self.surface.prefix,
+            resource_id=self.surface.resource_id,
         )
         try:
-            user = self._bot.get_user(player.user_id) or await self._bot.fetch_user(player.user_id)
+            user = self._bot.get_user(player.user_id) or await self._bot.fetch_user(
+                player.user_id
+            )
             dm = user.dm_channel or await user.create_dm()
             await compiled_surface.send(dm, view)
         except discord.HTTPException:
@@ -253,4 +260,6 @@ class SessionIOMixin:
                         )
                     )
                 except discord.HTTPException:
-                    log.exception("Failed to post DM failure notice in thread %s", self.thread_id)
+                    log.exception(
+                        "Failed to post DM failure notice in thread %s", self.thread_id
+                    )

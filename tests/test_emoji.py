@@ -8,8 +8,7 @@ from strife.presentation.emoji import EmojiResolver, plugin_emoji_name
 def _resolver(**entries: str) -> EmojiResolver:
     config = EmojiConfig(
         entries={
-            name: EmojiEntry(fallback=fallback)
-            for name, fallback in entries.items()
+            name: EmojiEntry(fallback=fallback) for name, fallback in entries.items()
         }
     )
     return EmojiResolver(config)

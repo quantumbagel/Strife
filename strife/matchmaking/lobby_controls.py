@@ -145,7 +145,11 @@ class LobbyControlsMixin:
                     await self._error(interaction, "common.error", lobby=lobby)
                     return
             else:
-                if option.type == OptionType.CHOICE and option.choices and raw not in option.choices:
+                if (
+                    option.type == OptionType.CHOICE
+                    and option.choices
+                    and raw not in option.choices
+                ):
                     await self._error(interaction, "common.error", lobby=lobby)
                     return
                 lobby.settings[key] = raw
@@ -189,7 +193,9 @@ class LobbyControlsMixin:
                     await self._error(modal_interaction, "lobby.already_dead")
                     return
                 if modal_interaction.user.id != lobby.creator_id:
-                    await self._error(modal_interaction, "lobby.creator_only", lobby=lobby)
+                    await self._error(
+                        modal_interaction, "lobby.creator_only", lobby=lobby
+                    )
                     return
                 if await self._reject_frozen_lobby(lobby, modal_interaction):
                     return
@@ -197,7 +203,9 @@ class LobbyControlsMixin:
                 self._apply_int_setting(lobby, option, value)
                 if lobby.settings != before:
                     lobby.reset_ready()
-                await self._send_settings(lobby, modal_interaction, tab="rules", edit=True)
+                await self._send_settings(
+                    lobby, modal_interaction, tab="rules", edit=True
+                )
                 await self._refresh(lobby, modal_interaction)
 
         modal = IntRangeModal(
@@ -242,4 +250,3 @@ class LobbyControlsMixin:
             await self._error(interaction, "lobby.creator_only", lobby=lobby)
             return
         await self._teardown(lobby, interaction)
-

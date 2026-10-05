@@ -410,7 +410,9 @@ class AdminCommands(commands.Cog):
                         try:
                             manager.load_one(registry, key)
                         except PluginError:
-                            log.exception("Failed to reload %s after uninstall error", key)
+                            log.exception(
+                                "Failed to reload %s after uninstall error", key
+                            )
                         else:
                             _register_slash(self.bot, registry, key)
                             _sync_game_overlay(self.bot, key)

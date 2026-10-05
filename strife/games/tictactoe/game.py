@@ -146,7 +146,9 @@ class TicTacToe(TurnBasedGame):
                     player_descriptions={0: "Draw", 1: "Draw"},
                 )
 
-    async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
+    async def final_view(
+        self, ctx: GameContext, outcome: GameOutcome
+    ) -> LayoutView | None:
         summary = outcome.summary or {}
         winner_seat = summary.get("winner")
         line = summary.get("line")

@@ -45,7 +45,9 @@ class Mafia(Game):
     def __init__(self, players, settings, rng):
         super().__init__(players, settings, rng)
         role_list = compose_roles(self.metadata, len(players), settings, rng)
-        self.role: dict[int, str] = {p.seat: role_list[i] for i, p in enumerate(players)}
+        self.role: dict[int, str] = {
+            p.seat: role_list[i] for i, p in enumerate(players)
+        }
         for player in players:
             player.role_key = self.role[player.seat]
         self.alive: set[int] = {p.seat for p in players}
@@ -87,9 +89,13 @@ class Mafia(Game):
             lines.append(
                 f"{bullet} {name} {forward} {role_emoji} **{role.title()}** · {status}"
             )
-        return "**Players (roles revealed)**\n" + ("\n".join(lines) if lines else "_None_")
+        return "**Players (roles revealed)**\n" + (
+            "\n".join(lines) if lines else "_None_"
+        )
 
-    def render_replay(self, ctx: GameContext, live_view: LayoutView | None) -> LayoutView | None:
+    def render_replay(
+        self, ctx: GameContext, live_view: LayoutView | None
+    ) -> LayoutView | None:
         view = LayoutView()
         container = Container()
         if self._phase == "day":
@@ -132,11 +138,15 @@ class Mafia(Game):
         ]
         return "**Players**\n" + ("\n".join(lines) if lines else "_None_")
 
-    def _history_block(self, ctx: GameContext, history: list[str] | None = None) -> str | None:
+    def _history_block(
+        self, ctx: GameContext, history: list[str] | None = None
+    ) -> str | None:
         entries = history if history is not None else self.history
         return history_block(entries, ctx.emoji)
 
-    def _game_over_view(self, ctx: GameContext, winner: str, roles: dict[int, str] | None = None) -> LayoutView:
+    def _game_over_view(
+        self, ctx: GameContext, winner: str, roles: dict[int, str] | None = None
+    ) -> LayoutView:
         role_map = roles if roles is not None else self.role
         view = LayoutView()
         container = Container()
@@ -158,7 +168,9 @@ class Mafia(Game):
                 is_bot=player.is_bot,
                 bot_difficulty=player.bot_difficulty,
             )
-            lines.append(f"{ctx.emoji.get('bullet', base=True)} {name} {forward} {role_emoji} **{role.title()}**")
+            lines.append(
+                f"{ctx.emoji.get('bullet', base=True)} {name} {forward} {role_emoji} **{role.title()}**"
+            )
         container.add_text(TextDisplay(markdown_content="\n".join(lines)))
         recent_history = self._history_block(ctx)
         if recent_history:
@@ -179,10 +191,14 @@ class Mafia(Game):
                 break
             await self._day(ctx)
             winner = self._winner()
-        await ctx.record_event("winner", {"winning_faction": winner, "roles": self.role})
+        await ctx.record_event(
+            "winner", {"winning_faction": winner, "roles": self.role}
+        )
         return self._finish(winner)
 
-    async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
+    async def final_view(
+        self, ctx: GameContext, outcome: GameOutcome
+    ) -> LayoutView | None:
         summary = outcome.summary or {}
         winner = summary.get("winning_faction", "unknown")
         return self._game_over_view(ctx, winner)
@@ -210,10 +226,14 @@ class Mafia(Game):
         async def send_one(player: Player) -> None:
             role = self.role[player.seat]
             role_emoji = self._role_emoji(ctx, role)
-            instructions = next((r.instructions for r in self.metadata.roles if r.key == role), "")
+            instructions = next(
+                (r.instructions for r in self.metadata.roles if r.key == role), ""
+            )
             view = LayoutView()
             container = Container()
-            message_lead(container, instructions or f"Your Role: {role.title()}", emoji=ctx.emoji)
+            message_lead(
+                container, instructions or f"Your Role: {role.title()}", emoji=ctx.emoji
+            )
             if role == "mafia":
                 teammates = [
                     self._name(p.seat)
@@ -236,7 +256,11 @@ class Mafia(Game):
 
     async def _night(self, ctx: GameContext) -> None:
         self._phase = "night"
-        acting = sorted(seat for seat in self.alive if self.role[seat] in {"mafia", "doctor", "detective"})
+        acting = sorted(
+            seat
+            for seat in self.alive
+            if self.role[seat] in {"mafia", "doctor", "detective"}
+        )
         await ctx.update(
             self._public_view(
                 ctx,
@@ -266,7 +290,11 @@ class Mafia(Game):
                     prefix_emoji="loading",
                 )
                 row = ActionRow()
-                row.add_select(Select(source=source, placeholder="Choose a target", choices=choices))
+                row.add_select(
+                    Select(
+                        source=source, placeholder="Choose a target", choices=choices
+                    )
+                )
                 container.add_action_row(row)
             else:
                 message_lead(
@@ -331,11 +359,12 @@ class Mafia(Game):
             if victim is not None and victim in self.alive:
                 self._eliminate_player(victim)
                 self.death_reason[victim] = "night"
-                self.history.append(f"Night {self.day}: {self._name(victim)} was eliminated.")
-        await ctx.record_event("night_outcome", {
-            "victim": victim,
-            "history": list(self.history)
-        })
+                self.history.append(
+                    f"Night {self.day}: {self._name(victim)} was eliminated."
+                )
+        await ctx.record_event(
+            "night_outcome", {"victim": victim, "history": list(self.history)}
+        )
 
         for seat, move in moves.items():
             if move.interrupt is not None:
@@ -353,16 +382,17 @@ class Mafia(Game):
                 )
                 reveal.add_container(container)
                 await ctx.send_private(seat, reveal)
-                await ctx.record_event("detective_reveal", {
-                    "detective": seat,
-                    "target": target,
-                    "alignment": alignment
-                })
+                await ctx.record_event(
+                    "detective_reveal",
+                    {"detective": seat, "target": target, "alignment": alignment},
+                )
 
     async def _day(self, ctx: GameContext) -> None:
         self._phase = "day"
         day_view = self._day_view(ctx)
-        votes = await ctx.request_inputs(day_view, actors=set(self.alive), sources={"vote"}, until="all")
+        votes = await ctx.request_inputs(
+            day_view, actors=set(self.alive), sources={"vote"}, until="all"
+        )
         tally: Counter[int] = Counter()
         for seat, move in votes.items():
             if move.interrupt is not None:
@@ -380,12 +410,17 @@ class Mafia(Game):
                 lynched = top[0][0]
                 self._eliminate_player(lynched)
                 self.death_reason[lynched] = "day"
-                self.history.append(f"Day {self.day}: {self._name(lynched)} was lynched.")
-        await ctx.record_event("day_outcome", {
-            "lynched": lynched,
-            "history": list(self.history),
-            "votes": {seat: m.args.get("target") for seat, m in votes.items()}
-        })
+                self.history.append(
+                    f"Day {self.day}: {self._name(lynched)} was lynched."
+                )
+        await ctx.record_event(
+            "day_outcome",
+            {
+                "lynched": lynched,
+                "history": list(self.history),
+                "votes": {seat: m.args.get("target") for seat, m in votes.items()},
+            },
+        )
 
     def _public_view_replay(
         self,
@@ -417,7 +452,9 @@ class Mafia(Game):
         alive: set[int] | None = None,
         history: list[str] | None = None,
     ) -> LayoutView:
-        view = self._public_view_replay(ctx, lead=lead, prefix_emoji=prefix_emoji, alive=alive, history=history)
+        view = self._public_view_replay(
+            ctx, lead=lead, prefix_emoji=prefix_emoji, alive=alive, history=history
+        )
         container = view.containers[0]
         row = ActionRow()
         row.add_button(
@@ -469,7 +506,9 @@ class Mafia(Game):
             for s in sorted(self.alive)
         ]
         choices.append(SelectChoice(label="Skip", value="skip"))
-        row.add_select(Select(source="vote", placeholder="Cast your vote", choices=choices))
+        row.add_select(
+            Select(source="vote", placeholder="Cast your vote", choices=choices)
+        )
         container.add_action_row(row)
 
         row2 = ActionRow()
@@ -512,10 +551,16 @@ class Mafia(Game):
         player_descriptions = {}
         for player in self.players:
             role = self.role[player.seat]
-            is_mafia = (role == "mafia")
+            is_mafia = role == "mafia"
             if winner == "mafia":
                 if is_mafia:
-                    desc = "Won (survived)" if player.seat in self.alive else "Lynched by Town" if self.death_reason.get(player.seat) == "day" else "Eliminated"
+                    desc = (
+                        "Won (survived)"
+                        if player.seat in self.alive
+                        else "Lynched by Town"
+                        if self.death_reason.get(player.seat) == "day"
+                        else "Eliminated"
+                    )
                 else:
                     if player.seat in self.alive:
                         desc = "Let mafia reach parity"
@@ -527,7 +572,11 @@ class Mafia(Game):
                         desc = "Eliminated"
             else:
                 if is_mafia:
-                    desc = "Lynched by Town" if self.death_reason.get(player.seat) == "day" else "Eliminated"
+                    desc = (
+                        "Lynched by Town"
+                        if self.death_reason.get(player.seat) == "day"
+                        else "Eliminated"
+                    )
                 else:
                     if player.seat in self.alive:
                         desc = "Won (survived)"
@@ -565,7 +614,9 @@ class Mafia(Game):
             self.forfeited.add(seat)
         self.alive.discard(seat)
 
-    def forfeit_end_outcome(self, forfeiter_seat: int, reason: str = "forfeit") -> GameOutcome:
+    def forfeit_end_outcome(
+        self, forfeiter_seat: int, reason: str = "forfeit"
+    ) -> GameOutcome:
         self.alive.discard(forfeiter_seat)
         self.forfeited.add(forfeiter_seat)
         self.death_reason.setdefault(forfeiter_seat, "forfeit")
@@ -591,7 +642,9 @@ class Mafia(Game):
     async def handle_query(self, seat: int, source: str, ctx: GameContext) -> bool:
         if source == "peek":
             role = self.role.get(seat, "unknown")
-            instructions = next((r.instructions for r in self.metadata.roles if r.key == role), "")
+            instructions = next(
+                (r.instructions for r in self.metadata.roles if r.key == role), ""
+            )
             sections: list[tuple[str, str]] = []
             if role == "mafia":
                 teammates = [

@@ -4,7 +4,6 @@ import logging
 import sys
 
 
-
 class _ContextFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if not hasattr(record, "match_id"):

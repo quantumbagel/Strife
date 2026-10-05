@@ -4,6 +4,7 @@ from enum import StrEnum
 
 LOG_FORMAT = 3
 
+
 class LogEntryKind(StrEnum):
     """Classification for match log entries."""
 
@@ -11,7 +12,9 @@ class LogEntryKind(StrEnum):
     SYSTEM = "system"
 
 
-SYSTEM_SOURCES = frozenset({"forfeit", "game_end", "bot_takeover", "timeout", "timeout_strike"})
+SYSTEM_SOURCES = frozenset(
+    {"forfeit", "game_end", "bot_takeover", "timeout", "timeout_strike"}
+)
 
 
 def reject_system_source(source: str) -> None:

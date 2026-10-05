@@ -25,7 +25,11 @@ def lobby_action(fn: Callable[..., Awaitable[None]]) -> Callable[..., Awaitable[
             await fn(self, *args, **kwargs)
         except LobbyGone:
             interaction = next(
-                (a for a in (*args, *kwargs.values()) if isinstance(a, discord.Interaction)),
+                (
+                    a
+                    for a in (*args, *kwargs.values())
+                    if isinstance(a, discord.Interaction)
+                ),
                 None,
             )
             if interaction is not None:
@@ -100,9 +104,13 @@ class Lobby:
         text: TextConfig,
     ) -> tuple[bool, str | None, dict | None]:
         if not meta.player_count.is_valid(self.total_players):
-            return False, "errors.need_players", {
-                "describe": meta.player_count.describe(),
-            }
+            return (
+                False,
+                "errors.need_players",
+                {
+                    "describe": meta.player_count.describe(),
+                },
+            )
         return True, None, None
 
     def can_start(
@@ -131,4 +139,3 @@ def allocate_bot_name(bots: list[QueuedBot], difficulty: str) -> str:
     while n in used:
         n += 1
     return f"{prefix}{n}"
-

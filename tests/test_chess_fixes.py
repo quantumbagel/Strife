@@ -20,7 +20,9 @@ def chess_players() -> list[Player]:
     return _players("White", "Black")
 
 
-def test_clock_loss_outcome_when_time_control_active(chess_players: list[Player]) -> None:
+def test_clock_loss_outcome_when_time_control_active(
+    chess_players: list[Player],
+) -> None:
     pytest.importorskip("chess")
     game = Chess(chess_players, {"clock_minutes": 5}, random.Random(0))
     assert game.time_control_active
@@ -32,7 +34,9 @@ def test_clock_loss_outcome_when_time_control_active(chess_players: list[Player]
     assert outcome.player_descriptions == {1: "Won on time", 0: "Lost on time"}
 
 
-def test_clock_loss_outcome_when_time_control_not_active(chess_players: list[Player]) -> None:
+def test_clock_loss_outcome_when_time_control_not_active(
+    chess_players: list[Player],
+) -> None:
     pytest.importorskip("chess")
     game = Chess(chess_players, {"clock_minutes": 0}, random.Random(0))
     assert not game.time_control_active
@@ -43,7 +47,9 @@ def test_clock_loss_outcome_when_time_control_not_active(chess_players: list[Pla
     assert outcome.summary.get("winner") == 1
 
 
-def test_clock_loop_and_forfeit_timeout_paths_match(chess_players: list[Player]) -> None:
+def test_clock_loop_and_forfeit_timeout_paths_match(
+    chess_players: list[Player],
+) -> None:
     pytest.importorskip("chess")
     game = Chess(chess_players, {"clock_minutes": 1}, random.Random(0))
     assert game.time_control_active

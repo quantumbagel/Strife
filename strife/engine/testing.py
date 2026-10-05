@@ -115,7 +115,9 @@ class MockContext:
         if form:
             validate_form_args(form, move.args)
 
-    def _script_row(self, index: int) -> tuple[int | None, str, dict, LogEntryKind] | None:
+    def _script_row(
+        self, index: int
+    ) -> tuple[int | None, str, dict, LogEntryKind] | None:
         if index >= len(self._script):
             return None
         row = self._script[index]

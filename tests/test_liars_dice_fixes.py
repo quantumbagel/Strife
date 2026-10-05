@@ -19,7 +19,9 @@ def _players(*names: str) -> list[Player]:
     ]
 
 
-def _game(*names: str, dice_count: int = 5, wild_ones: bool = True, seed: int = 0) -> LiarsDice:
+def _game(
+    *names: str, dice_count: int = 5, wild_ones: bool = True, seed: int = 0
+) -> LiarsDice:
     players = _players(*names)
     game = LiarsDice(
         players,
@@ -38,7 +40,9 @@ class _Emoji:
 class ScriptedContext:
     """Quiet MockContext-style host for scripted live play."""
 
-    def __init__(self, players: list[Player], scripted: list[tuple[int, str, dict]]) -> None:
+    def __init__(
+        self, players: list[Player], scripted: list[tuple[int, str, dict]]
+    ) -> None:
         self.players = players
         self.rng = random.Random(0)
         self.settings: dict = {}
@@ -56,13 +60,26 @@ class ScriptedContext:
     async def update(self, view: LayoutView) -> None:
         self.views.append(view)
 
-    async def request_input(self, view: LayoutView, *, actor: int, sources=None, record: bool = True, **kwargs):
+    async def request_input(
+        self,
+        view: LayoutView,
+        *,
+        actor: int,
+        sources=None,
+        record: bool = True,
+        **kwargs,
+    ):
         del sources, kwargs
         self.views.append(view)
         if not self._scripted:
             raise asyncio.CancelledError()
         seat, source, args = self._scripted.pop(0)
-        move = Move(actor_seat=seat, source=source, args=dict(args or {}), turn_index=self._turn_index)
+        move = Move(
+            actor_seat=seat,
+            source=source,
+            args=dict(args or {}),
+            turn_index=self._turn_index,
+        )
         if record:
             self.recorded.append(move)
             self._turn_index += 1
@@ -217,7 +234,12 @@ async def test_parse_replay_forfeit_removes_seat() -> None:
             "round_start",
             {"hands": hands, "dice_counts": {0: 5, 1: 5, 2: 5}},
         ),
-        Move(1, "forfeit", {"reason": "forfeit", "removed": True}, kind=LogEntryKind.SYSTEM),
+        Move(
+            1,
+            "forfeit",
+            {"reason": "forfeit", "removed": True},
+            kind=LogEntryKind.SYSTEM,
+        ),
         Move(0, "bid", {"player": 0, "quantity": 1, "value": 2}),
     ]
     await game.parse_replay(moves, _ReplayCtx())  # type: ignore[arg-type]

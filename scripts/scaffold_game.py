@@ -44,7 +44,7 @@ def validate_class_name(name: str) -> str | None:
     return None
 
 
-GAME_PY = '''from __future__ import annotations
+GAME_PY = """from __future__ import annotations
 
 from strife.engine import (
     BotRequest,
@@ -125,28 +125,28 @@ class {cls}(TurnBasedGame):
 
     async def bot_move(self, request: BotRequest) -> Move:
         return Move(actor_seat=request.seat, source="pass", args={{}})
-'''
+"""
 
-INIT_PY = '''from {module}.game import {cls}
+INIT_PY = """from {module}.game import {cls}
 
 GAME = {cls}
 __all__ = ["{cls}", "GAME"]
-'''
+"""
 
-PLUGIN_TOML = '''key = "{key}"
+PLUGIN_TOML = """key = "{key}"
 version = "1.0.0"
 platform_version = "{platform_version}"
 dependencies = []
-'''
+"""
 
-CHANGELOG_TOML = '''[[release]]
+CHANGELOG_TOML = """[[release]]
 version = "1.0.0"
 date = "{date}"
 summary = "Initial release."
 added = [
   "Pass-to-win loop and an easy bot",
 ]
-'''
+"""
 
 
 def _ensure_games_yaml(key: str) -> None:

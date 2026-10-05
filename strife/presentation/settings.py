@@ -18,7 +18,9 @@ def int_setting_fits_select(option: SettingOption) -> bool:
     return maximum - minimum + 1 <= INT_SETTING_SELECT_LIMIT
 
 
-def choice_emoji_for(option: SettingOption, value: str, *, default: str = "pointing") -> str:
+def choice_emoji_for(
+    option: SettingOption, value: str, *, default: str = "pointing"
+) -> str:
     if option.choice_emojis:
         for choice_value, emoji_key in option.choice_emojis:
             if choice_value == value:

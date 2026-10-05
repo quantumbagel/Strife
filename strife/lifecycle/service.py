@@ -461,7 +461,8 @@ class LifecycleService:
                 description = None
                 if takeover_pending is not None:
                     description = (
-                        takeover_pending.description or takeover_pending.line_description
+                        takeover_pending.description
+                        or takeover_pending.line_description
                     )
                     form = {
                         name: field.choices
@@ -498,7 +499,9 @@ class LifecycleService:
                 try:
                     await session.force_move(seat, _system_timeout_move(seat))
                 except Exception:
-                    log.exception("Couldn't skip the turn after a failed takeover; ending game")
+                    log.exception(
+                        "Couldn't skip the turn after a failed takeover; ending game"
+                    )
                     await self._cancel_session(session, "timeout", forfeiter_seat=seat)
 
         elif consequence == ResolvedTimeoutConsequence.REMOVED:
@@ -509,9 +512,7 @@ class LifecycleService:
                             session._removed_seats.discard(seat)
                         return False
                     if reason == "timeout":
-                        if not self._timeout_pending_matches(
-                            session, seat, generation
-                        ):
+                        if not self._timeout_pending_matches(session, seat, generation):
                             return False
                         if seat in session._removed_seats:
                             return False

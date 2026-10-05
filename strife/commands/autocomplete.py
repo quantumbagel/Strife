@@ -28,7 +28,11 @@ def notice_choices(message: str) -> list[app_commands.Choice[str]]:
     label = " ".join(message.split())[:CHOICE_NAME_MAX]
     if not label:
         return []
-    return [app_commands.Choice(name=label, value=f"{NOTICE_PREFIX}{label}"[:CHOICE_VALUE_MAX])]
+    return [
+        app_commands.Choice(
+            name=label, value=f"{NOTICE_PREFIX}{label}"[:CHOICE_VALUE_MAX]
+        )
+    ]
 
 
 def submitted_notice(interaction: discord.Interaction) -> str | None:
@@ -54,7 +58,9 @@ def parse_user_id(raw: str) -> int | None:
     return None
 
 
-def _filter(choices: list[app_commands.Choice[str]], current: str) -> list[app_commands.Choice[str]]:
+def _filter(
+    choices: list[app_commands.Choice[str]], current: str
+) -> list[app_commands.Choice[str]]:
     needle = current.lower()
     if not needle:
         return choices[:25]
@@ -75,7 +81,10 @@ def catalog_game_choices(
     if not metas:
         return notice_choices(text.get(empty_key))
     return _filter(
-        [app_commands.Choice(name=meta.name[:CHOICE_NAME_MAX], value=meta.key) for meta in metas],
+        [
+            app_commands.Choice(name=meta.name[:CHOICE_NAME_MAX], value=meta.key)
+            for meta in metas
+        ],
         current,
     )
 
@@ -114,7 +123,10 @@ def bot_remove_name_choices(
     if not lobby.bots:
         return notice_choices(text.get("autocomplete.no_bots_to_remove"))
     return _filter(
-        [app_commands.Choice(name=bot.name[:CHOICE_NAME_MAX], value=bot.name) for bot in lobby.bots],
+        [
+            app_commands.Choice(name=bot.name[:CHOICE_NAME_MAX], value=bot.name)
+            for bot in lobby.bots
+        ],
         current,
     )
 
@@ -163,7 +175,9 @@ def option_value_choices(
         ]
     if option.type == OptionType.CHOICE:
         return [
-            app_commands.Choice(name=choice.capitalize()[:CHOICE_NAME_MAX], value=choice)
+            app_commands.Choice(
+                name=choice.capitalize()[:CHOICE_NAME_MAX], value=choice
+            )
             for choice in option.choices or ()
             if needle in choice.lower()
         ][:25]
@@ -236,6 +250,7 @@ async def user_name_pairs(
 
     missing = [user_id for user_id in ids if user_id not in names]
     if missing and guild is not None:
+
         async def _fetch(user_id: int) -> tuple[int, str | None]:
             try:
                 member = await guild.fetch_member(user_id)
@@ -253,7 +268,11 @@ async def user_name_pairs(
         names.update({user_id: name for user_id, name in fetched if name})
 
     return [
-        (user_id, names.get(user_id) or text.get("autocomplete.unknown_user_label", user_id=user_id))
+        (
+            user_id,
+            names.get(user_id)
+            or text.get("autocomplete.unknown_user_label", user_id=user_id),
+        )
         for user_id in ids
     ]
 
@@ -279,7 +298,11 @@ def open_lobby_creator_choices(
             continue
         seen.add(lobby.creator_id)
         creator_name = next(
-            (member.display_name for member in lobby.members if member.user_id == lobby.creator_id),
+            (
+                member.display_name
+                for member in lobby.members
+                if member.user_id == lobby.creator_id
+            ),
             str(lobby.creator_id),
         )
         label = f"{creator_name} — {game_name(lobby.game_key)}"[:CHOICE_NAME_MAX]

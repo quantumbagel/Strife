@@ -14,7 +14,12 @@ from strife.games.spyfall.bot import choose_move
 def _players(*names: str, bots: set[int] | None = None) -> list[Player]:
     bots = bots or set()
     return [
-        Player(seat=i, user_id=None if i in bots else 100 + i, display_name=name, is_bot=i in bots)
+        Player(
+            seat=i,
+            user_id=None if i in bots else 100 + i,
+            display_name=name,
+            is_bot=i in bots,
+        )
         for i, name in enumerate(names)
     ]
 
@@ -100,7 +105,9 @@ def _mock_context():
     from strife.config.emoji import load_emoji_config
     from strife.presentation.emoji import EmojiResolver
 
-    emoji = EmojiResolver(load_emoji_config(Path(__file__).resolve().parents[1] / "config" / "emoji.yaml"))
+    emoji = EmojiResolver(
+        load_emoji_config(Path(__file__).resolve().parents[1] / "config" / "emoji.yaml")
+    )
     return mod.MockContext, emoji
 
 
@@ -120,7 +127,9 @@ async def test_repeat_accuse_blocked_without_voting_or_turn_advance() -> None:
             super().__init__(*args, **kwargs)
             self._discussion_rounds = 0
 
-        async def request_inputs(self, view, *, actors, sources=None, until="all", **kwargs):
+        async def request_inputs(
+            self, view, *, actors, sources=None, until="all", **kwargs
+        ):
             if sources and "vote_guilty" in sources:
                 raise AssertionError("repeat accuse should not open voting")
             self._discussion_rounds += 1
@@ -143,10 +152,18 @@ async def test_repeat_accuse_blocked_without_voting_or_turn_advance() -> None:
 
 def _scripted_ctx(MockContext, emoji, players, handler):
     class Ctx(MockContext):
-        async def request_inputs(self, view, *, actors, sources=None, until="all", **kwargs):
+        async def request_inputs(
+            self, view, *, actors, sources=None, until="all", **kwargs
+        ):
             return handler(sources)
 
-    return Ctx(rng=random.Random(0), players=players, settings={}, emoji=emoji, scripted_moves=[])
+    return Ctx(
+        rng=random.Random(0),
+        players=players,
+        settings={},
+        emoji=emoji,
+        scripted_moves=[],
+    )
 
 
 @pytest.mark.asyncio
@@ -163,7 +180,10 @@ async def test_failed_accusation_does_not_advance_turn() -> None:
 
     def handler(sources):
         if "vote_guilty" in sources:
-            return {s: Move(actor_seat=s, source="vote_innocent", args={}) for s in game.alive - {target}}
+            return {
+                s: Move(actor_seat=s, source="vote_innocent", args={})
+                for s in game.alive - {target}
+            }
         calls["discussion"] += 1
         if calls["discussion"] == 1:
             return {accuser: Move(actor_seat=accuser, source="accuse", args={})}
@@ -189,7 +209,10 @@ async def test_spy_leaving_mid_vote_gives_villagers_the_win() -> None:
         if "vote_guilty" in sources:
             spy = game.spy
             game.remove_player(spy)
-            moves = {s: Move(actor_seat=s, source="vote_guilty", args={}) for s in game.alive - {target}}
+            moves = {
+                s: Move(actor_seat=s, source="vote_guilty", args={})
+                for s in game.alive - {target}
+            }
             moves[spy] = Move(actor_seat=spy, source="forfeit", args={})
             return moves
         return {accuser: Move(actor_seat=accuser, source="accuse", args={})}
@@ -202,26 +225,26 @@ def test_villager_forfeit_villagers_win() -> None:
     """A villager is removed, villagers win → removed villager "loss"/"Forfeited", others "win"."""
     players = _players("A", "B", "C", "D")
     game = Spyfall(players, {}, random.Random(1))
-    
+
     # Pick a villager to remove (not the spy)
     villager = next(s for s in game.alive if s != game.spy)
-    
+
     # Remove the villager
     game.remove_player(villager)
-    
+
     # Verify villager is in forfeited set
     assert villager in game.forfeited
-    
+
     # Remove the spy to make villagers win
     game.alive.discard(game.spy)
-    
+
     # Get the outcome for villagers winning
     outcome = game._faction_outcome("villagers")
-    
+
     # The removed villager should have "loss" and "Forfeited"
     assert outcome.results[villager] == "loss"
     assert outcome.player_descriptions[villager] == "Forfeited"
-    
+
     # Other villagers should have "win"
     for p in players:
         if p.seat != game.spy and p.seat != villager:
@@ -232,25 +255,25 @@ def test_spy_forfeit_spy_loses_even_if_spy_wins() -> None:
     """A spy forfeits, spy would have won → forfeit is "loss"/"Forfeited", not "win"."""
     players = _players("A", "B", "C", "D")
     game = Spyfall(players, {}, random.Random(2))
-    
+
     # Remove all villagers except one to make spy almost win
     villagers = [s for s in game.alive if s != game.spy]
     for v in villagers[:-1]:
         game.alive.discard(v)
-    
+
     # Now remove the spy via remove_player
     game.remove_player(game.spy)
-    
+
     # Verify spy is in forfeited set
     assert game.spy in game.forfeited
-    
+
     # Call _faction_outcome for spy (which would normally have won)
     outcome = game._faction_outcome("spy")
-    
+
     # The spy should have "loss" and "Forfeited" despite being the spy
     assert outcome.results[game.spy] == "loss"
     assert outcome.player_descriptions[game.spy] == "Forfeited"
-    
+
     # Other villagers should have "loss"
     for p in players:
         if p.seat != game.spy:

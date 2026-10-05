@@ -64,7 +64,9 @@ class Compiler:
     def for_game(self, game_key: str) -> Compiler:
         return Compiler(self._emoji.bind_game(game_key), self._encoder)
 
-    def compile(self, view: LayoutView, *, resource_id: int, prefix: str) -> ui.LayoutView:
+    def compile(
+        self, view: LayoutView, *, resource_id: int, prefix: str
+    ) -> ui.LayoutView:
         self._component_count = 0
         self._text_chars = 0
         compiled = [
@@ -101,7 +103,9 @@ class Compiler:
         content = text.markdown_content
         if text.size_style == TextSize.HEADER and not content.startswith("#"):
             content = f"### {content}"
-        elif text.size_style == TextSize.SUBHEADER and not content.startswith(("#", "-#", "**")):
+        elif text.size_style == TextSize.SUBHEADER and not content.startswith(
+            ("#", "-#", "**")
+        ):
             content = f"**{content}**"
         if len(content) > 4000:
             raise LayoutError("TextDisplay exceeds 4000 characters")
@@ -118,7 +122,9 @@ class Compiler:
             return discord.PartialEmoji(name=ename, id=int(eid))
         return resolved
 
-    def _compile_button(self, button: Button, *, resource_id: int, prefix: str) -> ui.Button:
+    def _compile_button(
+        self, button: Button, *, resource_id: int, prefix: str
+    ) -> ui.Button:
         self._count()
         if button.style == ButtonStyle.LINK:
             if not button.url:
@@ -153,7 +159,9 @@ class Compiler:
             custom_id=custom_id,
         )
 
-    def _compile_select(self, select: Select, *, resource_id: int, prefix: str) -> ui.Select:
+    def _compile_select(
+        self, select: Select, *, resource_id: int, prefix: str
+    ) -> ui.Select:
         self._count()
         custom_id = self._encoder.encode(
             select.route_prefix or prefix,
@@ -206,7 +214,9 @@ class Compiler:
         self._count()
         custom_id = self._encoder.encode(
             channel_select.route_prefix or prefix,
-            channel_select.resource_id if channel_select.resource_id is not None else resource_id,
+            channel_select.resource_id
+            if channel_select.resource_id is not None
+            else resource_id,
             channel_select.source,
             channel_select.payload,
         )
@@ -238,7 +248,9 @@ class Compiler:
         self._count()
         custom_id = self._encoder.encode(
             user_select.route_prefix or prefix,
-            user_select.resource_id if user_select.resource_id is not None else resource_id,
+            user_select.resource_id
+            if user_select.resource_id is not None
+            else resource_id,
             user_select.source,
             user_select.payload,
         )
@@ -276,17 +288,27 @@ class Compiler:
             row.add_user_select(described.select)
         else:
             row.add_select(described.select)
-        return [text, separator, self._compile_action_row(row, resource_id=resource_id, prefix=prefix)]
+        return [
+            text,
+            separator,
+            self._compile_action_row(row, resource_id=resource_id, prefix=prefix),
+        ]
 
-    def _compile_action_row(self, row: ActionRow, *, resource_id: int, prefix: str) -> ui.ActionRow:
+    def _compile_action_row(
+        self, row: ActionRow, *, resource_id: int, prefix: str
+    ) -> ui.ActionRow:
         buttons = [item for item in row.items if isinstance(item, Button)]
         selects = [item for item in row.items if isinstance(item, Select)]
-        channel_selects = [item for item in row.items if isinstance(item, ChannelSelect)]
+        channel_selects = [
+            item for item in row.items if isinstance(item, ChannelSelect)
+        ]
         user_selects = [item for item in row.items if isinstance(item, UserSelect)]
         interactive = buttons + selects + channel_selects + user_selects
         if len(interactive) != len(row.items):
             raise LayoutError("ActionRow contains unsupported items")
-        if len(buttons) > 0 and (len(selects) > 0 or len(channel_selects) > 0 or len(user_selects) > 0):
+        if len(buttons) > 0 and (
+            len(selects) > 0 or len(channel_selects) > 0 or len(user_selects) > 0
+        ):
             raise LayoutError("ActionRow cannot mix buttons and selects")
         if len(buttons) > 5:
             raise LayoutError("ActionRow cannot have more than 5 buttons")
@@ -298,20 +320,30 @@ class Compiler:
         compiled = ui.ActionRow()
         for item in row.items:
             if isinstance(item, Button):
-                compiled.add_item(self._compile_button(item, resource_id=resource_id, prefix=prefix))
+                compiled.add_item(
+                    self._compile_button(item, resource_id=resource_id, prefix=prefix)
+                )
             elif isinstance(item, ChannelSelect):
                 compiled.add_item(
-                    self._compile_channel_select(item, resource_id=resource_id, prefix=prefix)
+                    self._compile_channel_select(
+                        item, resource_id=resource_id, prefix=prefix
+                    )
                 )
             elif isinstance(item, UserSelect):
                 compiled.add_item(
-                    self._compile_user_select(item, resource_id=resource_id, prefix=prefix)
+                    self._compile_user_select(
+                        item, resource_id=resource_id, prefix=prefix
+                    )
                 )
             else:
-                compiled.add_item(self._compile_select(item, resource_id=resource_id, prefix=prefix))
+                compiled.add_item(
+                    self._compile_select(item, resource_id=resource_id, prefix=prefix)
+                )
         return compiled
 
-    def _compile_section(self, section: Section, *, resource_id: int, prefix: str) -> ui.Section:
+    def _compile_section(
+        self, section: Section, *, resource_id: int, prefix: str
+    ) -> ui.Section:
         self._count()
         compiled_children = []
         for child in section.children:
@@ -319,10 +351,14 @@ class Compiler:
             compiled_children.append(ui.TextDisplay(content=self._prefix_text(child)))
         if not section.accessory:
             raise LayoutError("Section requires an accessory")
-        compiled_accessory = self._compile_button(section.accessory, resource_id=resource_id, prefix=prefix)
+        compiled_accessory = self._compile_button(
+            section.accessory, resource_id=resource_id, prefix=prefix
+        )
         return ui.Section(*compiled_children, accessory=compiled_accessory)
 
-    def _compile_container(self, container: Container, *, resource_id: int, prefix: str) -> ui.Container:
+    def _compile_container(
+        self, container: Container, *, resource_id: int, prefix: str
+    ) -> ui.Container:
         self._count()
         compiled = ui.Container()
         for child in container.children:
@@ -336,25 +372,37 @@ class Compiler:
                 self._count()
                 gallery = ui.MediaGallery(
                     *[
-                        discord.MediaGalleryItem(media=item.media_url, description=item.description)
+                        discord.MediaGalleryItem(
+                            media=item.media_url, description=item.description
+                        )
                         for item in child.items
                     ]
                 )
                 compiled.add_item(gallery)
             elif isinstance(child, ActionRow):
-                compiled.add_item(self._compile_action_row(child, resource_id=resource_id, prefix=prefix))
+                compiled.add_item(
+                    self._compile_action_row(
+                        child, resource_id=resource_id, prefix=prefix
+                    )
+                )
             elif isinstance(child, DescribedSelect):
-                for item in self._compile_described_select(child, resource_id=resource_id, prefix=prefix):
+                for item in self._compile_described_select(
+                    child, resource_id=resource_id, prefix=prefix
+                ):
                     compiled.add_item(item)
             elif isinstance(child, Section):
-                compiled.add_item(self._compile_section(child, resource_id=resource_id, prefix=prefix))
+                compiled.add_item(
+                    self._compile_section(child, resource_id=resource_id, prefix=prefix)
+                )
         return compiled
 
     def _compile_top(self, node: object, *, resource_id: int, prefix: str) -> ui.Item:
         if isinstance(node, Container):
             return self._compile_container(node, resource_id=resource_id, prefix=prefix)
         if isinstance(node, ActionRow):
-            return self._compile_action_row(node, resource_id=resource_id, prefix=prefix)
+            return self._compile_action_row(
+                node, resource_id=resource_id, prefix=prefix
+            )
         if isinstance(node, TextDisplay):
             self._count()
             return ui.TextDisplay(content=self._prefix_text(node))
@@ -365,13 +413,12 @@ class Compiler:
             self._count()
             return ui.MediaGallery(
                 *[
-                    discord.MediaGalleryItem(media=item.media_url, description=item.description)
+                    discord.MediaGalleryItem(
+                        media=item.media_url, description=item.description
+                    )
                     for item in node.items
                 ]
             )
         if isinstance(node, Section):
             return self._compile_section(node, resource_id=resource_id, prefix=prefix)
         raise LayoutError(f"Unsupported node type: {type(node)}")
-
-
-

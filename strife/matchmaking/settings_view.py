@@ -93,7 +93,9 @@ def _add_general_tab(
 ) -> None:
     container.add_text(
         TextDisplay(
-            markdown_content=text.get("lobby.privacy_title", private_emoji=emoji.get("private")),
+            markdown_content=text.get(
+                "lobby.privacy_title", private_emoji=emoji.get("private")
+            ),
             size_style=TextSize.SUBHEADER,
         )
     )
@@ -129,13 +131,15 @@ def _add_general_tab(
         container.add_separator()
         bot_emoji = emoji.get("bot")
         bot_lines = [
-            f"• {member_line(
-                emoji,
-                user_id=None,
-                display_name=bot.name,
-                is_bot=True,
-                bot_difficulty=bot.difficulty,
-            )}"
+            f"• {
+                member_line(
+                    emoji,
+                    user_id=None,
+                    display_name=bot.name,
+                    is_bot=True,
+                    bot_difficulty=bot.difficulty,
+                )
+            }"
             for bot in lobby.bots
         ]
         roster_body = "\n".join(bot_lines) if bot_lines else ""
@@ -277,7 +281,11 @@ def _add_access_tab(
         TextDisplay(
             markdown_content=(
                 f"{text.get('lobby.seated_players_title', user_emoji=emoji.get('user'))}\n"
-                + ("\n".join(seated_lines) if seated_lines else text.get("lobby.empty_roster"))
+                + (
+                    "\n".join(seated_lines)
+                    if seated_lines
+                    else text.get("lobby.empty_roster")
+                )
             ),
             size_style=TextSize.SUBHEADER,
         )
@@ -460,7 +468,9 @@ def _add_access_tab(
             )
         container.add_text(
             TextDisplay(
-                markdown_content=text.get("lobby.blacklist_count", count=len(lobby.blacklist))
+                markdown_content=text.get(
+                    "lobby.blacklist_count", count=len(lobby.blacklist)
+                )
             )
         )
 
@@ -485,7 +495,9 @@ def _add_rules_tab(
 
     container.add_text(
         TextDisplay(
-            markdown_content=text.get("lobby.game_options_title", settings_emoji=settings_emoji),
+            markdown_content=text.get(
+                "lobby.game_options_title", settings_emoji=settings_emoji
+            ),
             size_style=TextSize.SUBHEADER,
         )
     )
@@ -499,14 +511,18 @@ def _add_rules_tab(
                     label=text.get("lobby.on_label"),
                     value="true",
                     default=current,
-                    description=text.get("lobby.enable_option_desc", title=option.title.lower()),
+                    description=text.get(
+                        "lobby.enable_option_desc", title=option.title.lower()
+                    ),
                     emoji="success",
                 ),
                 SelectChoice(
                     label=text.get("lobby.off_label"),
                     value="false",
                     default=not current,
-                    description=text.get("lobby.disable_option_desc", title=option.title.lower()),
+                    description=text.get(
+                        "lobby.disable_option_desc", title=option.title.lower()
+                    ),
                     emoji="error",
                 ),
             ]
@@ -518,7 +534,9 @@ def _add_rules_tab(
                     value=value,
                     default=value == current,
                     description=text.get(
-                        "lobby.set_choice_option_desc", title=option.title.lower(), value=value
+                        "lobby.set_choice_option_desc",
+                        title=option.title.lower(),
+                        value=value,
                     ),
                     emoji=choice_emoji_for(option, value),
                 )
@@ -541,9 +559,14 @@ def _add_rules_tab(
                 description=option.description,
                 select=Select(
                     source="opt",
-                    placeholder=text.get("lobby.configure_option_placeholder", title=option.title),
+                    placeholder=text.get(
+                        "lobby.configure_option_placeholder", title=option.title
+                    ),
                     choices=choices,
-                    payload={"option_key": option.key, "option_type": option.type.value},
+                    payload={
+                        "option_key": option.key,
+                        "option_type": option.type.value,
+                    },
                     route_prefix=P.LOBBY_OPT,
                     resource_id=lobby.thread_id,
                 ),
@@ -596,9 +619,14 @@ def _add_int_setting(
                 description=option.description,
                 select=Select(
                     source="opt",
-                    placeholder=text.get("lobby.configure_option_placeholder", title=option.title),
+                    placeholder=text.get(
+                        "lobby.configure_option_placeholder", title=option.title
+                    ),
                     choices=choices,
-                    payload={"option_key": option.key, "option_type": option.type.value},
+                    payload={
+                        "option_key": option.key,
+                        "option_type": option.type.value,
+                    },
                     route_prefix=P.LOBBY_OPT,
                     resource_id=lobby.thread_id,
                 ),
@@ -654,7 +682,9 @@ def _add_tab_nav(
             Button(
                 source="tab",
                 label=text.get(label_key),
-                style=ButtonStyle.PRIMARY if tab_key == active_tab else ButtonStyle.SECONDARY,
+                style=ButtonStyle.PRIMARY
+                if tab_key == active_tab
+                else ButtonStyle.SECONDARY,
                 emoji=tab_emoji,
                 route_prefix=P.LOBBY_SETTINGS,
                 resource_id=lobby.thread_id,
@@ -689,7 +719,9 @@ def build_settings_view(
 
     view = LayoutView()
     container = Container()
-    _add_title(container, lobby=lobby, meta=meta, emoji=emoji, text=text, tab=active_tab)
+    _add_title(
+        container, lobby=lobby, meta=meta, emoji=emoji, text=text, tab=active_tab
+    )
 
     if readonly:
         container.add_text(

@@ -31,7 +31,9 @@ class AboutService:
         self.config = config
 
     def _enabled_games(self):
-        return [m for m in self.registry.all() if self.config.games.for_game(m.key).enabled]
+        return [
+            m for m in self.registry.all() if self.config.games.for_game(m.key).enabled
+        ]
 
     def build(
         self,
@@ -55,7 +57,9 @@ class AboutService:
 
     async def show(self, interaction: discord.Interaction, tab: str = "main") -> None:
         view = self.build(tab)
-        compiled = self.compiler.compile(view, resource_id=interaction.user.id, prefix=P.ABOUT_NAV)
+        compiled = self.compiler.compile(
+            view, resource_id=interaction.user.id, prefix=P.ABOUT_NAV
+        )
         await interaction.response.send_message(view=compiled, ephemeral=True)
 
     async def navigate(self, interaction: discord.Interaction, route) -> None:
@@ -68,5 +72,7 @@ class AboutService:
             scope = "game"
         page = int(route.payload.get("page", 0))
         view = self.build(tab, scope=scope, game_key=game_key, page=page)
-        compiled = self.compiler.compile(view, resource_id=interaction.user.id, prefix=P.ABOUT_NAV)
+        compiled = self.compiler.compile(
+            view, resource_id=interaction.user.id, prefix=P.ABOUT_NAV
+        )
         await interaction.response.edit_message(view=compiled)

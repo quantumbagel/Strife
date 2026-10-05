@@ -162,7 +162,9 @@ class LobbyCommandsMixin:
                 await self._teardown(lobby, interaction)
                 return
             if await self._refresh(lobby, interaction):
-                await self._success(interaction, "lobby.player_kicked", name=kicked_name)
+                await self._success(
+                    interaction, "lobby.player_kicked", name=kicked_name
+                )
             should_start = self._claim_autostart(lobby)
         if should_start:
             await self._start(
@@ -345,7 +347,9 @@ class LobbyCommandsMixin:
             lobby.approved.add(user_id)
             lobby.denied.discard(user_id)
             if await self._refresh(lobby, interaction):
-                await self._success(interaction, "lobby.player_approved", name=display_name)
+                await self._success(
+                    interaction, "lobby.player_approved", name=display_name
+                )
 
     @lobby_action
     async def deny_request(
@@ -368,7 +372,9 @@ class LobbyCommandsMixin:
             display_name = lobby.pending_requests.pop(user_id, f"User {user_id}")
             lobby.denied.add(user_id)
             if await self._refresh(lobby, interaction):
-                await self._success(interaction, "lobby.player_denied", name=display_name)
+                await self._success(
+                    interaction, "lobby.player_denied", name=display_name
+                )
 
     @lobby_action
     async def preapprove_user(

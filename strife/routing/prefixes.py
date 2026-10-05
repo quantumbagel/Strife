@@ -62,15 +62,20 @@ LOBBY_PREFIXES = {
     LOBBY_REVOKE_APPROVAL,
 }
 
-ALL_PREFIXES = GAME_PREFIXES | LOBBY_PREFIXES | SERVER_PREFIXES | {
-    R_NAV,
-    REMATCH,
-    REPLAY_NOOP,
-    CAT_NAV,
-    PROF_NAV,
-    ABOUT_NAV,
-    FORFEIT,
-}
+ALL_PREFIXES = (
+    GAME_PREFIXES
+    | LOBBY_PREFIXES
+    | SERVER_PREFIXES
+    | {
+        R_NAV,
+        REMATCH,
+        REPLAY_NOOP,
+        CAT_NAV,
+        PROF_NAV,
+        ABOUT_NAV,
+        FORFEIT,
+    }
+)
 
 
 def is_game_prefix(prefix: str) -> bool:

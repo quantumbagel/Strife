@@ -12,7 +12,9 @@ from strife.logging import get_logger
 log = get_logger("config.games")
 
 
-def _parse_timeout_consequence(value: str | TimeoutConsequence | None) -> TimeoutConsequence:
+def _parse_timeout_consequence(
+    value: str | TimeoutConsequence | None,
+) -> TimeoutConsequence:
     if value is None:
         return TimeoutConsequence.ABANDON
     if isinstance(value, TimeoutConsequence):
@@ -52,7 +54,9 @@ class GameConfig(BaseModel):
 
     @field_validator("turn_timeout_consequence", mode="before")
     @classmethod
-    def _validate_turn_timeout_consequence(cls, value: object) -> TimeoutConsequence | None:
+    def _validate_turn_timeout_consequence(
+        cls, value: object
+    ) -> TimeoutConsequence | None:
         if value is None:
             return None
         if isinstance(value, TimeoutConsequence):
@@ -79,7 +83,9 @@ class GamesConfig(BaseModel):
     _path: Path | None = PrivateAttr(default=None)
 
     def model_post_init(self, __context: object) -> None:
-        self._merged = {key: self._merge_config(key, game) for key, game in self.games.items()}
+        self._merged = {
+            key: self._merge_config(key, game) for key, game in self.games.items()
+        }
 
     def _merge_config(self, key: str, game: GameConfig) -> MergedGameConfig:
         return MergedGameConfig(

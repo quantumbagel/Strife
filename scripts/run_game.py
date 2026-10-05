@@ -109,7 +109,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run a Strife game locally")
     parser.add_argument("game_key", help="Registered game key (e.g. tictactoe)")
     parser.add_argument("--seed", type=int, default=1, help="RNG seed")
-    parser.add_argument("--bot-seat", type=int, default=None, help="Seat index to mark as bot")
+    parser.add_argument(
+        "--bot-seat", type=int, default=None, help="Seat index to mark as bot"
+    )
     parser.add_argument("--bot-difficulty", default="easy", help="Bot difficulty label")
     parser.add_argument(
         "--move",

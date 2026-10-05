@@ -160,7 +160,9 @@ def _scope_row(text: TextConfig, current: str) -> ActionRow:
     return row
 
 
-def format_release(release: Release, emoji: EmojiResolver, *, heading: bool = True) -> str:
+def format_release(
+    release: Release, emoji: EmojiResolver, *, heading: bool = True
+) -> str:
     bullet = emoji.get("bullet")
     date = f" · {release.date}" if release.date else ""
     lines: list[str] = []
@@ -233,7 +235,9 @@ def _paginate_releases(blocks: list[str], budget: int) -> list[list[str]]:
     used = 0
     for block in blocks:
         block = _fit(block, budget)
-        if current and (len(current) >= RELEASES_PER_PAGE or used + len(block) > budget):
+        if current and (
+            len(current) >= RELEASES_PER_PAGE or used + len(block) > budget
+        ):
             pages.append(current)
             current, used = [], 0
         current.append(block)
@@ -280,7 +284,9 @@ def _hub(
         )
     )
 
-    previews = [meta for meta in games if changelogs.latest_for_game(meta.key)][:HUB_GAME_PREVIEWS]
+    previews = [meta for meta in games if changelogs.latest_for_game(meta.key)][
+        :HUB_GAME_PREVIEWS
+    ]
     if previews:
         container.add_separator()
         blocks: list[str] = []

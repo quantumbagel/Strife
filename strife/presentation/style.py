@@ -32,7 +32,9 @@ if TYPE_CHECKING:
     from strife.presentation.emoji import EmojiResolver
 
 
-def add_header(container: Container, title: str, *, emoji: str | None = None) -> Container:
+def add_header(
+    container: Container, title: str, *, emoji: str | None = None
+) -> Container:
     prefix = f"{emoji} " if emoji else ""
     container.add_text(
         TextDisplay(
@@ -43,7 +45,9 @@ def add_header(container: Container, title: str, *, emoji: str | None = None) ->
     return container
 
 
-def add_subtitle(container: Container, text: str, *, emoji: str | None = None) -> Container:
+def add_subtitle(
+    container: Container, text: str, *, emoji: str | None = None
+) -> Container:
     prefix = f"{emoji} " if emoji else ""
     container.add_text(
         TextDisplay(

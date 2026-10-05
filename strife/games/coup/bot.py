@@ -20,7 +20,9 @@ def _richest(game: Coup, seats: list[int]) -> int:
 
 
 def _threats(game: Coup, seats: list[int]) -> list[int]:
-    return [s for s in seats if len(game.hands.get(s, [])) >= 2 or game.coins.get(s, 0) >= 7]
+    return [
+        s for s in seats if len(game.hands.get(s, [])) >= 2 or game.coins.get(s, 0) >= 7
+    ]
 
 
 def choose_move(game: Coup, difficulty: str, seat: int) -> Move:
@@ -41,7 +43,11 @@ def choose_move(game: Coup, difficulty: str, seat: int) -> Move:
             return Move(actor_seat=seat, source="exchange_keep", args={"keep": keep})
         return Move(actor_seat=seat, source="exchange_keep", args={})
 
-    if game.state_phase in ("challenge_window", "block_window", "block_challenge_window"):
+    if game.state_phase in (
+        "challenge_window",
+        "block_window",
+        "block_challenge_window",
+    ):
         return _reaction(game, level, seat, my_cards)
 
     if not others:
@@ -64,13 +70,19 @@ def choose_move(game: Coup, difficulty: str, seat: int) -> Move:
             )
 
     assassin_p = (0.15, 0.7, 0.9)[level]
-    if my_coins >= 3 and ("assassin" in my_cards or (level >= 1 and game.bot_rng.random() < assassin_p * 0.25)):
+    if my_coins >= 3 and (
+        "assassin" in my_cards
+        or (level >= 1 and game.bot_rng.random() < assassin_p * 0.25)
+    ):
         if "assassin" in my_cards or level >= 1:
             if "assassin" in my_cards or game.bot_rng.random() < assassin_p:
                 return Move(
                     actor_seat=seat,
                     source="action",
-                    args={"type": "assassinate", "target": _pick_target(game, others, level)},
+                    args={
+                        "type": "assassinate",
+                        "target": _pick_target(game, others, level),
+                    },
                 )
 
     steal_p = (0.2, 0.8, 0.9)[level]
@@ -81,7 +93,10 @@ def choose_move(game: Coup, difficulty: str, seat: int) -> Move:
                 return Move(
                     actor_seat=seat,
                     source="action",
-                    args={"type": "steal", "target": _pick_target(game, targets, level)},
+                    args={
+                        "type": "steal",
+                        "target": _pick_target(game, targets, level),
+                    },
                 )
 
     tax_p = (0.15, 0.5, 0.7)[level]
@@ -119,10 +134,17 @@ def _reaction(game: Coup, level: int, seat: int, my_cards: list[str]) -> Move:
             if "duke" in my_cards or game.bot_rng.random() < (0.05, 0.2, 0.45)[level]:
                 return Move(actor_seat=seat, source="block_duke", args={})
         if action_type == "assassinate" and targeted:
-            if "contessa" in my_cards or game.bot_rng.random() < (0.15, 0.7, 0.85)[level]:
+            if (
+                "contessa" in my_cards
+                or game.bot_rng.random() < (0.15, 0.7, 0.85)[level]
+            ):
                 return Move(actor_seat=seat, source="block_contessa", args={})
         elif action_type == "steal" and targeted:
-            if "captain" in my_cards or "ambassador" in my_cards or game.bot_rng.random() < (0.15, 0.7, 0.85)[level]:
+            if (
+                "captain" in my_cards
+                or "ambassador" in my_cards
+                or game.bot_rng.random() < (0.15, 0.7, 0.85)[level]
+            ):
                 if "captain" in my_cards:
                     claim = "captain"
                 elif "ambassador" in my_cards:

@@ -50,7 +50,11 @@ def test_remove_bot_select_uses_plain_names() -> None:
         }
     )
     view = build_settings_view(lobby, meta, _emoji(), text)
-    remove = next(item for item in walk_interactive(view) if isinstance(item, Select) and item.source == "bot_remove")
+    remove = next(
+        item
+        for item in walk_interactive(view)
+        if isinstance(item, Select) and item.source == "bot_remove"
+    )
 
     assert [choice.label for choice in remove.choices] == ["Bot-hard-1", "Bot-hard-2"]
     assert [choice.description for choice in remove.choices] == [
@@ -76,7 +80,9 @@ def test_kick_empty_hint_when_only_creator_is_seated() -> None:
         members=[],
     )
     meta = GameMetadata(key="test", name="Test", player_count=PlayerCount(fixed=2))
-    text = TextConfig({"lobby": {"kick_empty_hint": "-# No other seated players to kick."}})
+    text = TextConfig(
+        {"lobby": {"kick_empty_hint": "-# No other seated players to kick."}}
+    )
     view = build_settings_view(lobby, meta, _emoji(), text, tab="access")
     from strife.presentation.components import TextDisplay
 

@@ -41,7 +41,9 @@ class SessionLifecycleMixin:
                 results={},
                 summary={"reason": reason},
                 description=reason.capitalize(),
-                player_descriptions={player.seat: "Abandoned" for player in self.players},
+                player_descriptions={
+                    player.seat: "Abandoned" for player in self.players
+                },
             )
 
         await self._finalize(outcome, status="abandoned")
@@ -61,9 +63,7 @@ class SessionLifecycleMixin:
         match_id = self._match_id
         if match_id is not None:
             try:
-                await self._finalizer.append_moves(
-                    match_id, list(self.log.entries)
-                )
+                await self._finalizer.append_moves(match_id, list(self.log.entries))
             except Exception:
                 log.exception(
                     "Failed to re-append in-memory log for thread %s on pause",
@@ -71,7 +71,6 @@ class SessionLifecycleMixin:
                 )
         await self._notify_thread(self.text.get("match.session_paused"))
         return True
-
 
     async def _finalize(self, outcome: GameOutcome, *, status: str) -> None:
         async with self.lock:
@@ -87,7 +86,7 @@ class SessionLifecycleMixin:
             for seat, value in outcome.results.items():
                 try:
                     Result(value)
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     log.error(
                         "Invalid GameOutcome result %r for seat %s (thread %s)",
                         value,
@@ -122,7 +121,9 @@ class SessionLifecycleMixin:
                 game_version=self.game_version,
                 board_message_id=self.surface.message_id,
                 header_message_id=(
-                    self.header_surface.message_id if self.header_surface is not None else None
+                    self.header_surface.message_id
+                    if self.header_surface is not None
+                    else None
                 ),
                 lobby_channel_id=self.lobby_channel_id,
                 lobby_message_id=self.lobby_message_id,
@@ -174,9 +175,13 @@ class SessionLifecycleMixin:
                 await self._notify_thread(self.text.get("match.save_failed"))
             if persist_ok:
                 try:
-                    self._finalizer.notify_match_end(self.thread_id, match_id, outcome, self.players)
+                    self._finalizer.notify_match_end(
+                        self.thread_id, match_id, outcome, self.players
+                    )
                 except Exception:
-                    log.exception("Failed to register rematch offer for thread %s", self.thread_id)
+                    log.exception(
+                        "Failed to register rematch offer for thread %s", self.thread_id
+                    )
             self._match_id = match_id
             self._match_code = code
 
@@ -206,7 +211,9 @@ class SessionLifecycleMixin:
                     )
                     await self.header_surface.update(finished_view)
                 except Exception:
-                    log.exception("Failed to update game thread header message to finished")
+                    log.exception(
+                        "Failed to update game thread header message to finished"
+                    )
 
             try:
                 results_view = build_results_view(

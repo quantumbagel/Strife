@@ -15,10 +15,7 @@ from strife.presentation.components import LayoutView
 
 
 def _players(n: int) -> list[Player]:
-    return [
-        Player(seat=i, user_id=100 + i, display_name=f"P{i}")
-        for i in range(n)
-    ]
+    return [Player(seat=i, user_id=100 + i, display_name=f"P{i}") for i in range(n)]
 
 
 def _load_mock_context():
@@ -83,7 +80,9 @@ async def test_mafia_kill_plurality_not_unanimous() -> None:
 class _ForfeitDuringNightContext:
     """Simulates a mid-phase forfeit while night inputs are collected."""
 
-    def __init__(self, game: Mafia, *, forfeit_seat: int, night_moves: dict[int, Move]) -> None:
+    def __init__(
+        self, game: Mafia, *, forfeit_seat: int, night_moves: dict[int, Move]
+    ) -> None:
         self.game = game
         self.forfeit_seat = forfeit_seat
         self.night_moves = night_moves
@@ -164,24 +163,24 @@ def test_town_forfeit_town_wins() -> None:
         "enable_detective": False,
     }
     game = Mafia(players, settings, random.Random(0))
-    
+
     # Pick a town player to forfeit
     town_forfeiters = [s for s in game.alive if game.role[s] != "mafia"]
     forfeit_seat = town_forfeiters[0]
-    
+
     # Remove the forfeiter via remove_player
     game.remove_player(forfeit_seat)
-    
+
     # Verify forfeiter is in the forfeited set
     assert forfeit_seat in game.forfeited
-    
+
     # Simulate town winning
     outcome = game._finish("town")
-    
+
     # The forfeited player should have "loss" and "Forfeited" description
     assert outcome.results[forfeit_seat] == "loss"
     assert outcome.player_descriptions[forfeit_seat] == "Forfeited"
-    
+
     # Other town players should have "win"
     for seat in town_forfeiters[1:]:
         if seat in game.alive:
@@ -197,21 +196,21 @@ def test_town_forfeit_mafia_wins() -> None:
         "enable_detective": False,
     }
     game = Mafia(players, settings, random.Random(0))
-    
+
     # Pick a town player to forfeit
     town_forfeiters = [s for s in game.alive if game.role[s] != "mafia"]
     forfeit_seat = town_forfeiters[0]
-    
+
     # Remove the forfeiter via remove_player
     game.remove_player(forfeit_seat)
-    
+
     # Simulate mafia winning
     outcome = game._finish("mafia")
-    
+
     # The forfeited player should have "loss" and "Forfeited" description, not "win"
     assert outcome.results[forfeit_seat] == "loss"
     assert outcome.player_descriptions[forfeit_seat] == "Forfeited"
-    
+
     # Mafia players should still have "win"
     for seat in game.alive:
         if game.role[seat] == "mafia":
@@ -227,18 +226,18 @@ def test_town_lynched_town_wins() -> None:
         "enable_detective": False,
     }
     game = Mafia(players, settings, random.Random(0))
-    
+
     # Pick a town player to "lynch"
     town_seats = [s for s in game.alive if game.role[s] != "mafia"]
     lynched_seat = town_seats[0]
-    
+
     # Simulate a lynch (day kill) using _eliminate_player
     game._eliminate_player(lynched_seat)
     game.death_reason[lynched_seat] = "day"
-    
+
     # Simulate town winning
     outcome = game._finish("town")
-    
+
     # The lynched player should still get "win" since town won
     assert outcome.results[lynched_seat] == "win"
     assert outcome.player_descriptions[lynched_seat] == "Lynched by Town"
@@ -253,25 +252,27 @@ def test_forfeit_end_outcome_faction_wins() -> None:
         "enable_detective": False,
     }
     game = Mafia(players, settings, random.Random(0))
-    
+
     # Pick a mafia member to forfeit
     mafia_seats = [s for s in game.alive if game.role[s] == "mafia"]
     forfeit_seat = mafia_seats[0]
-    
+
     # Make mafia reach parity by removing town players until they win
     town_seats = [s for s in game.alive if game.role[s] != "mafia"]
     for seat in town_seats:
-        if len(game.alive - {s for s in game.alive if game.role[s] == "mafia"}) <= len({s for s in game.alive if game.role[s] == "mafia"}):
+        if len(game.alive - {s for s in game.alive if game.role[s] == "mafia"}) <= len(
+            {s for s in game.alive if game.role[s] == "mafia"}
+        ):
             break
         game._eliminate_player(seat)
-    
+
     # Now call forfeit_end_outcome on a mafia member
     outcome = game.forfeit_end_outcome(forfeit_seat)
-    
+
     # The forfeited mafia should have "loss" despite mafia winning
     assert outcome.results[forfeit_seat] == "loss"
     assert outcome.player_descriptions[forfeit_seat] == "Forfeited"
-    
+
     # Other mafia should have "win"
     for seat in mafia_seats:
         if seat != forfeit_seat and seat in game.alive:

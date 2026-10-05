@@ -7,7 +7,12 @@ if TYPE_CHECKING:
 
 
 def choose_move(game: TicTacToe, difficulty: str, seat: int) -> tuple[int, int]:
-    empties = [(c, r) for r in range(3) for c in range(3) if game.board[game._idx(c, r)] is None]
+    empties = [
+        (c, r)
+        for r in range(3)
+        for c in range(3)
+        if game.board[game._idx(c, r)] is None
+    ]
     if difficulty == "easy":
         return game.bot_rng.choice(empties)
     if difficulty == "medium":
@@ -24,7 +29,12 @@ def choose_move(game: TicTacToe, difficulty: str, seat: int) -> tuple[int, int]:
 
 
 def _find_win(game: TicTacToe, seat: int) -> tuple[int, int] | None:
-    for col, row in [(c, r) for r in range(3) for c in range(3) if game.board[game._idx(c, r)] is None]:
+    for col, row in [
+        (c, r)
+        for r in range(3)
+        for c in range(3)
+        if game.board[game._idx(c, r)] is None
+    ]:
         idx = game._idx(col, row)
         game.board[idx] = seat
         won = game._winning_line(seat) is not None
@@ -37,7 +47,12 @@ def _find_win(game: TicTacToe, seat: int) -> tuple[int, int] | None:
 def _minimax_move(game: TicTacToe, seat: int) -> tuple[int, int]:
     best_score = -2
     best_moves: list[tuple[int, int]] = []
-    for col, row in [(c, r) for r in range(3) for c in range(3) if game.board[game._idx(c, r)] is None]:
+    for col, row in [
+        (c, r)
+        for r in range(3)
+        for c in range(3)
+        if game.board[game._idx(c, r)] is None
+    ]:
         idx = game._idx(col, row)
         game.board[idx] = seat
         score = _minimax(game, 1 - seat, seat, False)
@@ -58,7 +73,12 @@ def _minimax(game: TicTacToe, seat: int, bot: int, maximizing: bool) -> int:
     if all(v is not None for v in game.board):
         return 0
     scores = []
-    for col, row in [(c, r) for r in range(3) for c in range(3) if game.board[game._idx(c, r)] is None]:
+    for col, row in [
+        (c, r)
+        for r in range(3)
+        for c in range(3)
+        if game.board[game._idx(c, r)] is None
+    ]:
         idx = game._idx(col, row)
         game.board[idx] = seat
         scores.append(_minimax(game, 1 - seat, bot, not maximizing))

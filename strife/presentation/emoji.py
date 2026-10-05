@@ -57,7 +57,9 @@ class EmojiResolver:
             return self._unknown("(empty)")
         if base:
             if name not in BASE_EMOJIS:
-                log.warning("Unknown base emoji %r (not in the platform base set)", name)
+                log.warning(
+                    "Unknown base emoji %r (not in the platform base set)", name
+                )
                 return self._unknown(name)
             return self._render(name)
         if self._game_key:
@@ -103,7 +105,9 @@ class EmojiResolver:
         try:
             emojis = await bot.fetch_application_emojis()
         except discord.HTTPException:
-            log.exception("Could not fetch application emoji; keeping emoji.yaml IDs as-is")
+            log.exception(
+                "Could not fetch application emoji; keeping emoji.yaml IDs as-is"
+            )
             return self._config
         by_name = {emoji.name: emoji for emoji in emojis}
 
@@ -152,9 +156,13 @@ class EmojiResolver:
         """
         result = EmojiUploadResult()
         planned: dict[str, Path] = {}
-        self._plan_dir(assets_dir, prefix=None, allow=BASE_EMOJIS, planned=planned, result=result)
+        self._plan_dir(
+            assets_dir, prefix=None, allow=BASE_EMOJIS, planned=planned, result=result
+        )
         for game_key, folder in plugin_dirs:
-            self._plan_dir(folder, prefix=game_key, allow=None, planned=planned, result=result)
+            self._plan_dir(
+                folder, prefix=game_key, allow=None, planned=planned, result=result
+            )
 
         existing = {emoji.name: emoji for emoji in await bot.fetch_application_emojis()}
         try:
@@ -215,15 +223,28 @@ class EmojiResolver:
                 continue
             stem = path.stem
             if allow is not None and stem not in allow:
-                log.warning("Skipping %s; not in the platform base emoji set", path.name)
+                log.warning(
+                    "Skipping %s; not in the platform base emoji set", path.name
+                )
                 continue
             name = plugin_emoji_name(prefix, stem) if prefix else stem
             if not _DISCORD_NAME.fullmatch(name):
-                log.error("Cannot upload emoji %s as %r (Discord name must be 2-32 [A-Za-z0-9_])", path, name)
-                result.failed.append((name, "name must be 2-32 characters of [A-Za-z0-9_]"))
+                log.error(
+                    "Cannot upload emoji %s as %r (Discord name must be 2-32 [A-Za-z0-9_])",
+                    path,
+                    name,
+                )
+                result.failed.append(
+                    (name, "name must be 2-32 characters of [A-Za-z0-9_]")
+                )
                 continue
             if name in planned:
-                log.warning("Duplicate emoji name %s (%s and %s); keeping the first", name, planned[name], path)
+                log.warning(
+                    "Duplicate emoji name %s (%s and %s); keeping the first",
+                    name,
+                    planned[name],
+                    path,
+                )
                 continue
             planned[name] = path
 

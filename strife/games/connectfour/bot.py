@@ -170,7 +170,9 @@ def _evaluate_board(game: ConnectFour, bot_seat: int) -> float:
     return score
 
 
-def _evaluate_window(window: list[int | None], bot_seat: int, opponent_seat: int) -> float:
+def _evaluate_window(
+    window: list[int | None], bot_seat: int, opponent_seat: int
+) -> float:
     score = 0.0
     bot_count = window.count(bot_seat)
     opp_count = window.count(opponent_seat)

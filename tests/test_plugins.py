@@ -23,7 +23,9 @@ from strife.plugins.manifest import load_manifest
 from strife.plugins.state import load_state, save_state
 
 
-def _write_manifest(root: Path, key: str, *, deps: list[str] | None = None, version: str = "1.0.0") -> Path:
+def _write_manifest(
+    root: Path, key: str, *, deps: list[str] | None = None, version: str = "1.0.0"
+) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     dep_lines = ""
     if deps:
@@ -36,7 +38,9 @@ def _write_manifest(root: Path, key: str, *, deps: list[str] | None = None, vers
     return root / "plugin.toml"
 
 
-def _write_game_package(root: Path, key: str, *, version: str = "1.0.0", name: str | None = None) -> None:
+def _write_game_package(
+    root: Path, key: str, *, version: str = "1.0.0", name: str | None = None
+) -> None:
     cls = "".join(part.capitalize() for part in key.split("_"))
     title = name or cls
     _write_manifest(root, key, version=version)
@@ -72,7 +76,9 @@ def _run_git(cwd: Path, *args: str) -> None:
         text=True,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr or result.stdout}")
+        raise RuntimeError(
+            f"git {' '.join(args)} failed: {result.stderr or result.stdout}"
+        )
 
 
 def _git_plugin_repo(root: Path, key: str, *, version: str = "1.0.0") -> Path:
@@ -104,7 +110,9 @@ def _manager(tmp_path: Path, **kwargs: Path) -> PluginManager:
 
 
 def test_load_manifest_and_requirement_name(tmp_path: Path) -> None:
-    path = _write_manifest(tmp_path / "chess", "chess", deps=["chess>=1.11.2", "resvg-py>=0.3.3"])
+    path = _write_manifest(
+        tmp_path / "chess", "chess", deps=["chess>=1.11.2", "resvg-py>=0.3.3"]
+    )
     manifest = load_manifest(path)
     assert manifest.key == "chess"
     assert manifest.dependencies == ("chess>=1.11.2", "resvg-py>=0.3.3")
@@ -258,7 +266,9 @@ def test_restore_creates_missing_games_yaml_entry(tmp_path: Path) -> None:
 def test_note_game_reenables_existing_key() -> None:
     from strife.config.games import GameConfig, GameDefaults, GamesConfig
 
-    cfg = GamesConfig(defaults=GameDefaults(), games={"chess": GameConfig(enabled=False)})
+    cfg = GamesConfig(
+        defaults=GameDefaults(), games={"chess": GameConfig(enabled=False)}
+    )
     cfg.note_game("chess", enabled=True)
     assert cfg.for_game("chess").enabled is True
     cfg.note_game("hello", enabled=True)
@@ -311,7 +321,9 @@ def test_load_external_plugin(tmp_path: Path) -> None:
 def test_builtin_emoji_sources_are_namespaced_folders() -> None:
     from pathlib import Path
 
-    manager = PluginManager.from_paths(config_dir=Path("config"), plugins_dir=Path("plugins"))
+    manager = PluginManager.from_paths(
+        config_dir=Path("config"), plugins_dir=Path("plugins")
+    )
     sources = {key: path for key, path in manager.emoji_sources()}
     assert "tictactoe" in sources
     assert "coup" in sources
@@ -362,7 +374,9 @@ def test_git_install_update_uninstall_roundtrip(tmp_path: Path) -> None:
         manager.uninstall("sample")
 
 
-def test_install_rolls_back_directory_if_state_save_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_install_rolls_back_directory_if_state_save_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     repo = _git_plugin_repo(tmp_path / "repo", "sample")
     manager = _manager(tmp_path)
 
@@ -438,8 +452,10 @@ def test_update_rejects_key_mismatch(tmp_path: Path) -> None:
     _run_git(repo, "commit", "-m", "wrong key")
     with pytest.raises(PluginError, match="expected 'sample'"):
         manager.update_from_git("sample")
-    assert (tmp_path / "plugins" / "sample" / "plugin.toml").read_text(encoding="utf-8").startswith(
-        'key = "sample"'
+    assert (
+        (tmp_path / "plugins" / "sample" / "plugin.toml")
+        .read_text(encoding="utf-8")
+        .startswith('key = "sample"')
     )
 
 
@@ -466,7 +482,9 @@ def test_reload_one_keeps_previous_class_if_new_code_is_broken(tmp_path: Path) -
 
     dest = tmp_path / "plugins" / "sample"
     (dest / "game.py").write_text("raise RuntimeError('boom')\n", encoding="utf-8")
-    (dest / "__init__.py").write_text("from .game import Sample\nGAME = Sample\n", encoding="utf-8")
+    (dest / "__init__.py").write_text(
+        "from .game import Sample\nGAME = Sample\n", encoding="utf-8"
+    )
 
     with pytest.raises(PluginError, match="Failed to import plugin sample"):
         manager.reload_one(registry, "sample")
@@ -474,7 +492,9 @@ def test_reload_one_keeps_previous_class_if_new_code_is_broken(tmp_path: Path) -
     assert registry.get("sample") is previous
 
 
-def test_git_clone_missing_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_git_clone_missing_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     def boom(*args, **kwargs):
         raise FileNotFoundError("git")
 
@@ -521,7 +541,9 @@ def test_invalid_GAME_export_is_rejected(tmp_path: Path) -> None:
         manager.load_one(registry, "hello")
 
 
-def test_install_does_not_pip_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_install_does_not_pip_install(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     called: list[object] = []
 
     def boom(reqs):
@@ -536,7 +558,9 @@ def test_install_does_not_pip_install(tmp_path: Path, monkeypatch: pytest.Monkey
     assert (tmp_path / "plugins" / "sample").is_dir()
 
 
-def test_uninstall_does_not_pip_uninstall(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_uninstall_does_not_pip_uninstall(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     called: list[object] = []
 
     def boom(names):

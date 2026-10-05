@@ -261,7 +261,9 @@ class RematchManager:
         if getattr(self.lobby, "_closing", False):
             return True
         is_closing = getattr(self.lobby, "is_closing_game", None)
-        return bool(callable(is_closing) and game_key is not None and is_closing(game_key))
+        return bool(
+            callable(is_closing) and game_key is not None and is_closing(game_key)
+        )
 
     async def _resolve_parent_channel(
         self, thread_id: int, offer: RematchOffer
@@ -365,7 +367,9 @@ class RematchManager:
 
         members = await self._members_still_in_guild(offer, members)
         meta = self.lobby.registry.metadata(offer.game_key)
-        if not members or not meta.player_count.is_valid(len(members) + len(offer.bots)):
+        if not members or not meta.player_count.is_valid(
+            len(members) + len(offer.bots)
+        ):
             raise SessionError("rematch_unavailable")
 
         target_channel = await self._resolve_parent_channel(thread_id, offer)
@@ -374,7 +378,9 @@ class RematchManager:
         members = await self._members_who_can_view_channel(
             offer, members, target_channel
         )
-        if not members or not meta.player_count.is_valid(len(members) + len(offer.bots)):
+        if not members or not meta.player_count.is_valid(
+            len(members) + len(offer.bots)
+        ):
             raise SessionError("rematch_unavailable")
 
         busy = [

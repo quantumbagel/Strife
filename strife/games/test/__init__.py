@@ -25,9 +25,7 @@ META = GameMetadata(
     difficulty=1,
     player_count=PlayerCount(minimum=1, maximum=4),
     player_order=PlayerOrder.RANDOM,
-    bots=(
-        BotSpec("easy", "Plays the API Test game automatically"),
-    ),
+    bots=(BotSpec("easy", "Plays the API Test game automatically"),),
     bot_takeover_difficulty="easy",
     settings=(
         SettingOption(
@@ -65,8 +63,16 @@ META = GameMetadata(
     ),
     slash_moves=(),
     roles=(
-        RoleSpec("tester", "Tester", "You are a tester. Interact with everything to verify features."),
-        RoleSpec("observer", "Observer", "You observe and verify that the system runs smoothly."),
+        RoleSpec(
+            "tester",
+            "Tester",
+            "You are a tester. Interact with everything to verify features.",
+        ),
+        RoleSpec(
+            "observer",
+            "Observer",
+            "You observe and verify that the system runs smoothly.",
+        ),
     ),
 )
 

@@ -71,7 +71,7 @@ def _apply_host_bookkeeping(
 async def _fetch_thread(bot, thread_id: int) -> discord.Thread | None:
     try:
         channel = bot.get_channel(thread_id) or await bot.fetch_channel(thread_id)
-    except (discord.NotFound, discord.Forbidden):
+    except discord.NotFound, discord.Forbidden:
         return None
     except Exception:
         log.exception("Failed to fetch live match thread %s", thread_id)
@@ -84,10 +84,12 @@ async def _fetch_message(channel, message_id: int | None) -> discord.Message | N
         return None
     try:
         return await channel.fetch_message(message_id)
-    except (discord.NotFound, discord.Forbidden):
+    except discord.NotFound, discord.Forbidden:
         return None
     except Exception:
-        log.exception("Failed to fetch message %s in %s", message_id, getattr(channel, "id", "?"))
+        log.exception(
+            "Failed to fetch message %s in %s", message_id, getattr(channel, "id", "?")
+        )
         return None
 
 
@@ -100,7 +102,9 @@ def _timeout_consequence(raw: str | None) -> TimeoutConsequence:
         return TimeoutConsequence.ABANDON
 
 
-async def abandon_unresumed(bot, matches, live: MatchDetail, moves: list[Move], *, thread=None) -> None:
+async def abandon_unresumed(
+    bot, matches, live: MatchDetail, moves: list[Move], *, thread=None
+) -> None:
     notice = bot.config.text.get("match.interrupted")
     if isinstance(thread, discord.Thread):
         try:
@@ -234,7 +238,9 @@ async def _resume_one(bot, live: MatchDetail, matches, moves_repo, registry) -> 
             header_message = await _fetch_message(thread, live.header_message_id)
 
     if skip_reason is not None:
-        log.info("Skipping resume of match %s (%s): %s", live.id, live.game_key, skip_reason)
+        log.info(
+            "Skipping resume of match %s (%s): %s", live.id, live.game_key, skip_reason
+        )
         await abandon_unresumed(bot, matches, live, stored_moves, thread=thread)
         return
 
@@ -295,7 +301,9 @@ async def _resume_one(bot, live: MatchDetail, matches, moves_repo, registry) -> 
             channel = None
         lobby_message = await _fetch_message(channel, live.lobby_message_id)
         if lobby_message is not None:
-            lobby_surface = ViewSurface(bot.lobby.compiler, prefix=P.LOBBY_JOIN, resource_id=thread.id)
+            lobby_surface = ViewSurface(
+                bot.lobby.compiler, prefix=P.LOBBY_JOIN, resource_id=thread.id
+            )
             lobby_surface.bind(lobby_message)
 
     session = GameSession(
@@ -338,7 +346,11 @@ async def _resume_one(bot, live: MatchDetail, matches, moves_repo, registry) -> 
             await bot.sessions.drop_game(session.thread_id)
             for player in session.players:
                 if player.user_id:
-                    await bot.sessions.release_user(player.user_id, thread_id=session.thread_id)
+                    await bot.sessions.release_user(
+                        player.user_id, thread_id=session.thread_id
+                    )
         except Exception:
-            log.exception("Failed to release occupancy after resume failure %s", live.id)
+            log.exception(
+                "Failed to release occupancy after resume failure %s", live.id
+            )
         await abandon_unresumed(bot, matches, live, stored_moves, thread=thread)

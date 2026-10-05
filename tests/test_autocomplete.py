@@ -17,7 +17,13 @@ from strife.commands.autocomplete import (
     replay_match_choices_or_notice,
 )
 from strife.config.text import TextConfig, load_text_config
-from strife.engine.metadata import BotSpec, GameMetadata, OptionType, PlayerCount, SettingOption
+from strife.engine.metadata import (
+    BotSpec,
+    GameMetadata,
+    OptionType,
+    PlayerCount,
+    SettingOption,
+)
 from strife.games.coup import META as COUP_META
 from strife.matchmaking.lobby import Lobby, LobbyMember, QueuedBot
 
@@ -230,13 +236,17 @@ def test_replay_filter_miss_stays_empty() -> None:
 
 
 def test_play_autocomplete_explains_when_no_games() -> None:
-    choices = catalog_game_choices([], "", _text(), empty_key="autocomplete.no_enabled_games")
+    choices = catalog_game_choices(
+        [], "", _text(), empty_key="autocomplete.no_enabled_games"
+    )
     assert len(choices) == 1
     assert "enabled" in choices[0].name.lower()
 
 
 def test_play_autocomplete_lists_games() -> None:
-    choices = catalog_game_choices([COUP_META], "", _text(), empty_key="autocomplete.no_enabled_games")
+    choices = catalog_game_choices(
+        [COUP_META], "", _text(), empty_key="autocomplete.no_enabled_games"
+    )
     assert [choice.value for choice in choices] == ["coup"]
 
 

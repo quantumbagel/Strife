@@ -6,7 +6,13 @@ import random
 from strife.engine.players import Move, Player
 from strife.matchmaking.lobby import Lobby, LobbyMember
 from strife.matchmaking.registries import SessionRegistries, UserLocation
-from strife.presentation.components import ActionRow, Button, Container, LayoutView, query_sources
+from strife.presentation.components import (
+    ActionRow,
+    Button,
+    Container,
+    LayoutView,
+    query_sources,
+)
 from strife.routing.cache import InMemoryPayloadCache
 from strife.session.context import LiveContext
 from strife.session.types import PendingInput

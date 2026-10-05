@@ -27,7 +27,9 @@ def load_emoji_config(path: Path) -> EmojiConfig:
         data = yaml.safe_load(fh) or {}
     entries = {
         name: EmojiEntry(
-            fallback=str(entry["fallback"]) if entry.get("fallback") is not None else None,
+            fallback=str(entry["fallback"])
+            if entry.get("fallback") is not None
+            else None,
             id=int(entry["id"]) if entry.get("id") is not None else None,
             animated=bool(entry.get("animated", False)),
         )

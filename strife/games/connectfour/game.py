@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from strife.engine import BotRequest, GameContext, GameOutcome, Move, Result, TurnBasedGame, run_cpu
+from strife.engine import (
+    BotRequest,
+    GameContext,
+    GameOutcome,
+    Move,
+    Result,
+    TurnBasedGame,
+    run_cpu,
+)
 from strife.games.connectfour.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -134,7 +142,9 @@ class ConnectFour(TurnBasedGame):
                     player_descriptions={0: "Draw", 1: "Draw"},
                 )
 
-    async def final_view(self, ctx: GameContext, outcome: GameOutcome) -> LayoutView | None:
+    async def final_view(
+        self, ctx: GameContext, outcome: GameOutcome
+    ) -> LayoutView | None:
         summary = outcome.summary or {}
         winner_seat = summary.get("winner")
         line = summary.get("line")
