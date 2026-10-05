@@ -81,9 +81,9 @@ class AdminCommands(commands.Cog):
                 try:
                     await message.add_reaction(default_fallback)
                     return default_fallback
-                except Exception:
+                except Exception:  # noqa: BLE001, S110
                     pass
-        except Exception:
+        except Exception:  # noqa: BLE001, S110
             pass
         return None
 
@@ -113,14 +113,14 @@ class AdminCommands(commands.Cog):
             if added_loading:
                 try:
                     await message.remove_reaction(added_loading, self.bot.user)
-                except Exception:
+                except Exception:  # noqa: BLE001, S110
                     pass
             await self._add_reaction_with_fallback(message, "success", "✅")
         except PluginError as exc:
             if added_loading:
                 try:
                     await message.remove_reaction(added_loading, self.bot.user)
-                except Exception:
+                except Exception:  # noqa: BLE001, S110
                     pass
             await self._add_reaction_with_fallback(message, "error", "❌")
             await message.reply(str(exc)[:1900])
@@ -129,7 +129,7 @@ class AdminCommands(commands.Cog):
             if added_loading:
                 try:
                     await message.remove_reaction(added_loading, self.bot.user)
-                except Exception:
+                except Exception:  # noqa: BLE001, S110
                     pass
             await self._add_reaction_with_fallback(message, "error", "❌")
             try:
@@ -303,7 +303,7 @@ class AdminCommands(commands.Cog):
             remove_slash_group_for_game(self.bot.tree, key)
             try:
                 await asyncio.to_thread(manager.rollback_install, key)
-            except Exception as rb_exc:
+            except Exception as rb_exc:  # noqa: BLE001
                 raise PluginError(
                     f"**{key}** was installed but failed to load: {exc}\n"
                     f"Rolling back also failed ({rb_exc}); run `strife/uninstall {key} confirm`."
@@ -642,7 +642,7 @@ async def _stop_live(bot, game_key: str) -> tuple[int, int]:
                     await asyncio.wait_for(
                         asyncio.shield(task), timeout=_STOP_LIVE_WAIT_SECONDS
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001
                     log.warning(
                         "Session %s still finishing while uninstalling %s",
                         session.id,

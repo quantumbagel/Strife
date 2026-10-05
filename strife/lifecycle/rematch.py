@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 import discord
 
 from strife.config.text import TextConfig
-from strife.session.errors import SessionError
 from strife.lifecycle.results import build_results_view, rematch_eligible
 from strife.logging import get_logger
 from strife.matchmaking.lobby import Lobby, LobbyMember, QueuedBot
@@ -16,6 +15,7 @@ from strife.matchmaking.lobby_view import build_lobby_view
 from strife.matchmaking.registries import SessionRegistries, UserLocation
 from strife.presentation.message import ViewSurface
 from strife.routing import prefixes as P
+from strife.session.errors import SessionError
 
 log = get_logger("lifecycle.rematch")
 

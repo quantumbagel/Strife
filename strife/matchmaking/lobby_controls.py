@@ -3,11 +3,11 @@ from __future__ import annotations
 import discord
 
 from strife.engine.metadata import OptionType
-from strife.presentation.settings import int_setting_bounds
 from strife.matchmaking.lobby import Lobby, LobbyGone
 from strife.matchmaking.settings_view import build_settings_view, normalize_settings_tab
 from strife.presentation.compiler import LayoutError
 from strife.presentation.modals import IntRangeModal
+from strife.presentation.settings import int_setting_bounds
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route
 

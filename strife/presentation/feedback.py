@@ -127,5 +127,5 @@ async def disable_feedback_actions(interaction: discord.Interaction) -> None:
             await interaction.response.edit_message(view=view)
         else:
             await interaction.message.edit(view=view)
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass

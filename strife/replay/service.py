@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-import time
 import asyncio
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
 
 import discord
 
 from strife.config.text import TextConfig
+from strife.engine.log import LOG_FORMAT
+from strife.engine.players import Player
+from strife.engine.registry import GameRegistry
+from strife.engine.replay import ReplayDivergence, run_replay
 from strife.logging import get_logger
 from strife.persistence.repositories import (
     MatchDetail,
@@ -16,12 +20,8 @@ from strife.persistence.repositories import (
 )
 from strife.presentation.compiler import Compiler
 from strife.presentation.emoji import EmojiResolver
-from strife.presentation.user_error import UserErrorPresenter
 from strife.presentation.modals import PageJumpModal, edit_pager_message
-from strife.engine.log import LOG_FORMAT
-from strife.engine.players import Player
-from strife.engine.registry import GameRegistry
-from strife.engine.replay import ReplayDivergence, run_replay
+from strife.presentation.user_error import UserErrorPresenter
 from strife.replay.view import build_replay_view
 from strife.routing import prefixes as P
 
@@ -252,11 +252,10 @@ class ReplayService:
                 raise
             except ReplayDivergence as exc:
                 log.exception(
-                    "Replay divergence for match %s (game=%s, moves=%d): %s",
+                    "Replay divergence for match %s (game=%s, moves=%d)",
                     match_id,
                     detail.game_key,
                     len(move_records),
-                    exc,
                 )
                 raise ReplayLoadError(
                     match_id,

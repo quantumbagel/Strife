@@ -9,7 +9,6 @@ from strife.engine.context import GameContext
 from strife.engine.game import Game
 from strife.engine.outcomes import forfeit_outcome
 from strife.engine.players import GameOutcome, Move, Player, Result
-from strife.presentation.game_ui import message_lead
 from strife.presentation.components import (
     ActionRow,
     Align,
@@ -28,6 +27,7 @@ from strife.presentation.components import (
     TextDisplay,
     TextSize,
 )
+from strife.presentation.game_ui import message_lead
 
 
 class TestGame(Game):
@@ -35,7 +35,7 @@ class TestGame(Game):
         self, players: list[Player], settings: Mapping[str, Any], rng: random.Random
     ):
         super().__init__(players, settings, rng)
-        self.alive = set(p.seat for p in players)
+        self.alive = {p.seat for p in players}
         self.phase = 1
         self.last_interacted_source: str | None = None
         self.last_interacted_args: dict | None = None
@@ -339,7 +339,7 @@ class TestGame(Game):
             if not self.alive:
                 return self._forfeit_result(min(self.removed_players))
             view = self._phase1_view(ctx)
-            actor = sorted(self.alive)[0]
+            actor = min(self.alive)
             move = await ctx.request_input(
                 view,
                 actor=actor,
@@ -449,7 +449,7 @@ class TestGame(Game):
         view = self._phase4_view(ctx)
         if not self.alive:
             return self._forfeit_result(min(self.removed_players))
-        actor = sorted(self.alive)[0]
+        actor = min(self.alive)
         move = await ctx.request_input(view, actor=actor, sources={"btn_finish"})
 
         results = {}

@@ -3,8 +3,8 @@ from __future__ import annotations
 from strife.engine import BotRequest, Interrupt
 from strife.engine.context import GameContext
 from strife.engine.game import Game
-from strife.engine.workers import run_cpu
 from strife.engine.players import GameOutcome, Move, Result
+from strife.engine.workers import run_cpu
 from strife.games.liars_dice.bot import choose_move
 from strife.presentation.components import (
     ActionRow,

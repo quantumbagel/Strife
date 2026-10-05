@@ -3,23 +3,23 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 import discord
 
-from strife.session.errors import SessionError
 from strife.engine.inputs import (
     check_timeout_consequence,
     make_bot_request,
     resolve_sources,
 )
-from strife.engine.requests import SeatPrompt, TimeoutConsequence
 from strife.engine.log import LogEntryKind
 from strife.engine.players import Move
+from strife.engine.requests import SeatPrompt, TimeoutConsequence
 from strife.presentation.components import LayoutView, default_form_values, form_fields
 from strife.routing.router import InteractionInput
-from strife.session.types import PendingInput, QUERY_TIMEOUT_SECONDS, log
+from strife.session.errors import SessionError
+from strife.session.types import QUERY_TIMEOUT_SECONDS, PendingInput, log
 
 _UNTIL_ANY_BOT_DELAY_SECONDS = 8.0
 
@@ -124,7 +124,7 @@ class SessionInputMixin:
                 actor_seat=seat,
                 source=inp.source,
                 args={**pending.form_values, **inp.args},
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
             )
             until = pending.until
             if self._accept_move(seat, move) is None:
@@ -166,7 +166,7 @@ class SessionInputMixin:
                 actor_seat=seat,
                 source=source,
                 args=move_args,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
             )
             if self._accept_move(seat, move) is None:
                 raise SessionError("cannot_act")
@@ -188,7 +188,7 @@ class SessionInputMixin:
                 self.game.handle_query(seat, source, self.ctx),
                 timeout=QUERY_TIMEOUT_SECONDS,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             log.exception(
                 "Error or timeout in handle_query for game %s (match_id: %s)",
                 self.game_key,
@@ -282,7 +282,7 @@ class SessionInputMixin:
                 move = await self.game.bot_move(request)
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception:  # noqa: BLE001
                 log.exception("Bot move failed for seat %s", actor)
                 move = _system_timeout_move(actor)
             await self._update_surface(view)
@@ -363,7 +363,7 @@ class SessionInputMixin:
                 move = await self.game.bot_move(request)
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception:  # noqa: BLE001
                 log.exception("until=any bot move failed")
                 async with self.lock:
                     logged = self.log.system(
@@ -522,7 +522,7 @@ class SessionInputMixin:
                 move = await self.game.bot_move(request)
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception:  # noqa: BLE001
                 log.exception("Bot move failed for seat %s", seat)
                 move = _system_timeout_move(seat)
             async with self.lock:

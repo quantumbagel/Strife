@@ -3,14 +3,14 @@ from __future__ import annotations
 from strife import __platform_version__, __version__
 from strife.config.text import TextConfig
 from strife.presentation.components import (
-    LayoutView,
-    Container,
-    Separator,
-    TextDisplay,
-    TextSize,
     ActionRow,
     Button,
     ButtonStyle,
+    Container,
+    LayoutView,
+    Separator,
+    TextDisplay,
+    TextSize,
 )
 from strife.presentation.emoji import EmojiResolver
 from strife.routing import prefixes as P

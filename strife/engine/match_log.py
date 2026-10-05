@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from strife.engine.log import SYSTEM_SOURCES, LogEntryKind, reject_system_source
 from strife.engine.players import Move
@@ -29,7 +29,7 @@ class MatchLog:
         kind: LogEntryKind,
         created_at: datetime | None = None,
     ) -> Move:
-        stamped = created_at or datetime.now(timezone.utc)
+        stamped = created_at or datetime.now(UTC)
         logged = Move(
             actor_seat=actor_seat,
             source=source,
@@ -58,7 +58,7 @@ class MatchLog:
             if move.kind == LogEntryKind.SYSTEM or move.source in SYSTEM_SOURCES
             else LogEntryKind.GAME
         )
-        stamped = move.created_at or datetime.now(timezone.utc)
+        stamped = move.created_at or datetime.now(UTC)
         if move.created_at is None:
             move.created_at = stamped
         return self._append(

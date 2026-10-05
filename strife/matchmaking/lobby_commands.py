@@ -3,15 +3,14 @@ from __future__ import annotations
 import discord
 
 from strife.engine.metadata import OptionType
-from strife.presentation.settings import int_setting_bounds
 from strife.matchmaking.lobby import (
-    Lobby,
     LobbyGone,
     QueuedBot,
     allocate_bot_name,
     lobby_action,
 )
 from strife.presentation.roster import bot_label
+from strife.presentation.settings import int_setting_bounds
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route
 
@@ -40,9 +39,11 @@ class LobbyCommandsMixin:
     async def leave_current(self, interaction: discord.Interaction) -> None:
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
-        if self.registries.location_of(interaction.user.id) is None:
-            if await self._withdraw_pending_requests(interaction):
-                return
+        if (
+            self.registries.location_of(interaction.user.id) is None
+            and await self._withdraw_pending_requests(interaction)
+        ):
+            return
         lobby = await self._require_caller_lobby(
             interaction, require_channel_access=False
         )
@@ -337,12 +338,11 @@ class LobbyCommandsMixin:
                 await self._error(interaction, "errors.no_pending_request", lobby=lobby)
                 await self._refresh(lobby, interaction)
                 return
-            if not self._is_lobby_member(lobby, user_id):
-                if not await self._seat_member(
-                    lobby, user_id, display_name, interaction
-                ):
-                    await self._refresh(lobby, interaction)
-                    return
+            if not self._is_lobby_member(lobby, user_id) and not await self._seat_member(
+                lobby, user_id, display_name, interaction
+            ):
+                await self._refresh(lobby, interaction)
+                return
             lobby.pending_requests.pop(user_id, None)
             lobby.approved.add(user_id)
             lobby.denied.discard(user_id)

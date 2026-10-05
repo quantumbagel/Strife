@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -21,7 +21,6 @@ from strife.lifecycle.timeout import (
 )
 from strife.matchmaking.finalizer import SessionFinalizer
 from strife.matchmaking.registries import SessionRegistries, UserLocation
-
 from tests.test_registries import _FakeSession
 
 
@@ -141,7 +140,7 @@ def test_chess_illegal_attempt_consumes_clock_without_increment() -> None:
     game = Chess(
         players, {"clock_minutes": 1, "increment_seconds": 5}, random.Random(0)
     )
-    start = datetime(2020, 1, 1, tzinfo=timezone.utc).replace(tzinfo=None)
+    start = datetime(2020, 1, 1, tzinfo=UTC).replace(tzinfo=None)
     game.last_move_time = start
     move = Move(
         actor_seat=0,

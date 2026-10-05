@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 import discord
 
 from strife.engine.log import LogEntryKind
@@ -64,7 +65,7 @@ class SessionLifecycleMixin:
         if match_id is not None:
             try:
                 await self._finalizer.append_moves(match_id, list(self.log.entries))
-            except Exception:
+            except Exception:  # noqa: BLE001
                 log.exception(
                     "Failed to re-append in-memory log for thread %s on pause",
                     self.thread_id,
@@ -116,7 +117,7 @@ class SessionLifecycleMixin:
                     if m.kind == LogEntryKind.GAME and m.actor_seat is not None
                 ),
                 started_at=self._started_at,
-                ended_at=datetime.now(timezone.utc),
+                ended_at=datetime.now(UTC),
                 match_id=self._match_id,
                 game_version=self.game_version,
                 board_message_id=self.surface.message_id,
@@ -154,7 +155,7 @@ class SessionLifecycleMixin:
 
             try:
                 await self._stop_writer()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 log.exception("Failed to flush moves for thread %s", self.thread_id)
             match_id, code = 0, self._match_code or ""
             delays = (1.0, 3.0, 9.0)
@@ -163,7 +164,7 @@ class SessionLifecycleMixin:
                     match_id, code = await self._finalizer.finish(finished, outcome)
                     persist_ok = True
                     break
-                except Exception:
+                except Exception:  # noqa: BLE001
                     log.exception(
                         "Failed to persist match for thread %s (attempt %s/3)",
                         self.thread_id,
@@ -178,7 +179,7 @@ class SessionLifecycleMixin:
                     self._finalizer.notify_match_end(
                         self.thread_id, match_id, outcome, self.players
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001
                     log.exception(
                         "Failed to register rematch offer for thread %s", self.thread_id
                     )
@@ -197,7 +198,7 @@ class SessionLifecycleMixin:
                     await self._update_surface(final)
                 else:
                     await self.surface.disable_all()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 log.exception("Failed to update game surface on finalize")
 
             if self.header_surface is not None:
@@ -210,7 +211,7 @@ class SessionLifecycleMixin:
                         owner_ids=self._owner_ids(),
                     )
                     await self.header_surface.update(finished_view)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     log.exception(
                         "Failed to update game thread header message to finished"
                     )
@@ -236,7 +237,7 @@ class SessionLifecycleMixin:
                 )
                 if hasattr(self, "lobby_surface") and self.lobby_surface is not None:
                     await self.lobby_surface.update(results_view)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 log.exception("Failed to update results view on finalize")
 
             if persist_ok and self._bot:
@@ -244,12 +245,12 @@ class SessionLifecycleMixin:
                 if not thread:
                     try:
                         thread = await self._bot.fetch_channel(self.thread_id)
-                    except Exception:
+                    except Exception:  # noqa: BLE001, S110
                         pass
                 if isinstance(thread, discord.Thread):
                     try:
                         await thread.edit(locked=True)
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         log.exception("Failed to lock game thread %s", self.thread_id)
         finally:
             encoder = getattr(self.surface.compiler, "encoder", None)

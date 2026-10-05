@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 from strife.engine import BotRequest, Interrupt
 from strife.engine.context import GameContext
 from strife.engine.game import Game
 from strife.engine.outcomes import forfeit_outcome
-from strife.engine.workers import run_cpu
 from strife.engine.players import GameOutcome, Move, Result
+from strife.engine.workers import run_cpu
 from strife.games.spyfall.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -22,7 +24,7 @@ from strife.presentation.style import add_body, add_section, history_block
 
 
 class Spyfall(Game):
-    LOCATIONS = [
+    LOCATIONS: ClassVar[list[str]] = [
         "Airplane",
         "Bank",
         "Beach",

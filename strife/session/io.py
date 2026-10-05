@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
 import time
+from typing import Any
 
 import discord
 
 from strife.lifecycle.timeout import timeout_consequence
 from strife.presentation.components import LayoutView
-from strife.session.header import build_game_thread_header_view
 from strife.presentation.message import ViewSurface, to_discord_files
+from strife.session.header import build_game_thread_header_view
 from strife.session.types import log
 
 _THREAD_ARCHIVED_CODE = 50083
@@ -59,7 +59,7 @@ class SessionIOMixin:
         if thread is None:
             try:
                 thread = await self._bot.fetch_channel(self.thread_id)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 return None
         return thread if isinstance(thread, discord.Thread) else None
 
@@ -141,7 +141,7 @@ class SessionIOMixin:
         try:
             await self._finalizer.set_board_message(self._match_id, message_id)
             self._board_message_saved = True
-        except Exception:
+        except Exception:  # noqa: BLE001
             log.exception(
                 "Failed to persist board message for thread %s", self.thread_id
             )
@@ -226,7 +226,7 @@ class SessionIOMixin:
                 timeout_consequence=timeout_consequence_text,
             )
             await self.header_surface.update(view)
-        except Exception:
+        except Exception:  # noqa: BLE001
             log.exception("Failed to update game thread header message")
 
     async def _send_private(self, seat: int, view: LayoutView) -> None:

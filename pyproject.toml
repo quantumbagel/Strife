@@ -33,3 +33,6 @@ include = ["strife*"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff.lint.per-file-ignores]
+"templates/game-plugin/__init__.py" = ["N999"]

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import random
+from datetime import UTC
+
 import chess
 import chess.svg
 import chess.variant
@@ -10,10 +12,8 @@ import resvg_py
 from strife.engine import (
     BotRequest,
     BotSpec,
-    TimeoutConsequence,
     GameContext,
     GameOutcome,
-    Result,
     Move,
     MoveParam,
     OptionType,
@@ -21,13 +21,14 @@ from strife.engine import (
     Player,
     PlayerCount,
     PlayerOrder,
+    Result,
     SettingOption,
     SlashMove,
+    TimeoutConsequence,
     TurnBasedGame,
     game_metadata_from,
     run_cpu,
 )
-from datetime import timezone
 from strife.presentation.components import (
     Container,
     LayoutView,
@@ -37,7 +38,6 @@ from strife.presentation.components import (
 )
 from strife.presentation.game_ui import game_container
 from strife.presentation.style import add_meta
-
 
 VARIANT_STANDARD = "standard"
 VARIANT_CHESS960 = "chess960"
@@ -292,8 +292,7 @@ class Chess(TurnBasedGame):
         self.last_move_time = None
 
     def _format_time(self, seconds: float) -> str:
-        if seconds < 0:
-            seconds = 0
+        seconds = max(seconds, 0)
         mins = int(seconds // 60)
         secs = int(seconds % 60)
         return f"{mins:02d}:{secs:02d}"
@@ -322,9 +321,9 @@ class Chess(TurnBasedGame):
             t1 = self.last_move_time
             t2 = move.created_at
             if t1.tzinfo is not None:
-                t1 = t1.astimezone(timezone.utc).replace(tzinfo=None)
+                t1 = t1.astimezone(UTC).replace(tzinfo=None)
             if t2.tzinfo is not None:
-                t2 = t2.astimezone(timezone.utc).replace(tzinfo=None)
+                t2 = t2.astimezone(UTC).replace(tzinfo=None)
             elapsed = (t2 - t1).total_seconds()
             self.clocks[move.actor_seat] = max(
                 0.0, self.clocks[move.actor_seat] - elapsed
@@ -332,7 +331,7 @@ class Chess(TurnBasedGame):
         if move.created_at is not None:
             stamped = move.created_at
             if stamped.tzinfo is not None:
-                stamped = stamped.astimezone(timezone.utc).replace(tzinfo=None)
+                stamped = stamped.astimezone(UTC).replace(tzinfo=None)
             self.last_move_time = stamped
 
     def _tick_clock(self, move: Move) -> None:
@@ -357,18 +356,19 @@ class Chess(TurnBasedGame):
             self.time_control_active
             and move.source == "game_end"
             and move.args.get("reason") == "timeout"
+            and self.last_move_time is not None
+            and move.created_at is not None
         ):
-            if self.last_move_time is not None and move.created_at is not None:
-                t1 = self.last_move_time
-                t2 = move.created_at
-                if t1.tzinfo is not None:
-                    t1 = t1.astimezone(timezone.utc).replace(tzinfo=None)
-                if t2.tzinfo is not None:
-                    t2 = t2.astimezone(timezone.utc).replace(tzinfo=None)
-                elapsed = (t2 - t1).total_seconds()
+            t1 = self.last_move_time
+            t2 = move.created_at
+            if t1.tzinfo is not None:
+                t1 = t1.astimezone(UTC).replace(tzinfo=None)
+            if t2.tzinfo is not None:
+                t2 = t2.astimezone(UTC).replace(tzinfo=None)
+            elapsed = (t2 - t1).total_seconds()
 
-                actor = self.current
-                self.clocks[actor] = max(0.0, self.clocks[actor] - elapsed)
+            actor = self.current
+            self.clocks[actor] = max(0.0, self.clocks[actor] - elapsed)
 
     def replay_label(self) -> str | None:
         n = len(self.board.move_stack)
@@ -432,7 +432,7 @@ class Chess(TurnBasedGame):
         ):
             stamped = ctx.started_at
             if stamped.tzinfo is not None:
-                stamped = stamped.astimezone(timezone.utc).replace(tzinfo=None)
+                stamped = stamped.astimezone(UTC).replace(tzinfo=None)
             self.last_move_time = stamped
 
         while True:

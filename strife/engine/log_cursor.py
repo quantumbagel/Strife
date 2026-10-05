@@ -165,10 +165,14 @@ class LogCursor:
             raise LogEnded()
         move = self.peek()
         assert move is not None
-        if move.is_system and move.source == "timeout" and move.actor_seat is None:
-            if move.args.get("until") == "any":
-                self.consume()
-                return {}
+        if (
+            move.is_system
+            and move.source == "timeout"
+            and move.actor_seat is None
+            and move.args.get("until") == "any"
+        ):
+            self.consume()
+            return {}
         for seat in actors:
             if self.matches_input(move, seat):
                 return {seat: self.consume_answer_row(seat)}

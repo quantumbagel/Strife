@@ -26,12 +26,11 @@ from strife.engine.log_cursor import (
 )
 from strife.engine.match_log import MatchLog
 from strife.engine.players import Move
-from strife.logging import get_logger
 from strife.engine.requests import SeatPrompt, TimeoutConsequence
 from strife.engine.seat_events import apply_seat_event, is_seat_event
+from strife.logging import get_logger
 from strife.presentation.components import LayoutView, default_form_values, form_fields
 from strife.presentation.emoji import EmojiResolver
-
 
 log = get_logger("engine.testing")
 
@@ -232,7 +231,7 @@ class MockContext:
             move = Move(actor_seat=actor, source=source, args=args)
             try:
                 self._check_form(view, move)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 print(f"Invalid form args: {exc}")
                 continue
             return move

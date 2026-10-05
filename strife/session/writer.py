@@ -49,7 +49,7 @@ class MoveWriter:
         if not self._failed:
             try:
                 await asyncio.wait_for(self._queue.join(), timeout=timeout)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 log.warning(
                     "Timed out draining move writer for match %s",
                     self._match_id,

@@ -84,7 +84,7 @@ def has_game_entry(path: Path, key: str) -> bool:
     """True when ``games.<key>`` exists as a mapping. False when the file is absent."""
     if not path.exists():
         return False
-    data, games = _read_games(path)
+    _data, games = _read_games(path)
     return isinstance(games.get(key), dict)
 
 

@@ -8,13 +8,13 @@ from discord import app_commands
 
 from strife.commands.autocomplete import notice_choices
 from strife.config.games import GamesConfig
-from strife.session.errors import SessionError
 from strife.engine.metadata import MoveParam, ParamType, SlashMove
 from strife.engine.registry import GameRegistry
 from strife.logging import get_logger
 from strife.matchmaking.registries import SessionRegistries
 from strife.presentation.user_error import UserErrorPresenter
 from strife.presentation.user_success import UserSuccessPresenter
+from strife.session.errors import SessionError
 
 log = get_logger("commands.game")
 

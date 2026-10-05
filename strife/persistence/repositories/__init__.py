@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import asyncpg
@@ -208,20 +208,19 @@ class GuildRepository:
             )
 
     async def set_default_channel(self, guild_id: int, channel_id: int) -> None:
-        async with self._pool.acquire() as conn:
-            async with conn.transaction():
-                await conn.execute(
-                    """
-                    INSERT INTO guilds(guild_id) VALUES($1)
-                    ON CONFLICT (guild_id) DO UPDATE SET updated_at = now()
-                    """,
-                    guild_id,
-                )
-                await conn.execute(
-                    "UPDATE guilds SET default_channel_id = $2, updated_at = now() WHERE guild_id = $1",
-                    guild_id,
-                    channel_id,
-                )
+        async with self._pool.acquire() as conn, conn.transaction():
+            await conn.execute(
+                """
+                INSERT INTO guilds(guild_id) VALUES($1)
+                ON CONFLICT (guild_id) DO UPDATE SET updated_at = now()
+                """,
+                guild_id,
+            )
+            await conn.execute(
+                "UPDATE guilds SET default_channel_id = $2, updated_at = now() WHERE guild_id = $1",
+                guild_id,
+                channel_id,
+            )
 
     async def clear_default_channel(self, guild_id: int) -> None:
         async with self._pool.acquire() as conn:
@@ -319,7 +318,7 @@ class MatchRepository:
                     move.source,
                     move.args,
                     move.kind.value,
-                    move.created_at or datetime.now(timezone.utc),
+                    move.created_at or datetime.now(UTC),
                 )
                 for move in moves
             ],
@@ -441,16 +440,15 @@ class MatchRepository:
     async def append_moves(self, match_id: int, moves: list[MoveRecord]) -> None:
         if not moves:
             return
-        async with self._pool.acquire() as conn:
-            async with conn.transaction():
-                row = await conn.fetchrow(
-                    "SELECT status FROM matches WHERE id = $1 FOR UPDATE",
-                    match_id,
-                )
-                if row is None or row["status"] != "live":
-                    raise MatchNotLive(match_id, None if row is None else row["status"])
-                await self._insert_moves(conn, match_id, moves)
-                await self._reject_move_conflicts(conn, match_id, moves)
+        async with self._pool.acquire() as conn, conn.transaction():
+            row = await conn.fetchrow(
+                "SELECT status FROM matches WHERE id = $1 FOR UPDATE",
+                match_id,
+            )
+            if row is None or row["status"] != "live":
+                raise MatchNotLive(match_id, None if row is None else row["status"])
+            await self._insert_moves(conn, match_id, moves)
+            await self._reject_move_conflicts(conn, match_id, moves)
 
     async def set_board_message(self, match_id: int, board_message_id: int) -> None:
         async with self._pool.acquire() as conn:
@@ -502,7 +500,7 @@ class MatchRepository:
                     record.status,
                     record.outcome,
                     record.total_turns,
-                    record.ended_at or datetime.now(timezone.utc),
+                    record.ended_at or datetime.now(UTC),
                 )
                 if row is None:
                     raise RuntimeError(
@@ -844,9 +842,8 @@ class UserRepository:
         if conn is not None:
             await _write(conn)
             return
-        async with self._pool.acquire() as owned:
-            async with owned.transaction():
-                await _write(owned)
+        async with self._pool.acquire() as owned, owned.transaction():
+            await _write(owned)
 
     async def get_stats(
         self, user_id: int, game_key: str | None, *, guild_id: int

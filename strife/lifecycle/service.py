@@ -6,7 +6,6 @@ import time
 import discord
 
 from strife.config.text import TextConfig
-from strife.session.errors import SessionError
 from strife.engine.inputs import timeout_auto_passes
 from strife.engine.log import LogEntryKind
 from strife.engine.players import Move
@@ -21,6 +20,7 @@ from strife.lifecycle.timeout import (
 from strife.logging import get_logger
 from strife.matchmaking.registries import SessionRegistries
 from strife.matchmaking.service import LobbyService
+from strife.session.errors import SessionError
 
 log = get_logger("lifecycle.service")
 
@@ -103,9 +103,7 @@ class LifecycleService:
         if session._finalized or session._ending or session._pausing:
             return False
         task = session.task
-        if task is not None and task.done():
-            return False
-        return True
+        return not (task is not None and task.done())
 
     @staticmethod
     def _timeout_pending_matches(session, seat: int, generation: int) -> bool:
@@ -229,7 +227,7 @@ class LifecycleService:
         if not thread:
             try:
                 thread = await self.bot.fetch_channel(session.thread_id)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 thread = None
         if thread is None:
             return
@@ -385,7 +383,7 @@ class LifecycleService:
             if not thread:
                 try:
                     thread = await self.bot.fetch_channel(session.thread_id)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     thread = None
 
             if thread is not None:

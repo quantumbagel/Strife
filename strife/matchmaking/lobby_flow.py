@@ -7,8 +7,6 @@ import secrets
 import discord
 
 from strife.engine.players import Player
-from strife.matchmaking.seating import order_players
-from strife.session import GameSession
 from strife.logging import get_logger
 from strife.matchmaking.lobby import (
     Lobby,
@@ -18,18 +16,19 @@ from strife.matchmaking.lobby import (
     lobby_action,
 )
 from strife.matchmaking.registries import UserLocation
+from strife.matchmaking.seating import order_players
 from strife.persistence.repositories import (
     LiveMatchStart,
     LiveThreadConflict,
     MatchPlayer,
     generate_match_code,
 )
-from strife.presentation.compiler import LayoutError
 from strife.presentation.components import Container, LayoutView, TextDisplay, TextSize
-from strife.session.header import build_game_thread_header_view
 from strife.presentation.message import ViewSurface
 from strife.routing import prefixes as P
 from strife.routing.custom_id import Route
+from strife.session import GameSession
+from strife.session.header import build_game_thread_header_view
 
 log = get_logger("matchmaking.service")
 
@@ -204,7 +203,7 @@ class LobbyFlowMixin:
             else:
                 await surface.send(interaction, view)
             lobby.message_id = surface.message_id
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             self.registries.remove_lobby(lobby_id)
             await self.registries.release_user(interaction.user.id)
             try:
@@ -273,9 +272,10 @@ class LobbyFlowMixin:
                 await interaction.response.defer(ephemeral=True, thinking=True)
             else:
                 await interaction.response.defer()
-        if route.prefix != P.LOBBY_LEAVE:
-            if not await self._check_lobby_channel_access(interaction, lobby):
-                return
+        if route.prefix != P.LOBBY_LEAVE and not await self._check_lobby_channel_access(
+            interaction, lobby
+        ):
+            return
         if route.prefix == P.LOBBY_APPROVE:
             values = interaction.data.get("values") if interaction.data else []
             if values:
@@ -659,7 +659,7 @@ class LobbyFlowMixin:
                     await interaction.response.edit_message(view=view)
                 else:
                     await interaction.message.edit(view=view)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 log.warning("Failed to disable leave button: %s", exc)
 
         if not lobby.members:
@@ -1177,7 +1177,7 @@ class LobbyFlowMixin:
                 emoji=self.emoji.get_game_emoji(meta.key),
             )
             await lobby.surface.update(view)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             log.warning("Failed to mark lobby %s closed: %s", lobby.thread_id, exc)
 
     def _on_requests_pruned(self, lobbies: list[Lobby]) -> None:
@@ -1200,7 +1200,7 @@ class LobbyFlowMixin:
                 await lobby.surface.update(
                     self._build_lobby_view(lobby, self._meta(lobby.game_key))
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 log.warning("Failed to refresh lobby %s card: %s", lobby.thread_id, exc)
 
     async def handle_message_deleted(self, message_id: int) -> None:

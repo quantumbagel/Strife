@@ -79,7 +79,7 @@ def game_class(module: types.ModuleType) -> type[Game] | None:
     """Return the package's ``GAME`` export, or ``None`` if it is missing."""
     if not hasattr(module, "GAME"):
         return None
-    obj = getattr(module, "GAME")
+    obj = module.GAME
     if not (isinstance(obj, type) and issubclass(obj, Game) and obj is not Game):
         raise PluginError(f"{module.__name__} GAME is not a Game subclass")
     if not hasattr(obj, "metadata") or obj.metadata is None:

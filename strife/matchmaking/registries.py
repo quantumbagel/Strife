@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 from strife.logging import get_logger
-from strife.session import GameSession
 from strife.matchmaking.lobby import Lobby
+from strife.session import GameSession
 
 log = get_logger("matchmaking.registries")
 
@@ -43,9 +43,11 @@ class SessionRegistries:
         """Drop the user's join requests: they are seated now, so the requests are stale."""
         pruned: list[Lobby] = []
         for lobby in self.lobbies.values():
-            if lobby.pending_requests.pop(user_id, None) is not None:
-                if lobby.lobby_id != keep_lobby_id:
-                    pruned.append(lobby)
+            if (
+                lobby.pending_requests.pop(user_id, None) is not None
+                and lobby.lobby_id != keep_lobby_id
+            ):
+                pruned.append(lobby)
         return pruned
 
     async def release_user(self, user_id: int, *, thread_id: int | None = None) -> None:

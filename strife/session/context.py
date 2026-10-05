@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import datetime
-from typing import Any, Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 from weakref import WeakKeyDictionary
-import time
 
 from strife.engine.log_cursor import LogCursor, LogEnded
 from strife.engine.players import Move

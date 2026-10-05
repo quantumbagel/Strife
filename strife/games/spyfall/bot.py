@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+
 from strife.engine.players import Move
 
 if TYPE_CHECKING:

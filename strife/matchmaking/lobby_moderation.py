@@ -3,7 +3,6 @@ from __future__ import annotations
 import discord
 
 from strife.matchmaking.lobby import Lobby, QueuedBot, allocate_bot_name
-from strife.presentation.roster import bot_label
 from strife.routing.custom_id import Route
 
 
@@ -30,12 +29,11 @@ class LobbyModerationMixin:
                 await self._error(interaction, "errors.blacklisted", lobby=lobby)
                 return
             display_name = lobby.pending_requests[target_id]
-            if not self._is_lobby_member(lobby, target_id):
-                if not await self._seat_member(
-                    lobby, target_id, display_name, interaction
-                ):
-                    await self._refresh(lobby, interaction)
-                    return
+            if not self._is_lobby_member(lobby, target_id) and not await self._seat_member(
+                lobby, target_id, display_name, interaction
+            ):
+                await self._refresh(lobby, interaction)
+                return
             lobby.pending_requests.pop(target_id, None)
             lobby.approved.add(target_id)
             lobby.denied.discard(target_id)

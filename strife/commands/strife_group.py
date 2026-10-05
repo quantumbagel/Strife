@@ -19,13 +19,13 @@ from strife.commands.autocomplete import (
 )
 from strife.commands.catalog import CatalogService
 from strife.commands.server_settings import ServerSettingsService
-from strife.session.errors import SessionError
 from strife.lifecycle.service import LifecycleService
 from strife.logging import get_logger
 from strife.matchmaking.service import LobbyService
 from strife.presentation.user_error import ErrorContext
 from strife.replay.profile import ProfileService
 from strife.replay.service import ReplayService
+from strife.session.errors import SessionError
 
 log = get_logger("commands.strife")
 

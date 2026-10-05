@@ -4,7 +4,6 @@ Utility script to properly convert PNG images to WebP format and clean up origin
 """
 
 import argparse
-import os
 import shutil
 import subprocess
 import sys
@@ -44,7 +43,7 @@ def convert_with_cwebp(cwebp_path, input_path, output_path, lossless, quality):
     cmd.extend([str(input_path), "-o", str(output_path)])
 
     # Run silently
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    result = subprocess.run(cmd, capture_output=True, check=False)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.decode().strip())
 
@@ -116,13 +115,13 @@ def process_file(input_path, lossless, quality, keep_original, dry_run, cwebp_pa
             "new_size": new_size,
             "cleaned": cleaned,
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"    [-] Failed to convert: {e}")
         # Clean up partial output if any
         if output_path.exists():
             try:
                 output_path.unlink()
-            except Exception:
+            except Exception:  # noqa: BLE001, S110
                 pass
         return None
 
@@ -206,7 +205,7 @@ def main():
                     png_files.append(p)
 
     # Deduplicate and sort
-    png_files = sorted(list(set(png_files)))
+    png_files = sorted(set(png_files))
 
     if not png_files:
         print("[*] No PNG files found to convert.")

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import discord
 
@@ -13,8 +13,8 @@ from strife.logging import get_logger
 from strife.persistence.repositories import FinishedMatch, MatchDetail
 from strife.presentation.message import ViewSurface
 from strife.routing import prefixes as P
-from strife.session.header import build_game_thread_header_view
 from strife.session import GameSession
+from strife.session.header import build_game_thread_header_view
 
 log = get_logger("session.resume")
 
@@ -122,7 +122,7 @@ async def abandon_unresumed(
         args={"reason": "interrupted", "cancelled": True},
         kind=LogEntryKind.SYSTEM,
         turn_index=next_index,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     finished = FinishedMatch(
         code=live.code,
@@ -141,7 +141,7 @@ async def abandon_unresumed(
         players=list(live.players),
         moves=[*moves, game_end],
         started_at=live.started_at,
-        ended_at=datetime.now(timezone.utc),
+        ended_at=datetime.now(UTC),
         match_id=live.id,
         game_version=live.game_version,
         board_message_id=live.board_message_id,
@@ -297,7 +297,7 @@ async def _resume_one(bot, live: MatchDetail, matches, moves_repo, registry) -> 
             channel = bot.get_channel(live.lobby_channel_id) or await bot.fetch_channel(
                 live.lobby_channel_id
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             channel = None
         lobby_message = await _fetch_message(channel, live.lobby_message_id)
         if lobby_message is not None:

@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-
 from dataclasses import dataclass
 
 import discord
 
 from strife.config.text import TextConfig
 from strife.logging import get_logger
-from strife.routing import prefixes as P
-from strife.session.errors import SessionError
-from strife.routing.custom_id import CustomIdEncoder, CustomIdError, PayloadExpired
 from strife.presentation.feedback import disable_feedback_actions
 from strife.presentation.user_error import ErrorContext, UserErrorPresenter
+from strife.routing import prefixes as P
+from strife.routing.custom_id import CustomIdEncoder, CustomIdError, PayloadExpired
+from strife.session.errors import SessionError
 
 log = get_logger("routing.router")
 
@@ -328,7 +327,7 @@ class InteractionRouter:
 
                 await self._error(interaction, message_key)
                 return
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 log.warning("Failed to disable components on old message: %s", exc)
 
         await self._error(interaction, message_key)

@@ -3,3 +3,5 @@
 __version__ = "1.1.0"
 
 from strife.engine.platform import PLATFORM_VERSION as __platform_version__
+
+__all__ = ["__platform_version__", "__version__"]

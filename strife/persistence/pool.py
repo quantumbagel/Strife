@@ -20,8 +20,7 @@ async def create_pool(
     min_size: int = 2,
     max_size: int = 20,
 ) -> asyncpg.Pool:
-    if max_size < min_size:
-        max_size = min_size
+    max_size = max(max_size, min_size)
     return await asyncpg.create_pool(
         dsn=database_url,
         min_size=min_size,

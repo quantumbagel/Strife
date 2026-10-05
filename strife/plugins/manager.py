@@ -9,7 +9,6 @@ import tempfile
 from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
-
 from typing import TYPE_CHECKING
 
 from strife.engine.platform import platform_satisfies
@@ -411,7 +410,7 @@ class PluginManager:
             self.state.mark_removed(key)
         try:
             self.save()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             errors.append(f"could not write {self.state_path}: {exc}")
         if undo.added_game_row and self.games_yaml_path is not None:
             try:

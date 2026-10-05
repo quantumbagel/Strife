@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from discord import app_commands
-
 from pathlib import Path
+
+from discord import app_commands
 
 from strife.commands.autocomplete import (
     bot_add_difficulty_choices,
@@ -60,15 +60,15 @@ def _text() -> TextConfig:
 
 
 def _lobby(**kwargs) -> Lobby:
-    defaults = dict(
-        thread_id=1,
-        guild_id=2,
-        channel_id=3,
-        game_key="coup",
-        creator_id=10,
-        private=False,
-        members=[LobbyMember(10, "Host")],
-    )
+    defaults = {
+        "thread_id": 1,
+        "guild_id": 2,
+        "channel_id": 3,
+        "game_key": "coup",
+        "creator_id": 10,
+        "private": False,
+        "members": [LobbyMember(10, "Host")],
+    }
     defaults.update(kwargs)
     return Lobby(**defaults)
 

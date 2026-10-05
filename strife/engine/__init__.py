@@ -44,7 +44,6 @@ from strife.engine.metadata import (
 )
 from strife.engine.outcomes import forfeit_outcome
 from strife.engine.platform import PLATFORM_VERSION, parse_version, platform_satisfies
-from strife.engine.requests import BotRequest, FormSpec, SeatPrompt, TimeoutConsequence
 from strife.engine.players import (
     GameOutcome,
     Interrupt,
@@ -59,10 +58,12 @@ from strife.engine.replay import (
     run_replay,
     system_replay_info,
 )
+from strife.engine.requests import BotRequest, FormSpec, SeatPrompt, TimeoutConsequence
 from strife.engine.turn_based import TurnBasedGame
 from strife.engine.workers import run_cpu
 
 __all__ = [
+    "PLATFORM_VERSION",
     "BotRequest",
     "BotSpec",
     "FormSpec",
@@ -74,7 +75,6 @@ __all__ = [
     "Move",
     "MoveParam",
     "OptionType",
-    "PLATFORM_VERSION",
     "ParamType",
     "Player",
     "PlayerCount",

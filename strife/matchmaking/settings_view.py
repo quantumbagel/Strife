@@ -8,11 +8,6 @@ from strife.engine.metadata import (
     OptionType,
     SettingOption,
 )
-from strife.presentation.settings import (
-    choice_emoji_for,
-    int_setting_bounds,
-    int_setting_fits_select,
-)
 from strife.matchmaking.lobby import Lobby
 from strife.presentation.components import (
     ActionRow,
@@ -31,8 +26,12 @@ from strife.presentation.components import (
 )
 from strife.presentation.emoji import EmojiResolver, get_game_emoji
 from strife.presentation.roster import member_line
+from strife.presentation.settings import (
+    choice_emoji_for,
+    int_setting_bounds,
+    int_setting_fits_select,
+)
 from strife.routing import prefixes as P
-
 
 SETTINGS_TABS = ("general", "access", "rules")
 

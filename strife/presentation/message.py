@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING
 
 import discord
 
-from strife.presentation.components import LayoutView, ViewFile
 from strife.presentation.compiler import Compiler
+from strife.presentation.components import LayoutView, ViewFile
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable

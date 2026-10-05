@@ -120,9 +120,9 @@ class GameRegistry:
                 metadata.version,
                 metadata.platform_version,
             )
-        except Exception as e:
+        except Exception:
             log.exception(
-                "Unexpected error registering game class %s: %s", game_cls.__name__, e
+                "Unexpected error registering game class %s", game_cls.__name__
             )
 
     def unregister(self, key: str) -> bool:

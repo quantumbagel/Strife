@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
+from typing import ClassVar
 
 from strife.engine import (
     BotRequest,
     Game,
-    Interrupt,
     GameContext,
     GameOutcome,
     Move,
@@ -35,7 +35,7 @@ from strife.presentation.style import history_block
 
 
 class Mafia(Game):
-    _ROLE_EMOJI = {
+    _ROLE_EMOJI: ClassVar[dict[str, str]] = {
         "mafia": "werewolf",
         "villager": "villager",
         "doctor": "doctor",
@@ -394,7 +394,7 @@ class Mafia(Game):
             day_view, actors=set(self.alive), sources={"vote"}, until="all"
         )
         tally: Counter[int] = Counter()
-        for seat, move in votes.items():
+        for move in votes.values():
             if move.interrupt is not None:
                 continue
             target = self._normalize_target(move)

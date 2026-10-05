@@ -82,7 +82,7 @@ class GamesConfig(BaseModel):
     _merged: dict[str, MergedGameConfig] = PrivateAttr(default_factory=dict)
     _path: Path | None = PrivateAttr(default=None)
 
-    def model_post_init(self, __context: object) -> None:
+    def model_post_init(self, context: object, /) -> None:
         self._merged = {
             key: self._merge_config(key, game) for key, game in self.games.items()
         }

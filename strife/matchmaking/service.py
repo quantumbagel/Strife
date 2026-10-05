@@ -5,10 +5,8 @@ import asyncio
 import discord
 
 from strife.config import AppConfig
-from strife.session.errors import SessionError
 from strife.engine.metadata import GameMetadata, OptionType
 from strife.engine.registry import GameRegistry
-from strife.presentation.settings import int_setting_bounds
 from strife.logging import get_logger
 from strife.matchmaking.finalizer import SessionFinalizer
 from strife.matchmaking.lobby import Lobby
@@ -20,8 +18,10 @@ from strife.matchmaking.lobby_view import build_lobby_view
 from strife.matchmaking.registries import SessionRegistries
 from strife.presentation.compiler import Compiler
 from strife.presentation.emoji import EmojiResolver
+from strife.presentation.settings import int_setting_bounds
 from strife.presentation.user_error import ErrorContext, UserErrorPresenter
 from strife.presentation.user_success import UserSuccessPresenter
+from strife.session.errors import SessionError
 
 log = get_logger("matchmaking.service")
 
@@ -240,7 +240,7 @@ class LobbyService(
 
                 await self._error(interaction, message_key)
                 return
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 log.warning(
                     "Failed to disable components on closed lobby message: %s", exc
                 )

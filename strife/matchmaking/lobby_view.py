@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from strife.config.text import TextConfig
 from strife.engine.metadata import GameMetadata
-from strife.presentation.settings import format_settings_rules
 from strife.matchmaking.lobby import Lobby
 from strife.presentation.components import (
     ActionRow,
@@ -19,6 +18,7 @@ from strife.presentation.components import (
 )
 from strife.presentation.emoji import EmojiResolver
 from strife.presentation.roster import member_line
+from strife.presentation.settings import format_settings_rules
 from strife.routing import prefixes as P
 
 

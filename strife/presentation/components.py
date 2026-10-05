@@ -347,15 +347,15 @@ def form_fields(view: LayoutView) -> dict[str, FormField]:
 
 def default_form_values(fields: Mapping[str, Any]) -> dict[str, Any]:
     values: dict[str, Any] = {}
-    for name, field in fields.items():
-        if field.default is None:
+    for name, form_field in fields.items():
+        if form_field.default is None:
             continue
-        min_values = getattr(field, "min_values", 1)
-        if field.multi:
+        min_values = getattr(form_field, "min_values", 1)
+        if form_field.multi:
             value = (
-                list(field.default)
-                if isinstance(field.default, tuple)
-                else [field.default]
+                list(form_field.default)
+                if isinstance(form_field.default, tuple)
+                else [form_field.default]
             )
             if len(value) < min_values:
                 continue
@@ -363,7 +363,7 @@ def default_form_values(fields: Mapping[str, Any]) -> dict[str, Any]:
         else:
             if min_values > 1:
                 continue
-            values[name] = field.default
+            values[name] = form_field.default
     return values
 
 

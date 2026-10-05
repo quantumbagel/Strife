@@ -4,9 +4,6 @@ import asyncio
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-from typing import TypeVar
-
-T = TypeVar("T")
 
 _executor: ThreadPoolExecutor | None = None
 
@@ -28,7 +25,7 @@ def get_executor() -> ThreadPoolExecutor:
     return _executor
 
 
-async def run_cpu(fn: Callable[..., T], /, *args, **kwargs) -> T:
+async def run_cpu[T](fn: Callable[..., T], /, *args, **kwargs) -> T:
     """Run *fn* on the shared :class:`ThreadPoolExecutor` (bots, board renders).
 
     Pure Python still holds the GIL on those threads, so this mainly avoids

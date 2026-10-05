@@ -33,16 +33,16 @@ def _text() -> TextConfig:
 
 
 def _lobby(**kwargs) -> Lobby:
-    defaults = dict(
-        thread_id=1,
-        guild_id=2,
-        channel_id=3,
-        game_key="coup",
-        creator_id=10,
-        private=True,
-        members=[LobbyMember(10, "Host"), LobbyMember(11, "Guest")],
-        pending_requests={12: "Waiter"},
-    )
+    defaults = {
+        "thread_id": 1,
+        "guild_id": 2,
+        "channel_id": 3,
+        "game_key": "coup",
+        "creator_id": 10,
+        "private": True,
+        "members": [LobbyMember(10, "Host"), LobbyMember(11, "Guest")],
+        "pending_requests": {12: "Waiter"},
+    }
     defaults.update(kwargs)
     return Lobby(**defaults)
 

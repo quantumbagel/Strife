@@ -41,9 +41,7 @@ class PlayerCount:
             return n in self.allowed
         if self.minimum is not None and n < self.minimum:
             return False
-        if self.maximum is not None and n > self.maximum:
-            return False
-        return True
+        return not (self.maximum is not None and n > self.maximum)
 
     def describe(self) -> str:
         if self.fixed is not None:

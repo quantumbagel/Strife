@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 import discord
 from discord import ui
 
@@ -199,7 +201,7 @@ class Compiler:
             disabled=select.disabled,
         )
 
-    _CHANNEL_TYPE_MAP = {
+    _CHANNEL_TYPE_MAP: ClassVar[dict[str, discord.ChannelType]] = {
         "text": discord.ChannelType.text,
         "voice": discord.ChannelType.voice,
         "category": discord.ChannelType.category,

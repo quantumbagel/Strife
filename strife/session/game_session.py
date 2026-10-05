@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import random
-from datetime import datetime, timezone
-from typing import Protocol
 import time
+from datetime import UTC, datetime
+from typing import Protocol
 
 from strife.config.text import TextConfig
 from strife.engine.game import Game
-from strife.engine.requests import TimeoutConsequence
 from strife.engine.match_log import MatchLog
 from strife.engine.players import GameOutcome, Move, Player
+from strife.engine.requests import TimeoutConsequence
 from strife.persistence.repositories import FinishedMatch, LiveMatchStart, MoveConflict
 from strife.presentation.message import ViewSurface
 from strife.session.context import LiveContext
@@ -103,7 +103,7 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
         self.last_move_at = now
         self.last_progress_at = now
         self.task: asyncio.Task | None = None
-        self._started_at = datetime.now(timezone.utc)
+        self._started_at = datetime.now(UTC)
         self._match_id: int | None = None
         self._match_code: str | None = None
         self._bot = None
@@ -193,7 +193,7 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
         await self._notify_thread(self.text.get("match.interrupted"))
         try:
             await self._finalizer.session_complete(self)
-        except Exception:
+        except Exception:  # noqa: BLE001
             log.exception(
                 "Failed to release occupancy after writer failure (thread %s)",
                 self.thread_id,
@@ -206,7 +206,7 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
             return
         try:
             await writer.stop(timeout=10.0)
-        except Exception:
+        except Exception:  # noqa: BLE001
             log.exception("Failed to flush move writer for thread %s", self.thread_id)
 
     async def start(self, *, resume: bool = False) -> None:
@@ -249,7 +249,7 @@ class GameSession(SessionInputMixin, SessionIOMixin, SessionLifecycleMixin):
                         status="abandoned",
                     )
                 return
-            except Exception:
+            except Exception:  # noqa: BLE001
                 catching_up = self._resuming and self.ctx._catching_up
                 if catching_up:
                     log.exception(

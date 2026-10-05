@@ -19,8 +19,7 @@ from strife.commands.server_settings import ServerSettingsService
 from strife.commands.strife_group import register_strife_group
 from strife.config import load_app_config
 from strife.engine.registry import GameRegistry
-from strife.plugins.manager import PluginManager
-from strife.engine.workers import start_workers, shutdown_workers
+from strife.engine.workers import shutdown_workers, start_workers
 from strife.lifecycle.service import LifecycleService
 from strife.logging import configure_logging, get_logger
 from strife.matchmaking.registries import SessionRegistries
@@ -33,6 +32,7 @@ from strife.persistence.repositories import (
     MoveRepository,
     UserRepository,
 )
+from strife.plugins.manager import PluginManager
 from strife.presentation.compiler import Compiler
 from strife.presentation.emoji import EmojiResolver
 from strife.presentation.mentions import install_discord_mentions

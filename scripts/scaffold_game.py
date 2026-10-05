@@ -210,10 +210,10 @@ def main() -> int:
         PLUGIN_TOML.format(key=key, platform_version=PLATFORM_VERSION),
         encoding="utf-8",
     )
-    from datetime import date
+    from datetime import datetime
 
     (game_dir / "changelog.toml").write_text(
-        CHANGELOG_TOML.format(date=date.today().isoformat()),
+        CHANGELOG_TOML.format(date=datetime.now().astimezone().date().isoformat()),
         encoding="utf-8",
     )
     _ensure_games_yaml(key)

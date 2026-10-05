@@ -16,8 +16,8 @@ from discord import app_commands
 
 from strife.config.text import TextConfig
 from strife.engine.metadata import GameMetadata, OptionType
-from strife.presentation.settings import int_setting_bounds
 from strife.matchmaking.lobby import Lobby
+from strife.presentation.settings import int_setting_bounds
 
 CHOICE_NAME_MAX = 100
 CHOICE_VALUE_MAX = 100
@@ -51,8 +51,7 @@ def parse_user_id(raw: str) -> int | None:
     text = raw.strip()
     if text.startswith("<@") and text.endswith(">"):
         text = text[2:-1]
-        if text.startswith("!"):
-            text = text[1:]
+        text = text.removeprefix("!")
     if text.isdigit():
         return int(text)
     return None

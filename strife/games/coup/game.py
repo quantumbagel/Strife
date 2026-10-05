@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any, ClassVar
 
 from strife.engine import BotRequest, Interrupt, TimeoutConsequence
 from strife.engine.context import GameContext
 from strife.engine.game import Game
-from strife.engine.workers import run_cpu
 from strife.engine.players import GameOutcome, Move, Player, Result
+from strife.engine.workers import run_cpu
 from strife.games.coup.bot import choose_move
 from strife.presentation.components import (
     ActionRow,
@@ -30,7 +31,7 @@ from strife.presentation.style import (
 
 
 class Coup(Game):
-    ROLES = ["duke", "assassin", "captain", "ambassador", "contessa"]
+    ROLES: ClassVar[list[str]] = ["duke", "assassin", "captain", "ambassador", "contessa"]
 
     def __init__(self, players: list[Player], settings: Mapping[str, Any], rng):
         super().__init__(players, settings, rng)
@@ -496,14 +497,13 @@ class Coup(Game):
                     if action_type is None:
                         self._notice = "Select an action."
                         continue
-                    if action_type in ("coup", "assassinate", "steal"):
-                        if (
-                            target is None
-                            or target not in self.alive
-                            or target == actor
-                        ):
-                            self._notice = "Choose a target."
-                            continue
+                    if action_type in ("coup", "assassinate", "steal") and (
+                        target is None
+                        or target not in self.alive
+                        or target == actor
+                    ):
+                        self._notice = "Choose a target."
+                        continue
                     if action_type == "coup" and self.coins[actor] < 7:
                         self._notice = "Coup costs 7 coins."
                         continue

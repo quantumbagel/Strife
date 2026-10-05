@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from strife.engine.metadata import (
     BotSpec,
     GameMetadata,
